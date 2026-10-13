@@ -1,0 +1,107 @@
+# Spec: regras, decisões e lacunas
+
+> Movido de AGENTS.md em 2026-10-12 (enxugamento para reduzir contexto repetido por turno). Conteúdo verbatim.
+
+## Regras inegociáveis (da spec)
+
+Produto:
+- Somente pessoa física. NÃO criar: painel de comerciantes, cadastro de empresas, gestão de clientes, catálogo, estoque, vendas, PDV, CRM, dashboard empresarial.
+- KaveliPay NÃO se apresenta como banco, instituição de pagamento, custodiante, emissor de moeda eletrônica, provedor de PIX próprio ou processador próprio. Não implementar mecanismos para contornar regulamentação financeira.
+
+Ledger:
+- Saldo é SEMPRE derivado do ledger: Wallet → Ledger Account → Ledger Transaction → Ledger Entries.
+- Nunca alterar saldo diretamente no banco; toda movimentação gera transação no ledger.
+- Toda transação deve ser equilibrada: `total_debits = total_credits` — senão a transação falha.
+- Backend recalcula e valida; nunca confiar em valor enviado pelo app Android.
+
+Dinheiro:
+- NUNCA `float`/`double`/`f32`/`f64` para valores. PostgreSQL: `NUMERIC(19,4)`. Rust (se escolhido): representação decimal apropriada.
+- Moeda única no MVP: `BRL` — mas modele `currency` como campo para suportar moedas futuras.
+
+Boletos/pagamentos:
+- MVP NÃO paga boletos reais. Nunca fingir pagamento, gerar confirmação falsa ou marcar `PAID` sem fonte confiável.
+- Status de conta: `PENDING`, `PAID`, `OVERDUE`, `CANCELED`.
+- OCR pode errar: dados extraídos de imagem/PDF sempre passam por revisão do usuário antes de salvar.
+- Abstração `PaymentProvider`, implementação inicial `DemoPaymentProvider`; providers reais (`PixProvider`, `BoletoProvider`) só com fornecedor legítimo e regulado, sem alterar a regra de negócio.
+
+Carteira:
+- Uma carteira por usuário; um usuário nunca acessa a carteira de outro.
+- Status: `ACTIVE`, `BLOCKED`, `CLOSED`.
+
+## Fronteira: não somos provedor de PIX
+
+Esta é a regra que mais fácil de violar sem querer, e ela está em código:
+- `payment::DemoPaymentProvider` gera `kavelipay://cobranca/<id>?valor=...`
+  — um **deep link do app**, não BR Code/EMV. `PaymentPayload::is_br_code()`
+  é testado: o payload do demo nunca começa com `0002` nem menciona
+  `BR.GOV.BCB.PIX`.
+- `POST /charges/{id}/receive` **não confirma pagamento**. É o usuário
+  declarando que recebeu, como `bills/{id}/pay`. Sem webhook, sem polling.
+- `PaymentProvider::moves_real_money()` é `false` para o demo. Um provider
+  real só entra com fornecedor legítimo e regulado, e muda só `payload` e
+  `format` — a regra de negócio já mora no ledger.
+- QR de cobrança já RECEIVED é 409: um QR vivo levaria alguém a pagar de novo.
+
+## Decisões (fora da spec — vêm do usuário, não do `ideia.tt`)
+
+- **Frontend: Android nativo em Kotlin + Jetpack Compose.**
+- **Backend: Rust + axum + sqlx** (PostgreSQL). JWT próprio com access + refresh, senhas em argon2id.
+- Ordem de construção: schema de migrations → ledger com testes de equilíbrio → auth → endpoint de saldo.
+
+## Stack
+
+- Frontend: Kotlin + Jetpack Compose. Dinheiro também é decimal exato no cliente — nada de `Double`/`Float` em valor monetário nem em saldo exibido; forme a partir de string/decimal, nunca convertendo de `Double`.
+- Backend: PostgreSQL. A spec menciona Rust **apenas** para representação decimal — a spec não decide a linguagem; Rust + axum + sqlx foi escolha do usuário (ver "Decisões").
+- Escopo do MVP (21 objetivos, seção 3 da spec): conta → login → carteira → saldo → entradas/despesas → extrato → contas/boletos → cobranças com QR Code → divisão de despesa → histórico → notificações → perfil/segurança.
+
+## Lacunas conhecidas
+
+- Não há upload de comprovante: `comprovante_url` é uma referência externa.
+- Não há OCR, leitura de código de barras nem lembretes de vencimento (a spec
+  deixa OCR como "posteriormente").
+- `linha_digitavel` é texto livre: o backend não interpreta nem valida o
+  conteúdo — ver a lacuna 12B × seção 9 da spec.
+- Fuso de `due_date` usa `chrono::Local`; a spec não define.
+- Saldo negativo é permitido (a spec não define bloqueio de saque).
+- `participant_user_id` existe na tabela mas nenhuma rota o preenche: a divisão
+  é com quem o usuário quiser, não obrigatoriamente usuário do KaveliPay.
+- Notificações não têm cron nem push: o app precisa chamar
+  `/notifications/generate`. Uma notificação é dado persistido, então sobrevive
+  ao pagamento do boleto — o aviso antigo continua na lista (com `read_at`).
+- Não há upload de arquivo, recuperação de senha, 2FA ou verificação de e-mail.
+- `ledger_accounts.kind` não tem CHECK no banco: kinds novos entram livremente.
+- `AccountKind::TransferIn/TransferOut` existem mas não há endpoint de
+  transferência entre carteiras.
+- **Item 8 da lista de sugestões (PIN/biometria) NÃO foi implementado: é
+  cliente** (app Android). Não depende do backend.
+- **O QR de cobrança não é renderizado no app.** A tela mostra o payload como
+  texto copiável e um placeholder. `payload` é um deep link
+  `kavelipay://cobranca/<id>?valor=...`, **não** BR Code/EMV — gerar um QR Code
+  aqui sem deixar isso explícito seria fingir um PIX que o KaveliPay não
+  processa. Precisa de ZXing (dependência nova, exige download).
+- **Não há tela de criar cobrança, divisão, categoria ou lançamento novo** —
+  `KpNovaChargeScreen`, `KpNovaSplitScreen` e `KpNovaCategoriaScreen` são
+  placeholders "Em construção", e não estão no grafo de navegação. Só existem
+  leitura e as ações de quitar/receber/pagar.
+- **Editar nome no Perfil é botão sem ação** (`onClick = { }`), apesar de
+  `PATCH /profile` existir no client e no ViewModel.
+- **"Copiar link" do QR não copia** — falta `ClipboardManager`.
+- `ApiClient` não renova token: access expirado dá 401 e o usuário reautentica.
+  `POST /auth/refresh` existe no backend e não é chamado.
+- `categories.display_order` só muda via `PUT /categories/reorder`; o `NULL`
+  dos padrões cai no fim da ordenação, não no começo.
+- Nenhum `.git` — repositório ainda não inicializado.
+
+## Lacunas abertas da spec
+
+Não preencha estas por conta própria — são decisões do usuário.
+- ~~Linguagem do backend~~ **resolvida: Rust + axum + sqlx.**
+- **Conflito 12B × seção 9:** a spec manda o app interpretar o código de barras e enviar os dados ao backend, mas a seção 9 exige que o backend sempre recalcule/valida. Definir qual prevalece.
+- **OCR está fora do MVP** — a spec escreve "o sistema poderá posteriormente utilizar OCR". Não implementar agora.
+- Fuso horário de `due_date` e critério de virada do dia não especificados.
+
+## Pitfalls
+
+- `ideia.tt` termina no meio de uma frase (linha 434, "...fornecedor legítimo e ade") — a spec está incompleta; não presuma o conteúdo que viria depois.
+- Idioma do repositório: pt-BR (spec, nomes de produto e comunicação).
+- A spec não define convenções de nomeação, estrutura de pastas nem estratégia de migração. Proponha e registre aqui — não trate silêncio como padrão existente.

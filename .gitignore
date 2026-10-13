@@ -1,0 +1,14 @@
+# Build artifacts (qualquer profundidade)
+build/
+.gradle/
+.kotlin/
+target/
+
+# Runtime / ambiente local
+local.properties
+*.log
+nohup.out
+
+# Infra de agente e de ferramenta
+.superpowers/
+.gitnexus/
