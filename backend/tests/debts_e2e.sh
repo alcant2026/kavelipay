@@ -158,11 +158,12 @@ C_DESC=$(code -X POST "$BASE/debts" -H "$AUTH" -H 'content-type: application/jso
 check "descrição vazia é 422 (recebido $C_DESC)" \
     "$([ "$C_DESC" = "422" ] && echo true || echo false)"
 
-# JSON number: dinheiro na API é sempre string; o tipo Money recusa número.
-C_NUM=$(code -X POST "$BASE/debts" -H "$AUTH" -H 'content-type: application/json' \
-    -d '{"creditor_name":"João","amount":50,"description":"Jantar"}')
-check "amount como JSON number é 422 (recebido $C_NUM)" \
-    "$([ "$C_NUM" = "422" ] && echo true || echo false)"
+# Float JSON: dinheiro na API é sempre string e o tipo Money recusa float
+# (f64 perde precisão). Inteiro é aceito por ser exato — ver money::tests.
+C_FLOAT=$(code -X POST "$BASE/debts" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"creditor_name":"João","amount":50.50,"description":"Jantar"}')
+check "amount como float é 422 (recebido $C_FLOAT)" \
+    "$([ "$C_FLOAT" = "422" ] && echo true || echo false)"
 
 LISTA_DEPOIS=$(curl -s "$BASE/debts" -H "$AUTH")
 N_DEPOIS=$(qtd <<<"$LISTA_DEPOIS")

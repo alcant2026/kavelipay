@@ -135,7 +135,7 @@ async fn buscar(state: &AppState, id: Uuid, wallet: Uuid) -> AppResult<DebtRespo
     .bind(wallet)
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::NotFound("divida"))?;
+    .ok_or(AppError::NotFound("dívida"))?;
 
     Ok(convert(row))
 }
