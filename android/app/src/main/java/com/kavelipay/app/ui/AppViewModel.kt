@@ -16,6 +16,7 @@ import com.kavelipay.app.data.ItemSplit
 import com.kavelipay.app.data.KaveliPayApi
 import com.kavelipay.app.data.ListaContas
 import com.kavelipay.app.data.ListaCharges
+import com.kavelipay.app.data.ListaDividas
 import com.kavelipay.app.data.ListaSessoes
 import com.kavelipay.app.data.ListaSplits
 import com.kavelipay.app.data.MovimentoInvestimento
@@ -56,6 +57,7 @@ data class EstadoApp(
     // Novas features
     val splits: ListaSplits? = null,
     val splitDetalhe: ItemSplit? = null,
+    val dividas: ListaDividas? = null,
     val charges: ListaCharges? = null,
     val chargeQr: ItemCharge? = null,
     val historico: Historico? = null,
@@ -257,6 +259,96 @@ class AppViewModel(private val sessao: SessionStore) : ViewModel() {
                     _estado.update { it.copy(enviando = false) }
                     carregarTudo()
                     carregarSplitDetalhe(splitId)
+                }
+                .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+        }
+    }
+
+    // ── Dívidas (Eu devo) ───────────────────────────────────────────────────
+    // Espelham `carregarSplits`/`criarSplit`/`quitarParte`: runCatching na
+    // camada do ViewModel, `enviando` para o botão, erro pt-BR do backend
+    // (ApiClient já extrai a mensagem) virando `estado.erro` para a tela.
+
+    fun carregarDividas() {
+        viewModelScope.launch {
+            runCatching { api.dividas() }
+                .onSuccess { lista -> _estado.update { it.copy(dividas = lista) } }
+                .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
+        }
+    }
+
+    /**
+     * Cria dívida ("eu devo"). Não toca o ledger — pendente é só registro —
+     * mas `carregarTudo` mantém a Home coerente caso volte para lá.
+     */
+    fun criarDivida(credor: String, valor: String, descricao: String, aoPronto: () -> Unit) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.novaDivida(credor, valor, descricao) }
+                .onSuccess {
+                    _estado.update { it.copy(enviando = false) }
+                    carregarTudo()
+                    carregarDividas()
+                    aoPronto()
+                }
+                .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+        }
+    }
+
+    /** Edita dívida pendente (PATCH); pago/confirmado é 409 do backend. */
+    fun editarDivida(id: String, credor: String, valor: String, descricao: String, aoPronto: () -> Unit) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.editarDivida(id, credor, valor, descricao) }
+                .onSuccess {
+                    _estado.update { it.copy(enviando = false) }
+                    carregarDividas()
+                    aoPronto()
+                }
+                .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+        }
+    }
+
+    /** Declara o pagamento: debita o ledger no servidor, então recarrega o saldo. */
+    fun pagarDivida(id: String) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.pagarDivida(id) }
+                .onSuccess {
+                    _estado.update { it.copy(enviando = false) }
+                    carregarTudo()
+                    carregarDividas()
+                }
+                .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+        }
+    }
+
+    /** O credor confirmou o recebimento: muda só status, sem dinheiro. */
+    fun confirmarDivida(id: String) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.confirmarDivida(id) }
+                .onSuccess {
+                    _estado.update { it.copy(enviando = false) }
+                    carregarDividas()
+                }
+                .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+        }
+    }
+
+    /**
+     * Apaga dívida pendente. `api.apagarDivida` é o único método sem
+     * `runCatching` na camada de dados — o `runCatching` que importa é este,
+     * senão um 409 ("só dívidas pendentes podem ser apagadas") derrubaria a
+     * coroutine em vez de virar mensagem na tela.
+     */
+    fun apagarDivida(id: String) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.apagarDivida(id) }
+                .onSuccess {
+                    _estado.update { it.copy(enviando = false) }
+                    carregarDividas()
                 }
                 .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
         }

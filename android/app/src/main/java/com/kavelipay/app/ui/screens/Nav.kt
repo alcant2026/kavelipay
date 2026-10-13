@@ -38,6 +38,8 @@ private object Rota {
     const val SPLITS = "splits"
     const val SPLITS_DETALHE = "splits_detalhe"
     const val NOVA_SPLIT = "nova_split"
+    const val NOVA_DIVIDA = "nova_divida"
+    const val EDITAR_DIVIDA = "editar_divida"
     const val CHARGES = "charges"
     const val CHARGES_QR = "charges_qr"
     const val NOVA_CHARGE = "nova_charge"
@@ -114,11 +116,35 @@ fun KpRaiz(vm: AppViewModel) {
                 aoVoltar = { nav.popBackStack() },
                 aoNovaSplit = { nav.navigate(Rota.NOVA_SPLIT) },
                 aoAbrirDetalhe = { id -> nav.navigate("${Rota.SPLITS_DETALHE}/$id") },
+                aoNovaDivida = { nav.navigate(Rota.NOVA_DIVIDA) },
+                aoEditarDivida = { id -> nav.navigate("${Rota.EDITAR_DIVIDA}/$id") },
             )
         }
         composable(Rota.NOVA_SPLIT) {
             KpNovaSplitScreen(
                 vm = vm,
+                aoVoltar = { nav.popBackStack() },
+                aoSalvar = { nav.popBackStack() },
+            )
+        }
+        // Mesma tela nos dois casos (create/edit): `dividaId == null` cria;
+        // com argumento, preenche de `estado.dividas` e salva via PATCH.
+        composable(Rota.NOVA_DIVIDA) {
+            KpNovaDividaScreen(
+                vm = vm,
+                dividaId = null,
+                aoVoltar = { nav.popBackStack() },
+                aoSalvar = { nav.popBackStack() },
+            )
+        }
+        composable(
+            route = "${Rota.EDITAR_DIVIDA}/{dividaId}",
+            arguments = listOf(navArgument("dividaId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val dividaId = backStackEntry.arguments?.getString("dividaId").orEmpty()
+            KpNovaDividaScreen(
+                vm = vm,
+                dividaId = dividaId,
                 aoVoltar = { nav.popBackStack() },
                 aoSalvar = { nav.popBackStack() },
             )
