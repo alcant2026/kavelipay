@@ -54,7 +54,18 @@ object DividaRegras {
     fun podeSalvar(credor: String, valor: String, descricao: String): Boolean {
         if (credor.trim().isEmpty()) return false
         if (descricao.trim().isEmpty()) return false
-        val numero = valor.trim().replace(',', '.').toBigDecimalOrNull() ?: return false
+        val numero = valorNormalizado(valor).toBigDecimalOrNull() ?: return false
         return numero > BigDecimal.ZERO
     }
+
+    /**
+     * O valor digitado no formato que o backend aceita: aparado e com vírgula
+     * virando ponto (`"50,50"` → `"50.50"`), para `podeSalvar` aprovar o que o
+     * `Money` do rust_decimal não recusa com 422 no payload.
+     *
+     * O campo de valor NÃO aceita separador de milhar: `"1.234,56"` é
+     * inválido de propósito (viraria `"1.234.56"`) — o mesmo formato sem
+     * máscara que o resto do app manda.
+     */
+    fun valorNormalizado(valor: String): String = valor.trim().replace(',', '.')
 }

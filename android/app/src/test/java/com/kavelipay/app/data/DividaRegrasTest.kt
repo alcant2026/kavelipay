@@ -73,4 +73,29 @@ class DividaRegrasTest {
         assertFalse(DividaRegras.podeSalvar("   ", "50.50", "Jantar"))
         assertFalse(DividaRegras.podeSalvar("João", "50.50", "   "))
     }
+
+    // ── valorNormalizado: do digitado ao formato que o backend aceita ─────────
+
+    @Test
+    fun `valor com vírgula vira ponto`() {
+        // `podeSalvar` aceita "50,50" (como o Brasil digita), mas o Money do
+        // backend é rust_decimal e recusa vírgula com 422 — o payload leva o
+        // valor já normalizado.
+        assertEquals("50.50", DividaRegras.valorNormalizado("50,50"))
+    }
+
+    @Test
+    fun `valor com ponto fica como está`() {
+        assertEquals("50.50", DividaRegras.valorNormalizado("50.50"))
+    }
+
+    @Test
+    fun `valor com espaços das bordas é aparado`() {
+        assertEquals("100", DividaRegras.valorNormalizado(" 100 "))
+    }
+
+    @Test
+    fun `vírgula inicial vira ponto inicial`() {
+        assertEquals(".5", DividaRegras.valorNormalizado(",5"))
+    }
 }
