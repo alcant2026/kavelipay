@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Testes das dívidas ("eu devo"): criação/listagem sem tocar no saldo,
 # validações 422 em pt-BR, isolamento entre carteiras, pagamento que debita
-# o ledger exatamente uma vez, e confirmação que é só status (nunca dinheiro).
+# o ledger exatamente uma vez, confirmação que é só status (nunca dinheiro),
+# e edição/apagamento restritos a PENDING (sem estorno).
 #
 # Uso:  tests/debts_e2e.sh
 # Env:   PGHOST PGPORT PGUSER PGPASSWORD
@@ -328,6 +329,159 @@ check "bob confirma dívida de alice é 404 (recebido $C_C_BOB)" \
 C_C_SUMIDA=$(code -X POST "$BASE/debts/00000000-0000-0000-0000-000000000000/confirm" -H "$AUTH")
 check "confirm de id inexistente é 404 (recebido $C_C_SUMIDA)" \
     "$([ "$C_C_SUMIDA" = "404" ] && echo true || echo false)"
+
+echo
+echo "editar e apagar só em PENDING, sem estorno"
+
+# Dívida pendente nova de 20 para editar. Um POST só: corpo e status juntos.
+RESPOSTA_20=$(curl -s -w '\n%{http_code}' -X POST "$BASE/debts" -H "$AUTH" \
+    -H 'content-type: application/json' \
+    -d '{"creditor_name":"Rita","amount":"20.00","description":"Presente"}')
+C_20="${RESPOSTA_20##*$'\n'}"
+NOVA_20="${RESPOSTA_20%$'\n'*}"
+
+check "criar dívida de 20 devolve 201 (recebido $C_20)" \
+    "$([ "$C_20" = "201" ] && echo true || echo false)"
+
+ID_20=$(campo id <<<"$NOVA_20")
+
+# PATCH parcial: manda SÓ o valor. Os campos ausentes têm de ficar intactos.
+RESPOSTA_PATCH=$(curl -s -w '\n%{http_code}' -X PATCH "$BASE/debts/$ID_20" -H "$AUTH" \
+    -H 'content-type: application/json' -d '{"amount":"25.00"}')
+C_PATCH="${RESPOSTA_PATCH##*$'\n'}"
+EDITADA="${RESPOSTA_PATCH%$'\n'*}"
+
+check "PATCH amount devolve 200 (recebido $C_PATCH)" \
+    "$([ "$C_PATCH" = "200" ] && echo true || echo false)"
+
+VALOR_EDITADO=$(campo amount <<<"$EDITADA")
+check "valor vira 25.00 (recebido ${VALOR_EDITADO:-vazio})" \
+    "$([ "$VALOR_EDITADO" = "25.00" ] && echo true || echo false)"
+
+CREDOR_INTACTO=$(campo creditor_name <<<"$EDITADA")
+MOTIVO_INTACTO=$(campo description <<<"$EDITADA")
+check "PATCH parcial preserva credor e descrição (recebido ${CREDOR_INTACTO:-vazio}/${MOTIVO_INTACTO:-vazio})" \
+    "$([ "$CREDOR_INTACTO" = "Rita" ] && [ "$MOTIVO_INTACTO" = "Presente" ] && echo true || echo false)"
+
+SALDO_EDICAO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "edição não mexe no ledger: saldo segue 920.00 (recebido $SALDO_EDICAO)" \
+    "$([ "$SALDO_EDICAO" = "920.00" ] && echo true || echo false)"
+
+# Validações do PATCH iguais às do POST: 422 em pt-BR, nada é gravado.
+C_P_ZERO=$(code -X PATCH "$BASE/debts/$ID_20" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"amount":"0.00"}')
+check "PATCH amount 0.00 é 422 (recebido $C_P_ZERO)" \
+    "$([ "$C_P_ZERO" = "422" ] && echo true || echo false)"
+
+C_P_CREDOR=$(code -X PATCH "$BASE/debts/$ID_20" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"creditor_name":""}')
+check "PATCH credor vazio é 422 (recebido $C_P_CREDOR)" \
+    "$([ "$C_P_CREDOR" = "422" ] && echo true || echo false)"
+
+C_P_DESC=$(code -X PATCH "$BASE/debts/$ID_20" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"description":""}')
+check "PATCH descrição vazia é 422 (recebido $C_P_DESC)" \
+    "$([ "$C_P_DESC" = "422" ] && echo true || echo false)"
+
+# Os 422 não gravaram nada: a lista segue com a dívida de 25 (a mais recente).
+LISTA_POS_422=$(curl -s "$BASE/debts" -H "$AUTH")
+VALOR_POS_422=$(campo 0.amount <<<"$LISTA_POS_422")
+check "422 não gravou nada: valor segue 25.00 (recebido ${VALOR_POS_422:-vazio})" \
+    "$([ "$VALOR_POS_422" = "25.00" ] && echo true || echo false)"
+
+# Paga (Task 2) e confirmada (Task 3): estado final, trava os dois verbos.
+RESPOSTA_P_PAGA=$(curl -s -w '\n%{http_code}' -X PATCH "$BASE/debts/$ID_DIVIDA" -H "$AUTH" \
+    -H 'content-type: application/json' -d '{"amount":"99.99"}')
+C_P_PAGA="${RESPOSTA_P_PAGA##*$'\n'}"
+CORPO_P_PAGA="${RESPOSTA_P_PAGA%$'\n'*}"
+
+check "PATCH em dívida PAID é 409 (recebido $C_P_PAGA)" \
+    "$([ "$C_P_PAGA" = "409" ] && echo true || echo false)"
+
+MSG_P=$(campo message <<<"$CORPO_P_PAGA")
+check "mensagem do PATCH 409 é 'só dívidas pendentes podem ser alteradas' (recebido ${MSG_P:-vazio})" \
+    "$([ "$MSG_P" = "só dívidas pendentes podem ser alteradas" ] && echo true || echo false)"
+
+RESPOSTA_D_PAGA=$(curl -s -w '\n%{http_code}' -X DELETE "$BASE/debts/$ID_DIVIDA" -H "$AUTH")
+C_D_PAGA="${RESPOSTA_D_PAGA##*$'\n'}"
+CORPO_D_PAGA="${RESPOSTA_D_PAGA%$'\n'*}"
+
+check "DELETE em dívida PAID é 409 (recebido $C_D_PAGA)" \
+    "$([ "$C_D_PAGA" = "409" ] && echo true || echo false)"
+
+MSG_D=$(campo message <<<"$CORPO_D_PAGA")
+check "mensagem do DELETE 409 é 'só dívidas pendentes podem ser apagadas' (recebido ${MSG_D:-vazio})" \
+    "$([ "$MSG_D" = "só dívidas pendentes podem ser apagadas" ] && echo true || echo false)"
+
+# Confirmada também: estado final não se edita nem se apaga.
+C_P_CONF=$(code -X PATCH "$BASE/debts/$ID_30" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"amount":"1.00"}')
+check "PATCH em dívida CONFIRMED é 409 (recebido $C_P_CONF)" \
+    "$([ "$C_P_CONF" = "409" ] && echo true || echo false)"
+
+C_D_CONF=$(code -X DELETE "$BASE/debts/$ID_30" -H "$AUTH")
+check "DELETE em dívida CONFIRMED é 409 (recebido $C_D_CONF)" \
+    "$([ "$C_D_CONF" = "409" ] && echo true || echo false)"
+
+SALDO_TRAVA=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "recusas de editar/apagar não mexeram no saldo (920.00, recebido $SALDO_TRAVA)" \
+    "$([ "$SALDO_TRAVA" = "920.00" ] && echo true || echo false)"
+
+# Apagar a pendente: 200 com o corpo da linha apagada (o app Android lê JSON),
+# e ela some da listagem. Nada de estorno: pendente nunca tocou o ledger.
+RESPOSTA_DEL=$(curl -s -w '\n%{http_code}' -X DELETE "$BASE/debts/$ID_20" -H "$AUTH")
+C_DEL="${RESPOSTA_DEL##*$'\n'}"
+APAGADA="${RESPOSTA_DEL%$'\n'*}"
+
+check "DELETE da pendente devolve 200 (recebido $C_DEL)" \
+    "$([ "$C_DEL" = "200" ] && echo true || echo false)"
+
+VALOR_APAGADA=$(campo amount <<<"$APAGADA")
+check "corpo devolvido é a linha apagada, amount 25.00 (recebido ${VALOR_APAGADA:-vazio})" \
+    "$([ "$VALOR_APAGADA" = "25.00" ] && echo true || echo false)"
+
+LISTA_FINAL=$(curl -s "$BASE/debts" -H "$AUTH")
+N_FINAL=$(qtd <<<"$LISTA_FINAL")
+check "apagada some do GET /debts (2 esperado, recebido $N_FINAL)" \
+    "$([ "$N_FINAL" = "2" ] && echo true || echo false)"
+
+SALDO_SEM_ESTORNO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "apagar pendente não move saldo: segue 920.00 (recebido $SALDO_SEM_ESTORNO)" \
+    "$([ "$SALDO_SEM_ESTORNO" = "920.00" ] && echo true || echo false)"
+
+# Prova direta de que não há estorno: o extrato segue com as 3 transações
+# originais (1 ENTRY de 1000 + as 2 EXPENSE) — apagar PENDING é apagar um
+# registro, não reverter dinheiro.
+EXTRATO_DEL=$(curl -s "$BASE/wallet/transactions" -H "$AUTH")
+N_TRANS_DEL=$(printf '%s' "$EXTRATO_DEL" | python3 -c "
+import sys, json
+try:
+    itens = json.load(sys.stdin)['items']
+    print(len(itens))
+except Exception:
+    print('')")
+check "extrato segue com 3 transações — apagar não postou estorno (recebido ${N_TRANS_DEL:-vazio})" \
+    "$([ "$N_TRANS_DEL" = "3" ] && echo true || echo false)"
+
+# Id alheio não existe: bob recebe 404 nos dois verbos, nunca 403.
+C_P_ALHEIO=$(code -X PATCH "$BASE/debts/$ID_DIVIDA" -H "$AUTH_B" -H 'content-type: application/json' \
+    -d '{"amount":"1.00"}')
+check "bob edita dívida de alice é 404 (recebido $C_P_ALHEIO)" \
+    "$([ "$C_P_ALHEIO" = "404" ] && echo true || echo false)"
+
+C_D_ALHEIO=$(code -X DELETE "$BASE/debts/$ID_DIVIDA" -H "$AUTH_B")
+check "bob apaga dívida de alice é 404 (recebido $C_D_ALHEIO)" \
+    "$([ "$C_D_ALHEIO" = "404" ] && echo true || echo false)"
+
+# Id inexistente: mesma fronteira, mesmo 404.
+C_P_SUMIDA=$(code -X PATCH "$BASE/debts/00000000-0000-0000-0000-000000000000" -H "$AUTH" \
+    -H 'content-type: application/json' -d '{"amount":"1.00"}')
+check "PATCH de id inexistente é 404 (recebido $C_P_SUMIDA)" \
+    "$([ "$C_P_SUMIDA" = "404" ] && echo true || echo false)"
+
+C_D_SUMIDA=$(code -X DELETE "$BASE/debts/00000000-0000-0000-0000-000000000000" -H "$AUTH")
+check "DELETE de id inexistente é 404 (recebido $C_D_SUMIDA)" \
+    "$([ "$C_D_SUMIDA" = "404" ] && echo true || echo false)"
 
 echo
 echo "resultado: $pass passaram, $fail falharam"

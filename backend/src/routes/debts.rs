@@ -1,12 +1,15 @@
 //! Dívidas: o usuário registra a quem deve ("eu devo") — o lado inverso de
 //! `splits`, onde os outros devem a ele.
 //!
-//! Três estados (`PENDING → PAID → CONFIRMED`) e duas garantias:
+//! Três estados (`PENDING → PAID → CONFIRMED`) e três garantias:
 //!  1. Criar NÃO mexe no saldo: dívida pendente é só registro, como cobrança
 //!     (pedir não é receber; dever não é pagar). O dinheiro sai apenas com
 //!     o POST explícito do dono declarando o pagamento.
 //!  2. Ninguém vê dívida alheia: toda query filtra pela carteira ativa do
 //!     dono; id de outra carteira não existe (404, nunca 403).
+//!  3. Pago trava: editar e apagar só em PENDING. Depois disso é estado
+//!     final (409) — e apagar uma pendente não estorna nada, porque pendente
+//!     nunca tocou o ledger.
 //!
 //! O que NÃO existe aqui: convite/vínculo com o credor (single-user, o
 //! credor pode nem ter conta), vencimento, pagamento parcial, categoria.
@@ -28,6 +31,14 @@ pub struct NewDebt {
     pub creditor_name: String,
     pub amount: Money,
     pub description: String,
+}
+
+/// PATCH /debts/{id}: edição parcial — só o que vier no corpo muda.
+#[derive(Deserialize)]
+pub struct UpdateDebt {
+    pub creditor_name: Option<String>,
+    pub amount: Option<Money>,
+    pub description: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -56,16 +67,8 @@ pub async fn create_debt(
     // Validação no Rust ANTES de tocar o banco: o CHECK do banco recusaria o
     // mesmo, mas como 500 de check_violation, não como 422 com mensagem útil.
     let creditor = req.creditor_name.trim();
-    if creditor.is_empty() {
-        return Err(AppError::Validation("credor é obrigatório".into()));
-    }
     let description = req.description.trim();
-    if description.is_empty() {
-        return Err(AppError::Validation("descrição é obrigatória".into()));
-    }
-    if !req.amount.is_positive() {
-        return Err(AppError::Validation("valor deve ser maior que zero".into()));
-    }
+    validar_campos(Some(creditor), Some(description), Some(&req.amount))?;
 
     let wallet = wallet_ativa(&state, auth.user_id()).await?;
 
@@ -253,7 +256,177 @@ pub async fn confirm_debt(
     buscar(&state, id, wallet).await.map(Json)
 }
 
+/// PATCH /debts/{id}
+///
+/// Edição parcial: só os campos enviados mudam (COALESCE no UPDATE). Mesmas
+/// validações de 422 do POST — as mensagens não podem divergir entre criar e
+/// editar.
+///
+/// **Pago trava**: qualquer estado além de PENDING responde 409. Uma dívida
+/// já paga é histórico do ledger (a transação de `pay` referencia esta linha)
+/// e histórico não se reescreve. Nenhuma transação de ledger aqui: editar um
+/// registro não move dinheiro — o valor novo vale para o próximo `pay`.
+pub async fn update_debt(
+    State(state): State<AppState>,
+    auth: crate::auth::AuthUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateDebt>,
+) -> AppResult<Json<DebtResponse>> {
+    // Só os campos presentes são validados: PATCH parcial não pode recusar
+    // por campo que não veio. Trim antes da checagem — " " é vazio.
+    let creditor = req.creditor_name.as_deref().map(str::trim);
+    let description = req.description.as_deref().map(str::trim);
+    validar_campos(creditor, description, req.amount.as_ref())?;
+
+    let wallet = wallet_ativa(&state, auth.user_id()).await?;
+
+    let mut tx = state.db.begin().await?;
+
+    // Filtra por id E wallet_id: dívida de outra carteira não existe (404).
+    // FOR UPDATE serializa edição vs. pagamento — o segundo espera o COMMIT
+    // do primeiro e enxerga o estado final.
+    let status = sqlx::query_scalar::<_, String>(
+        "SELECT status
+           FROM debts
+          WHERE id = $1 AND wallet_id = $2
+          FOR UPDATE",
+    )
+    .bind(id)
+    .bind(wallet)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("dívida"))?;
+
+    if status != "PENDING" {
+        return Err(AppError::Conflict(
+            "só dívidas pendentes podem ser alteradas".into(),
+        ));
+    }
+
+    let rows = sqlx::query(
+        "UPDATE debts
+            SET creditor_name = COALESCE($3, creditor_name),
+                description    = COALESCE($4, description),
+                amount         = COALESCE($5, amount)
+          WHERE id = $1 AND wallet_id = $2 AND status = 'PENDING'",
+    )
+    .bind(id)
+    .bind(wallet)
+    .bind(creditor)
+    .bind(description)
+    .bind(req.amount.map(|m| m.amount()))
+    .execute(&mut *tx)
+    .await?;
+
+    if rows.rows_affected() == 0 {
+        // Corrida defensiva: com o FOR UPDATE acima não deveria acontecer,
+        // mas se a dívida mudou de estado entre o SELECT e o UPDATE, desfaz —
+        // nada de ledger a reverter de qualquer forma.
+        tracing::warn!(debt_id = %id, "edição concorrente; transação desfeita");
+        tx.rollback().await?;
+        return Err(AppError::Conflict(
+            "só dívidas pendentes podem ser alteradas".into(),
+        ));
+    }
+
+    tx.commit().await?;
+
+    buscar(&state, id, wallet).await.map(Json)
+}
+
+/// DELETE /debts/{id}
+///
+/// Apaga a dívida — **só enquanto PENDING**. Sem estorno: pendente nunca
+/// tocou o ledger (criar não move dinheiro), então apagar é apagar um
+/// registro, não reverter uma transação. PAID/CONFIRMED é histórico e
+/// responde 409.
+///
+/// Devolve o estado da linha apagada (mesmo comportamento de
+/// `bills::cancel_bill`): o `ApiClient.delete` do Android não parseia corpo
+/// vazio.
+pub async fn delete_debt(
+    State(state): State<AppState>,
+    auth: crate::auth::AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<DebtResponse>> {
+    let wallet = wallet_ativa(&state, auth.user_id()).await?;
+
+    let mut tx = state.db.begin().await?;
+
+    // Filtra por id E wallet_id: dívida de outra carteira não existe (404).
+    // FOR UPDATE serializa apagar vs. pagar — um DELETE concorrente com um
+    // pay espera o COMMIT do outro e enxerga o estado final.
+    let divida = sqlx::query_as::<_, DebtRow>(
+        "SELECT id, creditor_name, description, amount, status,
+                paid_at, confirmed_at, created_at
+           FROM debts
+          WHERE id = $1 AND wallet_id = $2
+          FOR UPDATE",
+    )
+    .bind(id)
+    .bind(wallet)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("dívida"))?;
+
+    if divida.4 != "PENDING" {
+        return Err(AppError::Conflict(
+            "só dívidas pendentes podem ser apagadas".into(),
+        ));
+    }
+
+    let rows = sqlx::query(
+        "DELETE FROM debts
+          WHERE id = $1 AND wallet_id = $2 AND status = 'PENDING'",
+    )
+    .bind(id)
+    .bind(wallet)
+    .execute(&mut *tx)
+    .await?;
+
+    if rows.rows_affected() == 0 {
+        // Corrida defensiva: com o FOR UPDATE acima não deveria acontecer,
+        // mas se a dívida saiu de PENDING entre o SELECT e o DELETE, desfaz.
+        tracing::warn!(debt_id = %id, "apagamento concorrente; transação desfeita");
+        tx.rollback().await?;
+        return Err(AppError::Conflict(
+            "só dívidas pendentes podem ser apagadas".into(),
+        ));
+    }
+
+    tx.commit().await?;
+
+    Ok(Json(convert(divida)))
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+/// As mesmas regras de 422 para criar e editar: credor e descrição não podem
+/// ser vazios (nem só espaços — o CHECK do banco usa `btrim`), valor tem de
+/// ser maior que zero. `None` = campo ausente, não validado (PATCH parcial);
+/// criar sempre passa `Some` — os três são obrigatórios lá.
+fn validar_campos(
+    creditor: Option<&str>,
+    description: Option<&str>,
+    amount: Option<&Money>,
+) -> AppResult<()> {
+    if let Some(c) = creditor
+        && c.is_empty()
+    {
+        return Err(AppError::Validation("credor é obrigatório".into()));
+    }
+    if let Some(d) = description
+        && d.is_empty()
+    {
+        return Err(AppError::Validation("descrição é obrigatória".into()));
+    }
+    if let Some(a) = amount
+        && !a.is_positive()
+    {
+        return Err(AppError::Validation("valor deve ser maior que zero".into()));
+    }
+    Ok(())
+}
 
 async fn wallet_ativa(state: &AppState, user_id: Uuid) -> AppResult<Uuid> {
     let row = sqlx::query_as::<_, (Uuid, String)>("SELECT id, status FROM wallets WHERE user_id = $1")
