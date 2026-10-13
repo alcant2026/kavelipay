@@ -12,13 +12,14 @@
 //! credor pode nem ter conta), vencimento, pagamento parcial, categoria.
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::ledger::{self, TransactionType};
 use crate::money::Money;
 use crate::state::AppState;
 
@@ -103,6 +104,86 @@ pub async fn list_debts(
     .await?;
 
     Ok(Json(rows.into_iter().map(convert).collect()))
+}
+
+/// POST /debts/{id}/pay
+///
+/// Declara o pagamento da dívida. O dinheiro sai do ledger AGORA, dentro da
+/// mesma transação SQL que marca a dívida como PAID: uma sem a outra seria
+/// dinheiro movido sem registro, ou registro sem dinheiro.
+///
+/// Idempotente por construção (como `bills/{id}/pay`): a linha é travada com
+/// `FOR UPDATE` e o UPDATE é condicional a `status = 'PENDING'`. Pagar duas
+/// vezes devolve 409 sem debitar a carteira de novo — a segunda tentativa nem
+/// chega a postar no ledger.
+pub async fn pay_debt(
+    State(state): State<AppState>,
+    auth: crate::auth::AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<DebtResponse>> {
+    let wallet = wallet_ativa(&state, auth.user_id()).await?;
+
+    let mut tx = state.db.begin().await?;
+
+    // Filtra por id E wallet_id: dívida de outra carteira não existe (404).
+    // FOR UPDATE serializa dois pagamentos concorrentes — o segundo espera o
+    // COMMIT do primeiro, enxerga PAID e é recusado antes de postar.
+    let pendente = sqlx::query_as::<_, (String, String, Decimal)>(
+        "SELECT status, creditor_name, amount
+           FROM debts
+          WHERE id = $1 AND wallet_id = $2
+          FOR UPDATE",
+    )
+    .bind(id)
+    .bind(wallet)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("dívida"))?;
+
+    let (status, creditor_name, amount) = pendente;
+    if status != "PENDING" {
+        return Err(AppError::Conflict("só dívidas pendentes podem ser pagas".into()));
+    }
+
+    // Ledger ANTES do status (mesma ordem de bills/{id}/pay): se o ledger
+    // recusar, a dívida continua PENDING e nada mudou.
+    let transaction_id = ledger::postar_em_com_categoria(
+        &mut tx,
+        wallet,
+        TransactionType::Expense,
+        Money::new(amount),
+        Some(&format!("Dívida: {}", creditor_name)),
+        Some(serde_json::json!({ "debt_id": id })),
+        None,
+        Some(auth.user_id()),
+    )
+    .await?;
+
+    let rows = sqlx::query(
+        "UPDATE debts
+            SET status = 'PAID',
+                paid_at = now(),
+                paid_transaction_id = $3
+          WHERE id = $1 AND wallet_id = $2 AND status = 'PENDING'",
+    )
+    .bind(id)
+    .bind(wallet)
+    .bind(transaction_id)
+    .execute(&mut *tx)
+    .await?;
+
+    if rows.rows_affected() == 0 {
+        // Corrida defensiva: com o FOR UPDATE acima não deveria acontecer,
+        // mas se outro request pagou entre o SELECT e o UPDATE, desfaz tudo —
+        // o ledger não pode ficar com débito órfão de uma dívida não marcada.
+        tracing::warn!(debt_id = %id, "pagamento concorrente; transação desfeita");
+        tx.rollback().await?;
+        return Err(AppError::Conflict("só dívidas pendentes podem ser pagas".into()));
+    }
+
+    tx.commit().await?;
+
+    buscar(&state, id, wallet).await.map(Json)
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

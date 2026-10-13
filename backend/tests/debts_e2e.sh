@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Testes das dívidas ("eu devo"): criação/listagem sem tocar no saldo,
-# validações 422 em pt-BR e isolamento entre carteiras.
+# validações 422 em pt-BR, isolamento entre carteiras, e pagamento que debita
+# o ledger exatamente uma vez.
 #
 # Uso:  tests/debts_e2e.sh
 # Env:   PGHOST PGPORT PGUSER PGPASSWORD
@@ -169,6 +170,73 @@ LISTA_DEPOIS=$(curl -s "$BASE/debts" -H "$AUTH")
 N_DEPOIS=$(qtd <<<"$LISTA_DEPOIS")
 check "rejeitadas não gravaram nada (1 esperado, recebido $N_DEPOIS)" \
     "$([ "$N_DEPOIS" = "1" ] && echo true || echo false)"
+
+echo
+echo "pagar dívida debita o ledger exatamente uma vez"
+
+ID_DIVIDA=$(campo 0.id <<<"$LISTA_DEPOIS")
+
+# Um POST só: corpo e status juntos, como na criação.
+RESPOSTA_PAGAR=$(curl -s -w '\n%{http_code}' -X POST "$BASE/debts/$ID_DIVIDA/pay" -H "$AUTH")
+C_PAGAR="${RESPOSTA_PAGAR##*$'\n'}"
+PAGA="${RESPOSTA_PAGAR%$'\n'*}"
+
+check "pagar dívida devolve 200 (recebido $C_PAGAR)" \
+    "$([ "$C_PAGAR" = "200" ] && echo true || echo false)"
+
+STATUS_PAGO=$(campo status <<<"$PAGA")
+check "dívida paga fica PAID (recebido ${STATUS_PAGO:-vazio})" \
+    "$([ "$STATUS_PAGO" = "PAID" ] && echo true || echo false)"
+
+PAGO_EM=$(campo paid_at <<<"$PAGA")
+CONFIRMADO=$(campo confirmed_at <<<"$PAGA")
+check "paid_at preenchido e confirmed_at nulo ao pagar" \
+    "$([ -n "$PAGO_EM" ] && [ -z "$CONFIRMADO" ] && echo true || echo false)"
+
+SALDO_PAGO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "saldo caiu para 950.00 (esperado, recebido $SALDO_PAGO)" \
+    "$([ "$SALDO_PAGO" = "950.00" ] && echo true || echo false)"
+
+# O extrato tem a transação que a API promete: EXPENSE de 50.00, descrita
+# pelo credor. Contagem = 1, para provar que não há duplicata.
+EXTRATO=$(curl -s "$BASE/wallet/transactions" -H "$AUTH")
+N_DESPESA=$(printf '%s' "$EXTRATO" | python3 -c "
+import sys, json
+try:
+    itens = json.load(sys.stdin)['items']
+    print(sum(1 for i in itens
+              if i.get('type') == 'EXPENSE' and i.get('amount') == '50.00'
+              and i.get('description') == 'Dívida: João'))
+except Exception:
+    print('')")
+check "extrato tem 1 EXPENSE de 50.00 'Dívida: João' (recebido ${N_DESPESA:-vazio})" \
+    "$([ "$N_DESPESA" = "1" ] && echo true || echo false)"
+
+echo
+echo "segundo pagamento é recusado e não debita de novo"
+
+C_2X=$(code -X POST "$BASE/debts/$ID_DIVIDA/pay" -H "$AUTH")
+check "pagar de novo é 409 (recebido $C_2X)" \
+    "$([ "$C_2X" = "409" ] && echo true || echo false)"
+
+SALDO_2X=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "saldo segue 950.00 após 2º pay (recebido $SALDO_2X)" \
+    "$([ "$SALDO_2X" = "950.00" ] && echo true || echo false)"
+
+echo
+echo "pagar dívida alheia ou inexistente é 404"
+
+C_BOB=$(code -X POST "$BASE/debts/$ID_DIVIDA/pay" -H "$AUTH_B")
+check "bob paga dívida de alice é 404 (recebido $C_BOB)" \
+    "$([ "$C_BOB" = "404" ] && echo true || echo false)"
+
+C_SUMIDA=$(code -X POST "$BASE/debts/00000000-0000-0000-0000-000000000000/pay" -H "$AUTH")
+check "id inexistente é 404 (recebido $C_SUMIDA)" \
+    "$([ "$C_SUMIDA" = "404" ] && echo true || echo false)"
+
+SALDO_FINAL=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "tentativas recusadas não mexeram no saldo (950.00, recebido $SALDO_FINAL)" \
+    "$([ "$SALDO_FINAL" = "950.00" ] && echo true || echo false)"
 
 echo
 echo "resultado: $pass passaram, $fail falharam"
