@@ -147,6 +147,27 @@ data class ItemCharge(
 
 data class ListaCharges(val itens: List<ItemCharge>)
 
+// ── Dívidas (Eu devo) ─────────────────────────────────────────────────────────
+/**
+ * Uma dívida do usuário ("eu devo"), lado inverso de `ItemSplit`.
+ *
+ * `amount` é STRING — dinheiro na API é sempre string (`"50.50"`), nunca
+ * número JSON; o formata/mostra aqui não converte para `Double`.
+ * `paidAt`/`confirmedAt` só existem a partir do pago/confirmado; em
+ * `PENDING` o backend manda `null`.
+ */
+data class ItemDivida(
+    val id: String,
+    val creditorName: String,
+    val description: String,
+    val amount: String,
+    val status: String,
+    val paidAt: String?,
+    val confirmedAt: String?,
+)
+
+data class ListaDividas(val itens: List<ItemDivida>)
+
 // ── Histórico ─────────────────────────────────────────────────────────────────
 data class ItemHistorico(
     val kind: String,
@@ -410,6 +431,26 @@ fun JSONObject.paraChargeQr() = ChargeQr(
     payload = optString("payload"),
     format = optString("format"),
     provider = optString("provider"),
+)
+
+// ── Dívidas (Eu devo) ─────────────────────────────────────────────────────────
+// `GET /debts` devolve array solto (`Json<Vec<DebtResponse>>`), como
+// `/splits` — `dividas()` embrulha com `getItens` e lê `items` aqui.
+fun JSONObject.paraListaDividas() = ListaDividas(
+    itens = optJSONArray("items").paraObjetos { it.paraItemDivida() }
+)
+
+// Mesmo formato de `paraItemSplit`: chaves do backend em snake_case
+// (`creditor_name`, `paid_at`, `confirmed_at`), opt* em tudo para parse que
+// estoura não derrubar a tela inteira.
+fun JSONObject.paraItemDivida() = ItemDivida(
+    id = optString("id"),
+    creditorName = optString("creditor_name"),
+    description = optString("description"),
+    amount = optString("amount", "0.00"),
+    status = optString("status"),
+    paidAt = anulavel("paid_at"),
+    confirmedAt = anulavel("confirmed_at"),
 )
 
 // ── Histórico ──────────────────────────────────────────────────────────────────

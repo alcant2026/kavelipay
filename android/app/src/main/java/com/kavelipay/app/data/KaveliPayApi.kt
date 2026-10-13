@@ -273,6 +273,46 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
     suspend fun cancelarCharge(chargeId: String) =
         runCatching { ApiClient.delete("/charges/$chargeId", null, token) }
 
+    // ── Dívidas (Eu devo) ─────────────────────────────────────────────────────
+    // `GET /debts` devolve array solto, como `/splits`. `user_id` não vai em
+    // corpo nenhum: o backend lê do token.
+    suspend fun dividas(): ListaDividas =
+        ApiClient.getItens("/debts", token).paraListaDividas()
+
+    /** `amount` vai como STRING (igual `novaSplit`); float é 422 no backend. */
+    suspend fun novaDivida(credor: String, valor: String, descricao: String): ItemDivida {
+        val corpo = JSONObject()
+            .put("creditor_name", credor)
+            .put("amount", valor)
+            .put("description", descricao)
+        return ApiClient.post("/debts", corpo, token).paraItemDivida()
+    }
+
+    /**
+     * `PATCH /debts/{id}` — edição parcial no backend, mas a tela manda os
+     * três campos juntos (os que mudaram); campos ausentes ficam como estão.
+     * Só `PENDING`: pago é histórico e o backend responde 409.
+     */
+    suspend fun editarDivida(id: String, credor: String, valor: String, descricao: String): ItemDivida {
+        val corpo = JSONObject()
+            .put("creditor_name", credor)
+            .put("amount", valor)
+            .put("description", descricao)
+        return ApiClient.patch("/debts/$id", corpo, token).paraItemDivida()
+    }
+
+    /** Declara o pagamento — debita o ledger no servidor. Corpo nulo, como `quitarParte`. */
+    suspend fun pagarDivida(id: String): ItemDivida =
+        ApiClient.post("/debts/$id/pay", null, token).paraItemDivida()
+
+    /** O credor confirmou o recebimento: muda só status, sem ledger. */
+    suspend fun confirmarDivida(id: String): ItemDivida =
+        ApiClient.post("/debts/$id/confirm", null, token).paraItemDivida()
+
+    /** Apaga só `PENDING` (sem estorno: pendente nunca tocou o ledger). Devolve a linha apagada. */
+    suspend fun apagarDivida(id: String): ItemDivida =
+        ApiClient.delete("/debts/$id", null, token).paraItemDivida()
+
     // ── Histórico unificado ───────────────────────────────────────────────────
     suspend fun historico(limite: Int = 50, kind: String? = null): Historico {
         // `?` e `&` decide se isto monta `/history?kind=BILL&limit=50` ou
