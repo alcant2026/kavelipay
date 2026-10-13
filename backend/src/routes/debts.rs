@@ -186,6 +186,73 @@ pub async fn pay_debt(
     buscar(&state, id, wallet).await.map(Json)
 }
 
+/// POST /debts/{id}/confirm
+///
+/// O credor confirma que recebeu: `PAID → CONFIRMED`. A diferença central em
+/// relação a `pay`: **nenhuma transação de ledger**. O dinheiro já saiu quando
+/// o dono declarou o pagamento; confirmar é atestado de recebimento, só
+/// status. Por isso o saldo não muda — e é isso que o teste e2e prova.
+///
+/// Mesma guarda idempotente de `pay_debt`: `FOR UPDATE` + UPDATE condicional
+/// a `status = 'PAID'` + `rows_affected`. Confirmar duas vezes devolve 409;
+/// confirmar sem pagar (PENDING) também — ninguém decreta pagamento alheio.
+pub async fn confirm_debt(
+    State(state): State<AppState>,
+    auth: crate::auth::AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<DebtResponse>> {
+    let wallet = wallet_ativa(&state, auth.user_id()).await?;
+
+    let mut tx = state.db.begin().await?;
+
+    // Filtra por id E wallet_id: dívida de outra carteira não existe (404).
+    // FOR UPDATE serializa duas confirmações concorrentes — a segunda espera
+    // o COMMIT da primeira, enxerga CONFIRMED e é recusada.
+    let existente = sqlx::query_scalar::<_, String>(
+        "SELECT status
+           FROM debts
+          WHERE id = $1 AND wallet_id = $2
+          FOR UPDATE",
+    )
+    .bind(id)
+    .bind(wallet)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("dívida"))?;
+
+    if existente != "PAID" {
+        return Err(AppError::Conflict(
+            "só dívidas pagas podem ser confirmadas".into(),
+        ));
+    }
+
+    let rows = sqlx::query(
+        "UPDATE debts
+            SET status = 'CONFIRMED',
+                confirmed_at = now()
+          WHERE id = $1 AND wallet_id = $2 AND status = 'PAID'",
+    )
+    .bind(id)
+    .bind(wallet)
+    .execute(&mut *tx)
+    .await?;
+
+    if rows.rows_affected() == 0 {
+        // Corrida defensiva: com o FOR UPDATE acima não deveria acontecer,
+        // mas se outra request confirmou entre o SELECT e o UPDATE, desfaz —
+        // nada a desfazer no ledger, porque confirm nunca posta.
+        tracing::warn!(debt_id = %id, "confirmação concorrente; transação desfeita");
+        tx.rollback().await?;
+        return Err(AppError::Conflict(
+            "só dívidas pagas podem ser confirmadas".into(),
+        ));
+    }
+
+    tx.commit().await?;
+
+    buscar(&state, id, wallet).await.map(Json)
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 async fn wallet_ativa(state: &AppState, user_id: Uuid) -> AppResult<Uuid> {

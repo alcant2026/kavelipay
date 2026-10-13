@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Testes das dívidas ("eu devo"): criação/listagem sem tocar no saldo,
-# validações 422 em pt-BR, isolamento entre carteiras, e pagamento que debita
-# o ledger exatamente uma vez.
+# validações 422 em pt-BR, isolamento entre carteiras, pagamento que debita
+# o ledger exatamente uma vez, e confirmação que é só status (nunca dinheiro).
 #
 # Uso:  tests/debts_e2e.sh
 # Env:   PGHOST PGPORT PGUSER PGPASSWORD
@@ -237,6 +237,97 @@ check "id inexistente é 404 (recebido $C_SUMIDA)" \
 SALDO_FINAL=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
 check "tentativas recusadas não mexeram no saldo (950.00, recebido $SALDO_FINAL)" \
     "$([ "$SALDO_FINAL" = "950.00" ] && echo true || echo false)"
+
+echo
+echo "confirmar dívida muda só o status, sem tocar no saldo"
+
+# Dívida nova de 30. Um POST só: corpo e status juntos, como nas criações acima.
+RESPOSTA_30=$(curl -s -w '\n%{http_code}' -X POST "$BASE/debts" -H "$AUTH" \
+    -H 'content-type: application/json' \
+    -d '{"creditor_name":"Maria","amount":"30.00","description":"Uber"}')
+C_30="${RESPOSTA_30##*$'\n'}"
+NOVA_30="${RESPOSTA_30%$'\n'*}"
+
+check "criar dívida de 30 devolve 201 (recebido $C_30)" \
+    "$([ "$C_30" = "201" ] && echo true || echo false)"
+
+ID_30=$(campo id <<<"$NOVA_30")
+
+# Confirmar SEM pagar: recusa com a mensagem exata do contrato, e o saldo não
+# muda — quem recebe não decreta pagamento que não foi feito.
+RESPOSTA_C_ERRADA=$(curl -s -w '\n%{http_code}' -X POST "$BASE/debts/$ID_30/confirm" -H "$AUTH")
+C_C_ERRADA="${RESPOSTA_C_ERRADA##*$'\n'}"
+CORPO_C_ERRADA="${RESPOSTA_C_ERRADA%$'\n'*}"
+
+check "confirm sem pagar é 409 (recebido $C_C_ERRADA)" \
+    "$([ "$C_C_ERRADA" = "409" ] && echo true || echo false)"
+
+MSG=$(campo message <<<"$CORPO_C_ERRADA")
+check "mensagem do 409 é 'só dívidas pagas podem ser confirmadas' (recebido ${MSG:-vazio})" \
+    "$([ "$MSG" = "só dívidas pagas podem ser confirmadas" ] && echo true || echo false)"
+
+SALDO_RECUSADO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "confirm indevido não mexeu no saldo (950.00, recebido $SALDO_RECUSADO)" \
+    "$([ "$SALDO_RECUSADO" = "950.00" ] && echo true || echo false)"
+
+# Agora paga: 950.00 - 30.00 = 920.00. Só `pay` mexe em dinheiro.
+curl -s -o /dev/null -X POST "$BASE/debts/$ID_30/pay" -H "$AUTH"
+
+SALDO_PAGA30=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "pagar a de 30 deixa o saldo em 920.00 (recebido $SALDO_PAGA30)" \
+    "$([ "$SALDO_PAGA30" = "920.00" ] && echo true || echo false)"
+
+# Confirmar o pagamento recebido: 200, CONFIRMED, confirmed_at preenchido —
+# e o saldo INTACTO (confirmação não move dinheiro).
+RESPOSTA_CONF=$(curl -s -w '\n%{http_code}' -X POST "$BASE/debts/$ID_30/confirm" -H "$AUTH")
+C_CONF="${RESPOSTA_CONF##*$'\n'}"
+CONFIRMADA="${RESPOSTA_CONF%$'\n'*}"
+
+check "confirm devolve 200 (recebido $C_CONF)" \
+    "$([ "$C_CONF" = "200" ] && echo true || echo false)"
+
+STATUS_CONF=$(campo status <<<"$CONFIRMADA")
+check "status vira CONFIRMED (recebido ${STATUS_CONF:-vazio})" \
+    "$([ "$STATUS_CONF" = "CONFIRMED" ] && echo true || echo false)"
+
+CONF_EM=$(campo confirmed_at <<<"$CONFIRMADA")
+check "confirmed_at preenchido ao confirmar (recebido ${CONF_EM:-vazio})" \
+    "$([ -n "$CONF_EM" ] && echo true || echo false)"
+
+SALDO_CONF=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "confirm não move dinheiro: saldo segue 920.00 (recebido $SALDO_CONF)" \
+    "$([ "$SALDO_CONF" = "920.00" ] && echo true || echo false)"
+
+# Prova extra de que confirm não posta no ledger: o extrato segue com exatamente
+# 2 EXPENSE (os 50.00 da dívida de João + os 30.00 da de Maria).
+EXTRATO_CONF=$(curl -s "$BASE/wallet/transactions" -H "$AUTH")
+N_EXPENSE=$(printf '%s' "$EXTRATO_CONF" | python3 -c "
+import sys, json
+try:
+    itens = json.load(sys.stdin)['items']
+    print(sum(1 for i in itens if i.get('type') == 'EXPENSE'))
+except Exception:
+    print('')")
+check "extrato segue com 2 EXPENSE — confirm não postou no ledger (recebido ${N_EXPENSE:-vazio})" \
+    "$([ "$N_EXPENSE" = "2" ] && echo true || echo false)"
+
+# CONFIRMED é estado final: confirmar de novo é 409, e o saldo não muda.
+C_2CONF=$(code -X POST "$BASE/debts/$ID_30/confirm" -H "$AUTH")
+check "confirm de novo é 409 (recebido $C_2CONF)" \
+    "$([ "$C_2CONF" = "409" ] && echo true || echo false)"
+
+SALDO_2CONF=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "saldo segue 920.00 após duplo confirm (recebido $SALDO_2CONF)" \
+    "$([ "$SALDO_2CONF" = "920.00" ] && echo true || echo false)"
+
+# Confirmar dívida alheia ou inexistente é 404 — mesma regra de pay.
+C_C_BOB=$(code -X POST "$BASE/debts/$ID_30/confirm" -H "$AUTH_B")
+check "bob confirma dívida de alice é 404 (recebido $C_C_BOB)" \
+    "$([ "$C_C_BOB" = "404" ] && echo true || echo false)"
+
+C_C_SUMIDA=$(code -X POST "$BASE/debts/00000000-0000-0000-0000-000000000000/confirm" -H "$AUTH")
+check "confirm de id inexistente é 404 (recebido $C_C_SUMIDA)" \
+    "$([ "$C_C_SUMIDA" = "404" ] && echo true || echo false)"
 
 echo
 echo "resultado: $pass passaram, $fail falharam"

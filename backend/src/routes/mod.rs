@@ -59,6 +59,7 @@ pub fn router(state: AppState) -> Router {
         .route("/debts", post(debts::create_debt))
         .route("/debts", get(debts::list_debts))
         .route("/debts/{id}/pay", post(debts::pay_debt))
+        .route("/debts/{id}/confirm", post(debts::confirm_debt))
         // cobranças
         .route("/charges", post(charges::create_charge))
         .route("/charges", get(charges::list_charges))
