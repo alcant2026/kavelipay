@@ -4,6 +4,7 @@ pub mod auth;
 pub mod bills;
 pub mod categories;
 pub mod charges;
+pub mod debts;
 pub mod derivation;
 pub mod history;
 pub mod investments;
@@ -54,6 +55,9 @@ pub fn router(state: AppState) -> Router {
         .route("/splits", post(splits::create_split))
         .route("/splits", get(splits::list_splits))
         .route("/splits/{id}/parts/{part_id}/settle", post(splits::settle_part))
+        // dívidas ("eu devo") — o lado inverso das divisões
+        .route("/debts", post(debts::create_debt))
+        .route("/debts", get(debts::list_debts))
         // cobranças
         .route("/charges", post(charges::create_charge))
         .route("/charges", get(charges::list_charges))
