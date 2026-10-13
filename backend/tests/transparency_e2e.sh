@@ -300,8 +300,8 @@ EXPORT=$(curl -s "$BASE/lgpd/export" -H "$AUTH")
 QTD_SECTIONS=$(printf '%s' "$EXPORT" | python3 -c "
 import sys, json
 print(len(json.load(sys.stdin)['data']))")
-check "export traz as 6 seções de dados (obtido $QTD_SECTIONS)" \
-    "$([ "$QTD_SECTIONS" = "6" ] && echo true || echo false)"
+check "export traz as 7 seções de dados (obtido $QTD_SECTIONS)" \
+    "$([ "$QTD_SECTIONS" = "7" ] && echo true || echo false)"
 EMAIL_EXP=$(printf '%s' "$EXPORT" | jget "['data']['perfil']['email']")
 check "export contém o e-mail do titular ($EMAIL_EXP)" \
     "$([ "$EMAIL_EXP" = "alice@teste.com" ] && echo true || echo false)"

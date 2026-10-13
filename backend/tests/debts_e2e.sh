@@ -484,5 +484,66 @@ check "DELETE de id inexistente é 404 (recebido $C_D_SUMIDA)" \
     "$([ "$C_D_SUMIDA" = "404" ] && echo true || echo false)"
 
 echo
+echo "LGPD: export inclui dívidas de todo status"
+
+# Dívida PENDING nova só para o export: as outras duas já estão PAID e
+# CONFIRMED. O export é completo por natureza — o direito de acesso não
+# filtra status.
+RESPOSTA_EXP=$(curl -s -w '\n%{http_code}' -X POST "$BASE/debts" -H "$AUTH" \
+    -H 'content-type: application/json' \
+    -d '{"creditor_name":"Ana","amount":"15.00","description":"Cinema"}')
+C_EXP="${RESPOSTA_EXP##*$'\n'}"
+check "criar dívida PENDING para o export devolve 201 (recebido $C_EXP)" \
+    "$([ "$C_EXP" = "201" ] && echo true || echo false)"
+
+EXPORT_A=$(curl -s "$BASE/lgpd/export" -H "$AUTH")
+
+# Os acessos pontuais usam `campo`/`qtd`; aqui é lista dentro de objeto, o
+# mesmo formato dos checks de extrato acima — python direto.
+N_EXP=$(printf '%s' "$EXPORT_A" | python3 -c "
+import sys, json
+try:
+    print(len(json.load(sys.stdin)['data']['dividas']))
+except Exception:
+    print('')")
+check "export da alice traz as 3 dívidas (recebido ${N_EXP:-vazio})" \
+    "$([ "$N_EXP" = "3" ] && echo true || echo false)"
+
+# Os três statuses lado a lado: omitir PENDING ou CONFIRMED privaria o
+# titular do dado integral.
+STATUS_EXP=$(printf '%s' "$EXPORT_A" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)['data']['dividas']
+    print(','.join(sorted(x['status'] for x in d)))
+except Exception:
+    print('')")
+check "export traz PENDING, PAID e CONFIRMED (recebido ${STATUS_EXP:-vazio})" \
+    "$([ "$STATUS_EXP" = "CONFIRMED,PAID,PENDING" ] && echo true || echo false)"
+
+# A dívida do João com as chaves pt-BR do export e valor string, nunca float.
+JOAO_EXP=$(printf '%s' "$EXPORT_A" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)['data']['dividas']
+    j = next(x for x in d if x['credor'] == 'João')
+    print(j['valor'], type(j['valor']).__name__)
+except Exception:
+    print('')")
+check "dívida do João exportada com valor string 50.00 (recebido ${JOAO_EXP:-vazio})" \
+    "$([ "$JOAO_EXP" = "50.00 str" ] && echo true || echo false)"
+
+# Fronteira de confiança: export do bob tem a lista vazia — nunca a da alice.
+EXPORT_B=$(curl -s "$BASE/lgpd/export" -H "$AUTH_B")
+N_EXP_B=$(printf '%s' "$EXPORT_B" | python3 -c "
+import sys, json
+try:
+    print(len(json.load(sys.stdin)['data']['dividas']))
+except Exception:
+    print('')")
+check "export do bob traz dividas vazio (recebido ${N_EXP_B:-vazio})" \
+    "$([ "$N_EXP_B" = "0" ] && echo true || echo false)"
+
+echo
 echo "resultado: $pass passaram, $fail falharam"
 [ "$fail" -eq 0 ]

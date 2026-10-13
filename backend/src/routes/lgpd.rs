@@ -24,6 +24,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::money::Money;
 use crate::state::AppState;
 
 #[derive(Serialize)]
@@ -35,8 +36,8 @@ pub struct ExportResponse {
 
 /// GET /lgpd/export
 ///
-/// Tudo do titular: perfil, categorias, carteira, contas, cobranças, divisões
-/// e o ledger completo. É o direito de acesso previsto no art. 18 da LGPD.
+/// Tudo do titular: perfil, categorias, carteira, contas, cobranças, divisões,
+/// dívidas e o ledger completo. É o direito de acesso previsto no art. 18 da LGPD.
 pub async fn export(
     State(state): State<AppState>,
     auth: crate::auth::AuthUser,
@@ -91,7 +92,10 @@ pub async fn export(
     // um `ARRAY(json_build_array(...))` volta como `json[]`, que o sqlx não
     // decodifica em tupla Rust; e devolver Decimal por JSON voltaria float,
     // que é exatamente o que a regra de dinheiro proíbe.
-    let transacoes = sqlx::query_as::<_, (Uuid, String, Decimal, String, chrono::DateTime<chrono::Utc>, serde_json::Value)>(
+    //
+    // `description` é nullable no ledger (uma entrada pura não tem motivo) —
+    // decodificar como `String` derrubava o export inteiro com 500.
+    let transacoes = sqlx::query_as::<_, (Uuid, String, Decimal, Option<String>, chrono::DateTime<chrono::Utc>, serde_json::Value)>(
         "SELECT t.id, t.type, t.amount, t.description, t.created_at,
                 COALESCE(
                     (
@@ -112,6 +116,19 @@ pub async fn export(
            FROM ledger_transactions t
           WHERE t.wallet_id = $1
           ORDER BY t.created_at, t.id",
+    )
+    .bind(carteira.0)
+    .fetch_all(&state.db)
+    .await?;
+
+    // Dívidas em QUALQUER status — PENDING, PAID e CONFIRMED. O export é
+    // completo por natureza (art. 18): omitir pendentes ou confirmadas
+    // privaria o titular do dado integral. O valor vira string via `Money`
+    // (2 casas, nunca float), igual às outras seções.
+    let dividas = sqlx::query_as::<_, (Uuid, String, String, Decimal, String, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>, chrono::DateTime<chrono::Utc>)>(
+        "SELECT id, creditor_name, description, amount, status,
+                paid_at, confirmed_at, created_at
+           FROM debts WHERE wallet_id = $1 ORDER BY created_at, id",
     )
     .bind(carteira.0)
     .fetch_all(&state.db)
@@ -143,6 +160,13 @@ pub async fn export(
             .map(|(i, d, a, s, r)| json!({
                 "id": i, "descricao": d, "valor": a.to_string(),
                 "status": s, "recebido_em": r
+            }))
+            .collect::<Vec<_>>(),
+        "dividas": dividas.iter()
+            .map(|(i, c, d, a, s, p, cf, cr)| json!({
+                "id": i, "credor": c, "descricao": d,
+                "valor": Money::new(*a).to_string(), "status": s,
+                "pago_em": p, "confirmado_em": cf, "criado_em": cr
             }))
             .collect::<Vec<_>>(),
         "transacoes": transacoes.iter()
