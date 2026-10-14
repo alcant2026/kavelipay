@@ -27,8 +27,8 @@ está accounted for". Tudo nesta seção existe para sustentar isso.
   no ledger e sem esse filtro a despesa aparece dobrada.
 - `GET /lgpd/export.csv` — `;` e vírgula decimal (`50,00`). `Decimal::ZERO`
   vira `0,00` explícito: `"0"` ao lado de `50,00` quebra a coluna no Excel.
-- `GET /lgpd/export` — JSON com perfil, carteira, categorias, contas, cobranças
-  e o ledger completo (cada transação com seus 2 lançamentos, **números como
+- `GET /lgpd/export` — JSON com perfil, carteira, categorias, contas, cobranças,
+  dívidas e o ledger completo (cada transação com seus 2 lançamentos, **números como
   texto** — devolver Decimal por JSON viraria float).
 - `DELETE /lgpd/account` — **anonimiza, não apaga**. `ledger_entries`
   referencia `ledger_accounts` com `ON DELETE RESTRICT`; apagar em cascata

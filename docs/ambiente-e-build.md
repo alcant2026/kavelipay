@@ -178,7 +178,7 @@ Fedora; instalar exige sudo). Não documente `cargo fmt` como se funcionasse.
 Rodar o servidor:
 
 ```
-DATABASE_URL=postgres://kavelipay:test@localhost:55432/kavelipay \
+DATABASE_URL=postgres://kavelipay:kavelipay@localhost:55432/kavelipay \
 JWT_SECRET=$(head -c 48 /dev/urandom | base64) \
 cargo run --bin kavelipay-backend
 ```
