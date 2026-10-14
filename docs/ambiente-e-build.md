@@ -8,7 +8,7 @@
 cd android
 ./gradlew :app:assembleRelease      # APK assinado em app/build/outputs/apk/release/
 ./gradlew :app:assembleDebug
-./gradlew :app:testDebugUnitTest    # JUnit das regras puras (12 testes, sem emulador)
+./gradlew :app:testDebugUnitTest    # JUnit das regras puras (36 testes, sem emulador)
 ```
 
 Saída: `android/app/build/outputs/apk/release/KaveliPay-release.apk`
@@ -95,6 +95,18 @@ waydroid app launch com.kavelipay.app.debug
   Atenção: o IP do container muda a cada boot da sessão (foi `.112`); pegue o
   atual com `ip -4 addr show waydroid0` + `waydroid status`. Com adb tenho
   `input tap/text`, `exec-out screencap -p` e `uiautomator dump` (árvore de UI).
+- **Reboot mata tudo em cascata** (já aconteceu): container `kavelipay-pg`
+  exited, backend morto, sessão Waydroid STOPPED e o app sem sessão — backend
+  de novo no ar com `JWT_SECRET` novo → **401 em todo request**, a conta
+  antiga não volta. Ordem que funciona: `docker start kavelipay-pg` → backend
+  `nohup` → `waydroid session start` → adb connect; conta perdida se refaz
+  via `POST /auth/register`.
+- **adb wedge**: depois de 1–4 invocações o adbd do container trava
+  (`adb shell` pendura; `disconnect`/`connect` fica `offline`). Só
+  `waydroid session stop/start` revive. Evite: rode o fluxo inteiro de UI numa
+  **única** invocação `adb shell sh < script` logo após o restart, com o pull
+  dos arquivos numa segunda (`toybox tar`); e `am start -W` explícito antes de
+  digitar — sem isso `input text` cai na barra de busca do launcher.
 - **Roteiro de UI pronto: `backend/tests_android.sh [--verbose]`** — navega o
   app por TEXTO (`uiautomator dump`), não por coordenada; conta a sessão via
   API e exercita login → telas. Requer Waydroid + adb + backend no ar.
@@ -111,27 +123,34 @@ waydroid app launch com.kavelipay.app.debug
 cd backend
 cargo build                                    # binário do servidor
 cargo test                                     # 128 unit/integration, sem banco
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=test bash tests/schema_test.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=test bash tests/auth_e2e.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=test bash tests/ledger_e2e.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=test bash tests/bills_e2e.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=test bash tests/splits_e2e.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=test bash tests/charges_e2e.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=test bash tests/profile_notif_history_e2e.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=test bash tests/investments_e2e.sh
-bash tests/transparency_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/schema_test.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/auth_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/ledger_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/bills_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/splits_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/charges_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/profile_notif_history_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/investments_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/transparency_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/refresh_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/debts_e2e.sh
 bash tests/simulacao.sh
 ```
 
-Dez scripts. `simulacao.sh` é a **jornada completa** de um usuário (cadastro →
+Senha `kavelipay` = container `kavelipay-pg` (o de volume nomeado, dono de
+55432 agora); o recipe `kp_pgtest` mais acima usa `test`. Com a porta ocupada
+por um, o outro não sobe.
+
+Doze scripts. `simulacao.sh` é a **jornada completa** de um usuário (cadastro →
 entradas → contas → pagar → despesas → divisão → cobrança + QR → lembretes →
 histórico → segurança → isolamento entre contas → conferência contábil) e
 imprime o dinheiro entrando e saindo a cada passo. Rode para ver o produto
 funcionar, não só para passar: `bash tests/simulacao.sh`.
 
-Os oito outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
+Os dez outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
 binário real (`:3311` auth, `:3312` ledger, `:3313` bills, `:3314` splits,
-`:3315` charges, `:3316` perfil/notif/histórico, `:3323` investimentos).
+`:3315` charges, `:3316` perfil/notif/histórico, `:3317` dívidas, `:3321`
+transparência, `:3322` refresh, `:3323` investimentos).
 Exigem `cargo build` antes. Não
 aplique migrations manualmente nos bancos de teste: quem aplica é o servidor no
 boot (`sqlx::migrate!`).
@@ -145,11 +164,13 @@ de `cotacao.rs` com mock do brapi/Yahoo — nenhum gasta token ou rede real; os 
 testes novos de `cotacao.rs` cobrem o nome oficial do mercado vencendo o da IA) +
 13 schema + 20 auth + 15 ledger + 26 bills + 17 splits + 24 charges + 31 perfil
 + 52 transparência + 28 investimentos (4 e2e a mais cobrindo
-`POST /investments/quote` + a data no padrão dd/mm/aaaa) =
-**354, todos passando**, mais a simulação de jornada completa, mais 27 JUnit
+`POST /investments/quote` + a data no padrão dd/mm/aaaa) + 14 refresh + 69
+dívidas (`debts_e2e.sh`, porta 3317) =
+**437, todos passando** (309 deles shell e2e), mais a simulação de jornada
+completa, mais 36 JUnit
 do app (`./gradlew :app:testDebugUnitTest`, regras puras do prefill por IA, da
-sugestão de preço/dividendo, do total de negociação `qtd × preço` e do prefill
-de data em `dd/mm/aaaa`).
+sugestão de preço/dividendo, do total de negociação `qtd × preço`, do prefill
+de data em `dd/mm/aaaa` e de `DividaRegras` — normalização de valor pt-BR).
 
 `cargo clippy` e `cargo fmt` NÃO estão instalados (`rustfmt`/`clippy` ausentes no
 Fedora; instalar exige sudo). Não documente `cargo fmt` como se funcionasse.

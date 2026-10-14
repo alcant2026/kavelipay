@@ -28,3 +28,16 @@
 - `DELETE /charges/{id}` — cancela; só PENDING
 - `POST /investments/lookup` — `{symbol, kind}` → `{found, name?, summary?}`;
   prefill por IA do "Adicionar ativo" (ver a seção de IA abaixo)
+- `POST /debts` — cria dívida `{creditor_name, amount, description}`. **Nenhuma
+  transação de ledger** (como `/charges`): registrar que devo não mexe no saldo.
+  `amount` string, float é 422. Vira sempre `PENDING`
+- `GET /debts` — carteira ativa, mais recentes primeiro
+- `POST /debts/{id}/pay` — declara o pagamento: debita o ledger (`Expense`) e
+  marca `PAID` na mesma transação. Idempotente: segunda vez é 409 sem debitar
+  de novo
+- `POST /debts/{id}/confirm` — credor confirmou: muda **só status**
+  (`PAID → CONFIRMED`), nunca dinheiro; confirmar duas vezes é 409
+- `PATCH /debts/{id}` — edição parcial `{creditor_name?, amount?, description?}`;
+  só `PENDING` (pago/confirmado é 409); 422 com as mesmas mensagens do POST
+- `DELETE /debts/{id}` — só `PENDING` (estado final é 409); pendente nunca
+  tocou o ledger, então não estorna nada. Id de outra carteira é 404, nunca 403

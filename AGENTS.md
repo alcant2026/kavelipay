@@ -4,7 +4,7 @@ App Android de organização financeira e pagamentos para **pessoa física**, co
 
 ## Estado atual
 
-Backend Rust (`backend/`) completo: **354 testes passando** (128 Rust + 226 shell e2e) + 27 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Sem `.git` ainda.
+Backend Rust (`backend/`) completo: **437 testes passando** (128 Rust + 309 shell e2e) + 36 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
 
 ## Comandos essenciais
 
@@ -13,26 +13,26 @@ Backend Rust (`backend/`) completo: **354 testes passando** (128 Rust + 226 shel
 # O dev usa VOLUME NOMEADO kavelipay-pgdata — sem ele, um docker rm apaga o banco (já aconteceu).
 cd backend
 cargo build && cargo test                        # 128 Rust, sem banco
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=test bash tests/<nome>_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/<nome>_e2e.sh
 DATABASE_URL=postgres://kavelipay:kavelipay@localhost:55432/kavelipay \
 JWT_SECRET=$(head -c 48 /dev/urandom | base64) BIND_ADDR=0.0.0.0:3000 \
 nohup ./target/debug/kavelipay-backend > /tmp/kavelipay-backend.log 2>&1 &
 
 cd android
 ./gradlew :app:assembleRelease                  # APK assinado em app/build/outputs/apk/release/
-./gradlew :app:testDebugUnitTest                # 20 JUnit, sem emulador
+./gradlew :app:testDebugUnitTest                # 36 JUnit, sem emulador
 ```
 
 - **Depois de editar qualquer `.sql`, `cargo build` é obrigatório** — `sqlx::migrate!` embute as migrations no binário; sem rebuild o servidor sobe com a versão antiga e o teste falha parecendo bug de lógica.
 - `cargo clippy` e `cargo fmt` **não existem** neste Fedora. Não documente como se existissem.
-- Dez scripts e2e (ports, cobertura, `simulacao.sh`), Waydroid + adb (receita, IP muda por boot) e assinatura do APK: `docs/ambiente-e-build.md`.
+- Doze scripts e2e (ports, cobertura, `simulacao.sh`), Waydroid + adb (receita, IP muda por boot) e assinatura do APK: `docs/ambiente-e-build.md`.
 
 ## Regras inegociáveis (texto completo em `docs/spec.md`)
 
 - Somente pessoa física. Nada de painel de lojista, PDV, CRM, catálogo, estoque, dashboard empresarial.
 - KaveliPay **não é banco, não custodia dinheiro, não é provedor de PIX**: o "QR" de cobrança é deep link `kavelipay://cobranca/...`, nunca BR Code/EMV.
 - Saldo **sempre** derivado do ledger (Wallet → Ledger Account → Transaction → Entries). Toda transação equilibrada (`total_debits = total_credits`). Nunca `UPDATE`/`INSERT` direto em saldo.
-- Dinheiro: `rust_decimal::Decimal` + `NUMERIC(19,4)`. Na API **sempre string** (`"10.50"`); o tipo `Money` recusa JSON number com 422. `f64`/`Float` em dinheiro é bug — inclusive no app Android (nada de `Double` em saldo exibido).
+- Dinheiro: `rust_decimal::Decimal` + `NUMERIC(19,4)`. Na API **sempre string** (`"10.50"`); o tipo `Money` recusa JSON **float** com 422 (inteiro é aceito — precisão exata; a API deve mandar string). `f64`/`Float` em dinheiro é bug — inclusive no app Android (nada de `Double` em saldo exibido).
 - Nunca fingir pagamento: `POST /bills/{id}/pay` e `/charges/{id}/receive` registram o que o usuário **afirma**; nada gera `PAID` sem POST explícito do dono.
 - Uma carteira por usuário; `user_id` vem **do token**, nunca do body/query.
 
@@ -56,8 +56,8 @@ Fuso/`due_date`, conflito 12B × seção 9 (app lê código de barras × backend
 
 ## Ferramentas do agente
 
-- **GitNexus** — MCP `gitnexus` (17 tools) + skills `.claude/skills/gitnexus-*`: grafo do código indexado (2.319 nós / 5.033 arestas). Antes de mexer em código, use `impact`/`trace`/`context`/`query` em vez de varrer o repo. Índice em `.gitnexus/` (gitignorar no futuro `git init`).
-- Reindexar após mudança grande: `gitnexus analyze --skip-agents-md` (hoje sem `.git`, acrescente `--skip-git`; depois do `git init` o padrão basta). **`--skip-agents-md` é obrigatório** — este arquivo é curado à mão e o GitNexus o reescreve sem o flag.
+- **GitNexus** — MCP `gitnexus` (17 tools) + skills `.claude/skills/gitnexus-*`: grafo do código indexado (2.527 nós / 5.496 arestas). Antes de mexer em código, use `impact`/`trace`/`context`/`query` em vez de varrer o repo. Índice em `.gitnexus/` (já no `.gitignore`).
+- Reindexar após mudança grande: `gitnexus analyze --skip-agents-md`. **`--skip-agents-md` é obrigatório** — este arquivo é curado à mão e o GitNexus o reescreve sem o flag.
 - **Gate de review de UI** (`docs/ui-review.md`) — tela só fecha depois do gate: checklist mecânico (entrada no padrão do cliente, erro pt-BR sem jargão, dinheiro sem float, estados, contraste) + screenshot no Waydroid contra a referência Nubank. O `revisor` roda nos dois níveis.
 
 ## Documentação detalhada (busque sob demanda — não vive mais aqui)
