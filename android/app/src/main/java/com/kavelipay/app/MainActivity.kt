@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kavelipay.app.data.ApiClient
 import com.kavelipay.app.data.SessionStore
 import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.screens.KpRaiz
@@ -20,6 +21,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Antes de qualquer requisição: o `ApiClient` precisa do Contexto para
+        // lembrar qual host do backend respondeu (Waydroid, aparelho físico ou
+        // AVD). Sem persistência, a sonda de host recomeçaria a cada abertura.
+        ApiClient.configurar(applicationContext)
         setContent { AppRaiz() }
     }
 }

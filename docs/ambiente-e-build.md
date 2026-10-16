@@ -23,8 +23,13 @@ Use `--offline` quando a rede não for confiável — todas as dependências já
 estão em `~/.gradle/caches`. Biblioteca nova (ZXing, por exemplo) exige
 download.
 
-`ApiClient.BASE_URL` está fixo em `http://192.168.1.8:3000` (IP da máquina na
-rede local, para aparelho físico). No emulador use `10.0.2.2`. O backend não
+`ApiClient` resolve o `BASE_URL` por sonda TCP entre candidatos fixos:
+`http://192.168.240.1:3000` (lado host da bridge do Waydroid),
+`http://192.168.1.8:3000` (IP da máquina na rede local, aparelho físico) e
+`http://10.0.2.2:3000` (emulador AVD). O mesmo APK serve os três ambientes; o
+host que respondeu é persistido em `SharedPreferences` (`kavelipay.servidor`)
+e reassumido na próxima abertura. **Se a IP da máquina mudar (DHCP), atualize
+`CANDIDATOS` em `ApiClient.kt`** — ou reserve a IP no roteador. O backend não
 sobe em `:3000` por padrão — ajuste `config.rs`.
 
 Armadilhas de Compose que já custaram build: ver a skill
@@ -75,9 +80,12 @@ Obs: `POST /bills` exige campo `description` (não `title`); `type` aceita
 
 ### Testar a UI do app (Waydroid)
 
-O app roda no **Waydroid**, não emulador. `ApiClient.BASE_URL =
-http://192.168.240.1:3000` (lado host da bridge `waydroid0`) — funciona com o
-backend em `0.0.0.0:3000` sem mexer em nada.
+O app roda no **Waydroid**, não emulador. O `ApiClient` sonda os candidatos
+(`192.168.240.1` do lado host da bridge `waydroid0`, `192.168.1.8` da LAN e
+`10.0.2.2` do AVD) e usa o que responder — no Waydroid cai no `.240.1` na
+primeira requisição, e o mesmo APK no aparelho físico cai no IP da máquina
+(mesma rede Wi-Fi), sem rebuild. Sonda é só TCP na porta 3000, 800ms por
+candidato, uma vez por execução.
 
 ```
 nohup waydroid session start > /tmp/waydroid-session.log 2>&1 &   # bloqueia; NÃO rodar em foreground
