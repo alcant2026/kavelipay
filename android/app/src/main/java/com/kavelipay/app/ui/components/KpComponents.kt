@@ -1,45 +1,90 @@
 package com.kavelipay.app.ui.components
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Brightness4
+import androidx.compose.material.icons.filled.Brightness7
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.kavelipay.app.ui.theme.BadgeNeutra
+import com.kavelipay.app.ui.theme.BadgeNeutraFundo
+import com.kavelipay.app.ui.theme.BadgeNeutraDark
+import com.kavelipay.app.ui.theme.BadgeNeutraFundoDark
+import com.kavelipay.app.ui.theme.HeroCardBordaDark
+import com.kavelipay.app.ui.theme.HeroCardDark
 import com.kavelipay.app.ui.theme.KpTheme
+import com.kavelipay.app.ui.theme.LimeMarca
 import com.kavelipay.app.ui.theme.Pilula
 import com.kavelipay.app.ui.theme.RaioCard
 import com.kavelipay.app.ui.theme.Spacing
-import com.kavelipay.app.ui.theme.TituloCartao
+import com.kavelipay.app.ui.theme.TituloCard
+import com.kavelipay.app.ui.theme.TituloTela
+import com.kavelipay.app.ui.theme.ValorHeroCard
+import com.kavelipay.app.ui.theme.VerdeEscuro
 
-/**
- * Cartão com borda fina e zero sombra — a Wise tira profundidade do brilho da
- * cor, não de sombra. `Box` com `border` em vez de `Surface(tonalElevation)`
- * porque a tonal elevation do Material grey fica cinza e briga com o tom verde.
- */
+// ========================================================================
+// KpCard — cartão padrão (raio 16dp, borda fina)
+// ========================================================================
 @Composable
 fun KpCard(
     modifier: Modifier = Modifier,
@@ -56,13 +101,9 @@ fun KpCard(
     }
 }
 
-/**
- * Botão primário: pílula lime com texto verde-escuro, como a Wise.
- *
- * `cor` existe para a ação destrutiva (`/lgpd/account`): um botão primário
- * que elimina conta tem que ser vermelho, e trocar o `primary` do tema inteiro
- * por causa disso mudaria a cor de todos os outros CTAs da tela.
- */
+// ========================================================================
+// Botões
+// ========================================================================
 @Composable
 fun KpBotaoPrimario(
     texto: String,
@@ -98,7 +139,6 @@ fun KpBotaoPrimario(
     }
 }
 
-/** Botão secundário: fundo verde translúcido, como a Wise. */
 @Composable
 fun KpBotaoSecundario(
     texto: String,
@@ -127,13 +167,9 @@ fun KpBotaoSecundario(
     }
 }
 
-/**
- * Etiqueta pequena e colorida — categoria, status, tipo.
- *
- * Recebe a cor como cor de TEXTO e usa um fundo derivado com alpha baixo, em
- * vez de um segundo parâmetro de cor: quem chama informa a intenção
- * ("receita", "vencido"), não a paleta.
- */
+// ========================================================================
+// Etiquetas / Badges
+// ========================================================================
 @Composable
 fun KpEtiqueta(
     texto: String,
@@ -155,7 +191,31 @@ fun KpEtiqueta(
     }
 }
 
-/** Estado vazio: ícone, título, explicação. Nunca só texto solto. */
+/** Badge neutra (status padrão: Pendente, Pago, Aguardando, Recebido). Cor só no crítico. */
+@Composable
+fun KpBadgeNeutra(
+    texto: String,
+    modifier: Modifier = Modifier,
+) {
+    val dark = isSystemInDarkTheme()
+    val corTexto = if (dark) BadgeNeutraDark else BadgeNeutra
+    val corFundo = if (dark) BadgeNeutraFundoDark else BadgeNeutraFundo
+    KpEtiqueta(texto = texto, cor = corTexto, fundo = corFundo, modifier = modifier)
+}
+
+/** Badge de status crítico (Vencido) — usa vermelho semântico. */
+@Composable
+fun KpBadgeCritico(
+    texto: String,
+    modifier: Modifier = Modifier,
+) {
+    val sem = KpTheme.semanticas
+    KpEtiqueta(texto = texto, cor = sem.vencido, fundo = sem.vencidoFundo, modifier = modifier)
+}
+
+// ========================================================================
+// Estados
+// ========================================================================
 @Composable
 fun KpVazio(
     icone: ImageVector,
@@ -183,7 +243,7 @@ fun KpVazio(
             )
         }
         Spacer(Modifier.height(Spacing.md))
-        Text(titulo, style = TituloCartao, textAlign = TextAlign.Center)
+        Text(titulo, style = TituloCard, textAlign = TextAlign.Center)
         Spacer(Modifier.height(Spacing.xs))
         Text(
             descricao,
@@ -198,7 +258,6 @@ fun KpVazio(
     }
 }
 
-/** Linha rótulo/valor, usada nos resumos. */
 @Composable
 fun KpLinhaResumo(
     rotulo: String,
@@ -219,20 +278,15 @@ fun KpLinhaResumo(
         )
         Text(
             valor,
-            style = if (negrito) TituloCartao else MaterialTheme.typography.bodyMedium,
+            style = if (negrito) TituloCard else MaterialTheme.typography.bodyMedium,
             color = corValor,
         )
     }
 }
 
-/**
- * Aviso persistente de "saldo demonstrativo".
- *
- * Este é o componente mais importante do app em termos de honestidade. A spec
- * exige que o backend marque a carteira como demonstrativa, e o app tem que
- * deixar isso visível — não num rodapé. Não é um toast e não tem X: some
- * quando o saldo deixa de ser demonstrativo, não quando o usuário descarta.
- */
+// ========================================================================
+// Aviso de saldo demonstrativo
+// ========================================================================
 @Composable
 fun KpAvisoSaldoDemonstrativo(
     modifier: Modifier = Modifier,
@@ -242,9 +296,9 @@ fun KpAvisoSaldoDemonstrativo(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(com.kavelipay.app.ui.theme.RaioCard))
+            .clip(RoundedCornerShape(RaioCard))
             .background(sem.demoFundo)
-            .border(1.dp, sem.demoFundo.copy(alpha = 0.6f), RoundedCornerShape(com.kavelipay.app.ui.theme.RaioCard))
+            .border(1.dp, sem.demoFundo.copy(alpha = 0.6f), RoundedCornerShape(RaioCard))
             .padding(Spacing.md),
     ) {
         Text(
@@ -262,5 +316,406 @@ fun KpAvisoSaldoDemonstrativo(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+// ========================================================================
+// NOVOS COMPONENTES — Padrão Nubank
+// ========================================================================
+
+/** Item da fila de ações (Home): ícone + label, pill clicável. */
+@Composable
+fun KpAcaoItem(
+    icone: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .width(88.dp)
+            .clip(RoundedCornerShape(Pilula))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = icone,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** Fila horizontal de ações (Home) — LazyRow com affordance de scroll. */
+@Composable
+fun KpFilaAcoes(
+    acoes: List<@Composable () -> Unit>,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier
+            .fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        contentPadding = PaddingValues(horizontal = Spacing.md),
+    ) {
+        items(acoes.size) { index ->
+            acoes[index]()
+        }
+    }
+}
+
+/** Card do carrossel "Descubra mais". */
+@Composable
+fun KpCarrosselItem(
+    icone: ImageVector,
+    titulo: String,
+    descricao: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .width(280.dp)
+            .clip(RoundedCornerShape(RaioCard))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(RaioCard))
+            .padding(Spacing.md)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icone,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+            Spacer(Modifier.height(Spacing.md))
+            Text(
+                titulo,
+                style = TituloCard,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                descricao,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** Carrossel horizontal "Descubra mais". */
+@Composable
+fun KpCarrossel(
+    itens: List<@Composable () -> Unit>,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier
+            .fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        contentPadding = PaddingValues(horizontal = Spacing.md),
+    ) {
+        items(itens.size) { index ->
+            itens[index]()
+        }
+    }
+}
+
+/** Card de saldo herói (Home) — estilo Nubank. */
+@Composable
+fun KpHeroCardSaldo(
+    saldo: String,
+    moeda: String = "BRL",
+    demonstrativa: Boolean = true,
+    aoVerDerivacao: () -> Unit,
+    aoToggleOcultar: () -> Unit,
+    oculto: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val dark = isSystemInDarkTheme()
+    val sem = KpTheme.semanticas
+
+    val (fundo, corBorda) = if (dark) {
+        HeroCardDark to HeroCardBordaDark
+    } else {
+        MaterialTheme.colorScheme.surface to MaterialTheme.colorScheme.outline
+    }
+
+    KpCard(
+        modifier = modifier
+            .fillMaxWidth()
+            .border(if (dark) 1.5.dp else 1.dp, corBorda, RoundedCornerShape(RaioCard)),
+        cor = fundo,
+    ) {
+        Column(Modifier.padding(Spacing.lg)) {
+            // Topo: label + toggle ocultar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Saldo disponível",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                IconButton(onClick = aoToggleOcultar) {
+                    Icon(
+                        imageVector = if (oculto) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (oculto) "Mostrar saldo" else "Ocultar saldo",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(Spacing.sm))
+
+            // Valor
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                Text(
+                    if (oculto) "••••••" else "R$ ${com.kavelipay.app.ui.components.Money.brl(saldo)}",
+                    style = ValorHeroCard,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    moeda,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
+
+            Spacer(Modifier.height(Spacing.md))
+
+            // Selo demonstrativo + botão derivacao
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (demonstrativa) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(Pilula))
+                            .background(sem.demoFundo)
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            "Demonstrativo",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = sem.demo,
+                        )
+                    }
+                }
+
+                KpBotaoSecundario(
+                    texto = "De onde vem?",
+                    onClick = aoVerDerivacao,
+                    icone = Icons.Default.ExpandMore,
+                    modifier = Modifier.padding(top = Spacing.xs),
+                )
+            }
+        }
+    }
+}
+
+/** TopBar padrão Nubank: saudação + ações (tema, notificações, ocultar saldo). */
+@Composable
+fun KpTopBar(
+    saudacao: String = "Olá",
+    aoToggleTema: () -> Unit = {},
+    aoVerNotificacoes: () -> Unit = {},
+    aoToggleOcultarSaldo: () -> Unit = {},
+    ocultarSaldo: Boolean = false,
+    dark: Boolean = false, // passado de fora, não usa isSystemInDarkTheme() aqui
+    naoLidas: Int = 0, // vem do estado compartilhado — o sino sem contador era mentira
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .padding(horizontal = Spacing.md),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column {
+            Text(
+                saudacao,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "KaveliPay",
+                style = TituloTela,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            // Tema
+            IconButton(onClick = aoToggleTema) {
+                Icon(
+                    imageVector = if (dark) Icons.Default.Brightness7 else Icons.Default.Brightness4,
+                    contentDescription = if (dark) "Tema claro" else "Tema escuro",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+            // Notificações — badge com a contagem de não lidas. Sem o badge o
+            // sino era decoração: o número existia no estado e ninguém via.
+            IconButton(onClick = aoVerNotificacoes) {
+                BadgedBox(
+                    badge = {
+                        if (naoLidas > 0) {
+                            Badge { Text(if (naoLidas > 99) "99+" else naoLidas.toString()) }
+                        }
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = if (naoLidas > 0) {
+                            "Notificações, $naoLidas não lidas"
+                        } else {
+                            "Notificações"
+                        },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+            // Ocultar saldo
+            IconButton(onClick = aoToggleOcultarSaldo) {
+                Icon(
+                    imageVector = if (ocultarSaldo) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (ocultarSaldo) "Mostrar saldo" else "Ocultar saldo",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+    }
+}
+
+/** TabBar inferior 5 abas (Início, Contas, Histórico, Cobranças, Perfil). */
+@Composable
+fun KpTabBar(
+    abaAtual: Int,
+    aoClicarAba: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val abas = listOf(
+        TabItem(Icons.Default.Home, "Início"),
+        TabItem(Icons.Default.ReceiptLong, "Contas"),
+        TabItem(Icons.Default.History, "Histórico"),
+        TabItem(Icons.Default.QrCode, "Cobranças"),
+        TabItem(Icons.Default.Person, "Perfil"),
+    )
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        abas.forEachIndexed { index, item ->
+            val selecionado = index == abaAtual
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clickable { aoClicarAba(index) }
+                    .padding(vertical = Spacing.xs),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    imageVector = item.icone,
+                    contentDescription = null,
+                    tint = if (selecionado) LimeMarca else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    item.label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = if (selecionado) FontWeight.Bold else FontWeight.Normal
+                    ),
+                    color = if (selecionado) LimeMarca else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+private data class TabItem(val icone: ImageVector, val label: String)
+
+/** Cabeçalho simples com botão voltar (para telas de detalhe/formulário). */
+@Composable
+fun KpCabecalhoComVoltar(
+    titulo: String,
+    aoVoltar: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .padding(horizontal = Spacing.md),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = aoVoltar) {
+            Icon(
+                imageVector = Icons.Default.ExpandLess,
+                contentDescription = "Voltar",
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+        Text(titulo, style = TituloTela, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.width(48.dp)) // balanceia o ícone de voltar
     }
 }

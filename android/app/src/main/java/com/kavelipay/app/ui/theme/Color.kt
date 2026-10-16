@@ -44,15 +44,27 @@ val AvisoFundo = Color(0xFFFEF0C7)
 val PretoDark = Color(0xFF0E0F0C)
 val SuperficieDark = Color(0xFF1A1C18)
 val SuperficieDarkAlt = Color(0xFF23261F)
+// Fundo do card de saldo herói no dark: #123A1E (contraste ≥3:1 vs #1A1C18)
+val HeroCardDark = Color(0xFF123A1E)
 val TextoDarkPrimario = Color(0xFFF5F7F2)
 val TextoDarkSecundario = Color(0xFFA8ADA6)
 val BordaDark = Color(0x24F5F7F2)
+// Borda lime ~50% para o card herói dark
+val HeroCardBordaDark = Color(0x809FE870)
 val ReceitaDark = Color(0xFF7BE495)
 val DespesaDark = Color(0xFFF5F7F2)
 val VencidoDark = Color(0xFFFEAFA8)
 val VencidoFundoDark = Color(0xFF3B1512)
 val AvisoDark = Color(0xFFF9D48C)
 val AvisoFundoDark = Color(0xFF3A2A0C)
+
+// ── Badge neutra (status padrão: Pendente, Pago, Aguardando, Recebido) ───────
+// Light
+val BadgeNeutra = Color(0xFF454745)       // TextoSecundario
+val BadgeNeutraFundo = Color(0xFFEFF3EC)  // SuperficieClaraAlt
+// Dark
+val BadgeNeutraDark = Color(0xFFA8ADA6)   // TextoDarkSecundario
+val BadgeNeutraFundoDark = Color(0xFF32362C)
 
 /**
  * Converte o hex que o backend manda (`"#22C55E"`, `#RRGGBB`) em [Color].

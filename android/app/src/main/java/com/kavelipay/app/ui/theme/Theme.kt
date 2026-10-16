@@ -15,10 +15,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** Escala de raio da Wise: pílula nos botões, 20–28 nos cartões. */
+/** Escala de raio estilo Nubank: pílula 9999, cards 16dp, inputs 12dp. */
 val Pilula: Dp = 9999.dp
-val RaioCard: Dp = 20.dp
-val RaioCardGrande: Dp = 28.dp
+val RaioCard: Dp = 16.dp
+val RaioCardGrande: Dp = 24.dp
 val RaioInput: Dp = 12.dp
 val RaioPequeno: Dp = 8.dp
 
@@ -152,10 +152,10 @@ fun KaveliPayTheme(
         MaterialTheme(
             colorScheme = if (escuro) Escuro else Claro,
             typography = MaterialTheme.typography.copy(
-                displayLarge = SaldoDisplay,
-                headlineLarge = TituloGrande,
-                headlineSmall = TituloSecao,
-                titleMedium = TituloCartao,
+                displayLarge = SaldoHeroi,
+                headlineLarge = TituloTela,
+                headlineSmall = TituloCard,
+                titleMedium = TituloCard,
                 bodyLarge = Corpo,
                 bodyMedium = CorpoForte,
                 labelSmall = Micro,

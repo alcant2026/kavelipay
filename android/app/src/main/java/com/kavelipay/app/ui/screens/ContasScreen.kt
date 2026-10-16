@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.ReceiptLong
@@ -34,30 +35,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.kavelipay.app.ui.AppViewModel
+import com.kavelipay.app.ui.components.KpBadgeCritico
+import com.kavelipay.app.ui.components.KpBadgeNeutra
+import com.kavelipay.app.ui.components.KpBotaoPrimario
 import com.kavelipay.app.ui.components.KpBotaoSecundario
+import com.kavelipay.app.ui.components.KpCabecalhoComVoltar
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.components.KpEtiqueta
 import com.kavelipay.app.ui.components.KpLinhaResumo
 import com.kavelipay.app.ui.components.KpVazio
-import com.kavelipay.app.ui.screens.LinhaConta
 import com.kavelipay.app.ui.components.Money.brl
+import com.kavelipay.app.ui.screens.LinhaContaHome
 import com.kavelipay.app.ui.theme.KpTheme
 import com.kavelipay.app.ui.theme.RaioCard
 import com.kavelipay.app.ui.theme.RotuloCaixaAlta
 import com.kavelipay.app.ui.theme.Spacing
+import com.kavelipay.app.ui.theme.TituloCard
 import com.kavelipay.app.ui.theme.TituloSecao
 import kotlin.math.roundToInt
 
 /** Contas a pagar: pendentes, vencidas e o botão de pagar. */
 @Composable
-fun KpContasScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
+fun KpContasScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoNovaConta: () -> Unit = {}) {
     val estado by vm.estado.collectAsState()
     val sem = KpTheme.semanticas
     val contas = estado.contas?.itens.orEmpty()
     val vencidas = contas.count { it.isOverdue }
     val pendentes = contas.count { it.status == "PENDING" }
 
-    Scaffold(topBar = { CabecalhoComVoltar("Contas a pagar", aoVoltar) }) { padding ->
+    Scaffold(topBar = { KpCabecalhoComVoltar("Contas a pagar", aoVoltar) }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(
@@ -66,6 +72,18 @@ fun KpContasScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
             ),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
+            // Cadastrar conta — o `POST /bills` e a API já existiam, mas não
+            // tinha UM botão no app inteiro que chamasse; dava pra pagar
+            // conta que ninguém conseguia criar.
+            item {
+                KpBotaoPrimario(
+                    texto = "Nova conta",
+                    onClick = aoNovaConta,
+                    modifier = Modifier.fillMaxWidth(),
+                    icone = Icons.Default.Add,
+                )
+            }
+
             if (vencidas > 0) {
                 item {
                     Box(
@@ -106,6 +124,13 @@ fun KpContasScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                             icone = Icons.Default.ReceiptLong,
                             titulo = "Nenhuma conta cadastrada",
                             descricao = "Cadastre uma conta para acompanhar o vencimento.",
+                            acao = {
+                                KpBotaoPrimario(
+                                    texto = "Cadastrar conta",
+                                    onClick = aoNovaConta,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            },
                         )
                     }
                 }
@@ -114,10 +139,7 @@ fun KpContasScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                     KpCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(horizontal = Spacing.md)) {
                             contas.forEachIndexed { i, conta ->
-                                // Valor e trailing (badge/botão) lado a lado na
-                                // Row de LinhaConta. Antes o trailing ia num Box
-                                // com align(CenterEnd) e cobria o número.
-                                LinhaConta(conta) {
+                                LinhaContaHome(conta) {
                                     if (conta.status == "PENDING") {
                                         KpBotaoSecundario(
                                             texto = "Marcar como paga",
@@ -125,11 +147,7 @@ fun KpContasScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                                             cor = MaterialTheme.colorScheme.primary,
                                         )
                                     } else {
-                                        KpEtiqueta(
-                                            conta.status,
-                                            sem.receita,
-                                            fundo = sem.receitaFundo,
-                                        )
+                                        KpBadgeNeutra(conta.status)
                                     }
                                 }
                                 if (i < contas.lastIndex) {

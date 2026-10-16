@@ -61,7 +61,7 @@ import com.kavelipay.app.ui.components.formatarData
 import com.kavelipay.app.ui.theme.KpTheme
 import com.kavelipay.app.ui.theme.RotuloCaixaAlta
 import com.kavelipay.app.ui.theme.Spacing
-import com.kavelipay.app.ui.theme.TituloCartao
+import com.kavelipay.app.ui.theme.TituloCard
 import com.kavelipay.app.ui.theme.TituloSecao
 
 /**
@@ -268,8 +268,8 @@ private fun LinhaDivida(
 
         Spacer(Modifier.height(Spacing.sm))
         Text(
-            "R\$ ${Money.brl(divida.amount)}",
-            style = TituloCartao,
+            "R$ ${Money.brl(divida.amount)}",
+            style = TituloCard,
         )
 
         if (DividaRegras.podePagar(divida.status)) {
