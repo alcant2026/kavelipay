@@ -35,7 +35,6 @@ import com.kavelipay.app.ui.components.KpLinhaResumo
 import com.kavelipay.app.ui.theme.KpTheme
 import com.kavelipay.app.ui.theme.RotuloCaixaAlta
 import com.kavelipay.app.ui.theme.Spacing
-import org.json.JSONObject
 
 /**
  * Criar divisão de despesa.
@@ -229,5 +228,3 @@ internal fun somaDecimal(valores: List<String>): java.math.BigDecimal? {
         acc.add(v)
     }
 }
-
-internal fun paraApi(valor: String): String = JSONObject().put("placeholder", valor).let { "" }

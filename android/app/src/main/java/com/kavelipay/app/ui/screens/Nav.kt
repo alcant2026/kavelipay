@@ -33,6 +33,9 @@ private object Rota {
     const val HOME = "home"
     const val DERIVACAO = "derivacao"
     const val NOVA = "nova"
+    const val NOVA_DESPESA = "nova_despesa"
+    const val NOVA_CONTA = "nova_conta"
+    const val NOTIFICACOES = "notificacoes"
     const val CONTAS = "contas"
     const val RELATORIO = "relatorio"
     const val SPLITS = "splits"
@@ -63,7 +66,11 @@ private object Rota {
  * claro que um grafo de navegação com guarda.
  */
 @Composable
-fun KpRaiz(vm: AppViewModel) {
+fun KpRaiz(
+    vm: AppViewModel,
+    temaEscuro: Boolean,
+    aoAlternarTema: () -> Unit,
+) {
     val estado by vm.estado.collectAsState()
 
     if (!estado.autenticado) {
@@ -91,6 +98,24 @@ fun KpRaiz(vm: AppViewModel) {
                 aoVerCategorias = { nav.navigate(Rota.CATEGORIAS) },
                 aoVerPerfil = { nav.navigate(Rota.PERFIL) },
                 aoVerInvestimentos = { nav.navigate(Rota.INVESTIMENTOS) },
+                aoVerNotificacoes = { nav.navigate(Rota.NOTIFICACOES) },
+                aoNovaDespesa = { nav.navigate(Rota.NOVA_DESPESA) },
+                temaEscuro = temaEscuro,
+                aoAlternarTema = aoAlternarTema,
+            )
+        }
+        composable(Rota.NOTIFICACOES) {
+            KpNotificacoesScreen(vm = vm, aoVoltar = { nav.popBackStack() })
+        }
+        composable(Rota.NOVA_DESPESA) {
+            // Mesma tela do "Entrada", só que já nascendo como despesa — o
+            // seletor da tela continua livre pra trocar depois.
+            KpNovaTransacaoScreen(
+                vm = vm,
+                aoVoltar = { nav.popBackStack() },
+                aoSalvar = { nav.popBackStack() },
+                categorias = estado.categorias,
+                entradaInicial = false,
             )
         }
         composable(Rota.DERIVACAO) {
@@ -105,7 +130,18 @@ fun KpRaiz(vm: AppViewModel) {
             )
         }
         composable(Rota.CONTAS) {
-            KpContasScreen(vm, aoVoltar = { nav.popBackStack() })
+            KpContasScreen(
+                vm = vm,
+                aoVoltar = { nav.popBackStack() },
+                aoNovaConta = { nav.navigate(Rota.NOVA_CONTA) },
+            )
+        }
+        composable(Rota.NOVA_CONTA) {
+            KpNovaContaScreen(
+                vm = vm,
+                aoVoltar = { nav.popBackStack() },
+                aoSalvar = { nav.popBackStack() },
+            )
         }
         composable(Rota.RELATORIO) {
             KpRelatorioScreen(vm, aoVoltar = { nav.popBackStack() })

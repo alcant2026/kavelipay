@@ -20,6 +20,7 @@ import com.kavelipay.app.data.ListaDividas
 import com.kavelipay.app.data.ListaSessoes
 import com.kavelipay.app.data.ListaSplits
 import com.kavelipay.app.data.MovimentoInvestimento
+import com.kavelipay.app.data.Notificacao
 import com.kavelipay.app.data.Perfil
 import com.kavelipay.app.data.PesquisaAtivo
 import com.kavelipay.app.data.Relatorio
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.time.Instant
 
 /**
  * Estado único da tela principal.
@@ -63,6 +65,9 @@ data class EstadoApp(
     val historico: Historico? = null,
     val perfil: Perfil? = null,
     val sessoes: ListaSessoes? = null,
+
+    // Notificações (tela dedicada; o contador `naoLidas` existe desde o início)
+    val notificacoes: List<Notificacao>? = null,
 
     // Investimentos
     val investimentos: CarteiraInvestimentos? = null,
@@ -216,11 +221,118 @@ class AppViewModel(private val sessao: SessionStore) : ViewModel() {
         }
     }
 
+    /**
+     * Cadastra conta a pagar (`POST /bills`, sempre PENDING).
+     *
+     * [amount] chega normalizado (vírgula→ponto, `filtrarValor`) e
+     * [vencimentoIso] em `YYYY-MM-DD` — as duas conversões acontecem na tela,
+     * porque a regra de entrada é do cliente (vírgula, dd/mm/aaaa) e a do
+     * payload é do backend (ponto, ISO). Aqui só persiste.
+     */
+    fun novaConta(
+        descricao: String,
+        amount: String,
+        vencimentoIso: String,
+        beneficiario: String?,
+        onOk: () -> Unit,
+    ) {
+        _estado.update { it.copy(enviando = true, erro = null, enviadoComSucesso = false) }
+        viewModelScope.launch {
+            runCatching {
+                api.novaConta(
+                    descricao = descricao.trim(),
+                    amount = amount,
+                    dueDate = vencimentoIso,
+                    beneficiario = beneficiario?.trim(),
+                )
+            }
+                .onSuccess {
+                    _estado.update { it.copy(enviando = false, enviadoComSucesso = true) }
+                    carregarTudo()
+                    onOk()
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) }
+                }
+        }
+    }
+
+    /**
+     * Lista completa das notificações (tela Notificações).
+     *
+     * `naoLidas` sai da MESMA lista em vez de uma segunda chamada com
+     * `unread_only`: sino e tela precisam bater, e duas leituras em horários
+     * diferentes mostrariam números diferentes para o mesmo usuário.
+     */
+    fun carregarNotificacoes() {
+        viewModelScope.launch {
+            runCatching { api.notificacoes() }
+                .onSuccess { lista ->
+                    _estado.update { atual ->
+                        atual.copy(
+                            notificacoes = lista,
+                            naoLidas = lista.count { n -> n.readAt == null },
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _estado.update { atual -> atual.copy(erro = mensagemDe(e)) }
+                }
+        }
+    }
+
+    /**
+     * Marca UMA notificação como lida.
+     *
+     * A atualização local é otimista (some da lista de não lidas na hora) e a
+     * recarga em seguida confirma com o servidor — o `runCatching` interno do
+     * `KaveliPayApi` engole falha de rede, então a recarga é o único jeito de
+     * o estado voltar a refletir a verdade do backend.
+     */
+    fun marcarNotificacaoLida(id: String) {
+        viewModelScope.launch {
+            runCatching { api.marcarNotificacaoLida(id) }
+                .onSuccess {
+                    _estado.update { atual ->
+                        atual.copy(
+                            notificacoes = atual.notificacoes?.map { n ->
+                                if (n.id == id) n.copy(readAt = Instant.now().toString()) else n
+                            },
+                            naoLidas = (atual.naoLidas - 1).coerceAtLeast(0),
+                        )
+                    }
+                    carregarNotificacoes()
+                }
+                .onFailure { e ->
+                    _estado.update { atual -> atual.copy(erro = mensagemDe(e)) }
+                }
+        }
+    }
+
+    /**
+     * Marca TODAS como lidas.
+     *
+     * O corpo antigo chamava `gerarNotificacoes()` — que SÓ cria lembretes — e
+     * depois recontava as não lidas. O botão "marcar todas" existia na API e
+     * nunca foi chamado: de fato não fazia nada.
+     */
     fun marcarTodasLidas() {
         viewModelScope.launch {
-            api.gerarNotificacoes()
-            runCatching { api.notificacoes(somenteNaoLidas = true) }
-                .onSuccess { restantes -> _estado.update { it.copy(naoLidas = restantes.size) } }
+            runCatching { api.marcarTodasNotificacoesLidas() }
+                .onSuccess {
+                    _estado.update { atual ->
+                        atual.copy(
+                            notificacoes = atual.notificacoes?.map { n ->
+                                n.copy(readAt = n.readAt ?: Instant.now().toString())
+                            },
+                            naoLidas = 0,
+                        )
+                    }
+                    carregarNotificacoes()
+                }
+                .onFailure { e ->
+                    _estado.update { atual -> atual.copy(erro = mensagemDe(e)) }
+                }
         }
     }
 

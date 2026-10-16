@@ -69,11 +69,14 @@ fun KpNovaTransacaoScreen(
     aoVoltar: () -> Unit,
     aoSalvar: () -> Unit,
     categorias: List<com.kavelipay.app.data.Categoria>,
+    // O botão "Despesa" da Home abre a tela já com o tipo certo; sem isto a
+    // pessoa clicava em Despesa, caía em "Entrada" e ainda tinha que trocar.
+    entradaInicial: Boolean = true,
 ) {
     val estado by vm.estado.collectAsState()
     val sem = KpTheme.semanticas
 
-    var entrada by rememberSaveable { mutableStateOf(true) }
+    var entrada by rememberSaveable(entradaInicial) { mutableStateOf(entradaInicial) }
     var valor by rememberSaveable { mutableStateOf("") }
     var descricao by rememberSaveable { mutableStateOf("") }
     var categoriaId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -93,24 +96,35 @@ fun KpNovaTransacaoScreen(
         ) {
             item {
                 // Seletor Entrada/Despesa. Pills grandes em vez de switch: o
-                // usuário decide o tipo uma vez e erra menos.
+                // usuário decide o tipo uma vez e erra menos. O estilo VERDE é
+                // do SELECIONADO — antes era fixo (Entrada sempre verde) e a
+                // pessoa abrindo por "Despesa" via a tela toda errada.
+                val aoEscolherEntrada = { entrada = true; categoriaId = null }
+                val aoEscolherDespesa = { entrada = false; categoriaId = null }
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    KpBotaoPrimario(
-                        texto = "Entrada",
-                        onClick = {
-                            entrada = true
-                            categoriaId = null
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    KpBotaoSecundario(
-                        texto = "Despesa",
-                        onClick = {
-                            entrada = false
-                            categoriaId = null
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
+                    if (entrada) {
+                        KpBotaoPrimario(
+                            texto = "Entrada",
+                            onClick = aoEscolherEntrada,
+                            modifier = Modifier.weight(1f),
+                        )
+                        KpBotaoSecundario(
+                            texto = "Despesa",
+                            onClick = aoEscolherDespesa,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        KpBotaoSecundario(
+                            texto = "Entrada",
+                            onClick = aoEscolherEntrada,
+                            modifier = Modifier.weight(1f),
+                        )
+                        KpBotaoPrimario(
+                            texto = "Despesa",
+                            onClick = aoEscolherDespesa,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
 
