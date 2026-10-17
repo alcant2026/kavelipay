@@ -12,6 +12,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -140,6 +141,18 @@ object Spacing {
     val xl: Dp = 32.dp
     val xxl: Dp = 48.dp
 }
+
+/**
+ * Tema ATUAL do app (a escolha do botão da TopBar) — não o do sistema.
+ *
+ * Componentes não podem usar `isSystemInDarkTheme()` para decidir cor: o app
+ * tem botão de tema próprio, e o sistema pode estar em dark com o app em
+ * light (ou o contrário). Aí o card escuro saía com texto do tema claro por
+ * cima — o "dark/light não funciona" que o usuário viu.
+ */
+@Composable
+@ReadOnlyComposable
+fun temaEscuroApp(): Boolean = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
 @Composable
 fun KaveliPayTheme(

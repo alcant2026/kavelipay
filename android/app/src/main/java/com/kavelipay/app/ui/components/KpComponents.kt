@@ -4,20 +4,24 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -81,6 +85,7 @@ import com.kavelipay.app.ui.theme.TituloCard
 import com.kavelipay.app.ui.theme.TituloTela
 import com.kavelipay.app.ui.theme.ValorHeroCard
 import com.kavelipay.app.ui.theme.VerdeEscuro
+import com.kavelipay.app.ui.theme.temaEscuroApp
 
 // ========================================================================
 // KpCard — cartão padrão (raio 16dp, borda fina)
@@ -197,7 +202,7 @@ fun KpBadgeNeutra(
     texto: String,
     modifier: Modifier = Modifier,
 ) {
-    val dark = isSystemInDarkTheme()
+    val dark = temaEscuroApp()
     val corTexto = if (dark) BadgeNeutraDark else BadgeNeutra
     val corFundo = if (dark) BadgeNeutraFundoDark else BadgeNeutraFundo
     KpEtiqueta(texto = texto, cor = corTexto, fundo = corFundo, modifier = modifier)
@@ -466,7 +471,7 @@ fun KpHeroCardSaldo(
     oculto: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val dark = isSystemInDarkTheme()
+    val dark = temaEscuroApp()
     val sem = KpTheme.semanticas
 
     val (fundo, corBorda) = if (dark) {
@@ -558,14 +563,17 @@ fun KpHeroCardSaldo(
     }
 }
 
-/** TopBar padrão Nubank: saudação + ações (tema, notificações, ocultar saldo). */
+/**
+ * TopBar padrão Nubank: saudação + ações (tema, notificações).
+ *
+ * Sem ícone de olho aqui: o de ocultar saldo é do card da wallet (quem tem a
+ * wallet é quem olha o saldo) — duplicar o controle em cima só confundia.
+ */
 @Composable
 fun KpTopBar(
     saudacao: String = "Olá",
     aoToggleTema: () -> Unit = {},
     aoVerNotificacoes: () -> Unit = {},
-    aoToggleOcultarSaldo: () -> Unit = {},
-    ocultarSaldo: Boolean = false,
     dark: Boolean = false, // passado de fora, não usa isSystemInDarkTheme() aqui
     naoLidas: Int = 0, // vem do estado compartilhado — o sino sem contador era mentira
     modifier: Modifier = Modifier,
@@ -573,6 +581,13 @@ fun KpTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // Abaixo da status bar + piso de 40dp: no Waydroid (janela
+            // desktop) a tira de controles da janela cobre o topo sem
+            // reportar inset nenhum — sem o piso, o clique no centro do
+            // ícone de tema não chegava ao app.
+            .windowInsetsPadding(
+                WindowInsets.statusBars.union(WindowInsets(top = 40.dp)),
+            )
             .height(56.dp)
             .padding(horizontal = Spacing.md),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -623,15 +638,6 @@ fun KpTopBar(
                     )
                 }
             }
-            // Ocultar saldo
-            IconButton(onClick = aoToggleOcultarSaldo) {
-                Icon(
-                    imageVector = if (ocultarSaldo) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = if (ocultarSaldo) "Mostrar saldo" else "Ocultar saldo",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
         }
     }
 }
@@ -654,6 +660,9 @@ fun KpTabBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // Abaixo da barra de navegação (gesto do Android): sem isso as
+            // abas ficam atrás da pílula de gesto no celular.
+            .windowInsetsPadding(WindowInsets.navigationBars)
             .height(64.dp)
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
@@ -702,6 +711,12 @@ fun KpCabecalhoComVoltar(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // Mesmo motivo do KpTopBar: sem o inset + piso o voltar fica
+            // atrás da barra do sistema (ou da tira do Waydroid) e o clique
+            // se perde.
+            .windowInsetsPadding(
+                WindowInsets.statusBars.union(WindowInsets(top = 40.dp)),
+            )
             .height(56.dp)
             .padding(horizontal = Spacing.md),
         horizontalArrangement = Arrangement.SpaceBetween,

@@ -118,7 +118,6 @@ fun KpHomeScreen(
     // escolha é a raiz (MainActivity) — um `dark` local só trocava o ícone e
     // sumia ao fechar o app.
     val aoToggleTema = { aoAlternarTema() }
-    val aoToggleOcultarSaldo = { ocultarSaldo = !ocultarSaldo }
 
     // TabBar navegação
     val aoClicarAba = { index: Int ->
@@ -138,8 +137,6 @@ fun KpHomeScreen(
                 saudacao = "Olá",
                 aoToggleTema = aoToggleTema,
                 aoVerNotificacoes = aoVerNotificacoes,
-                aoToggleOcultarSaldo = aoToggleOcultarSaldo,
-                ocultarSaldo = ocultarSaldo,
                 dark = temaEscuro,
                 naoLidas = estado.naoLidas,
             )

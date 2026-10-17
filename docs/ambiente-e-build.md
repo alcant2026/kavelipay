@@ -97,12 +97,19 @@ waydroid app launch com.kavelipay.app.debug
   `offline`. Zera tudo e reconecta:
   ```
   ADB=~/Android/Sdk/platform-tools/adb
+  waydroid app launch com.kavelipay.app    # acorda o container (FROZEN → RUNNING)
   $ADB disconnect; $ADB kill-server; $ADB connect 192.168.240.112:5555
   # após ~10s: $ADB devices → "device"
   ```
+  **O connect só pega com o container RUNNING** (tela ligada): com sessão
+  FROZEN/STOPPED o adb conecta e fica `offline` pra sempre — acorde com
+  `waydroid app launch` antes. Se mesmo assim ficar offline, é wedge (abaixo).
   Atenção: o IP do container muda a cada boot da sessão (foi `.112`); pegue o
   atual com `ip -4 addr show waydroid0` + `waydroid status`. Com adb tenho
   `input tap/text`, `exec-out screencap -p` e `uiautomator dump` (árvore de UI).
+- **Atualizar APK: `adb install -r <apk>`**, não `waydroid app install` — o
+  segundo às vezes sai com exit 0 e NÃO aplica a atualização (o app velho
+  continua rodando e você "conserta" um build que nem está instalado).
 - **Reboot mata tudo em cascata** (já aconteceu): container `kavelipay-pg`
   exited, backend morto, sessão Waydroid STOPPED e o app sem sessão — backend
   de novo no ar com `JWT_SECRET` novo → **401 em todo request**, a conta
