@@ -70,16 +70,20 @@ fun KpNovoAtivoScreen(
         ) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    KpBotaoPrimario("Ação", { tipo = "STOCK" }, Modifier.weight(1f))
-                    if (tipo == "STOCK") {
-                        Spacer(Modifier.weight(0.0001f))
-                    } else {
-                        KpBotaoSecundario("Fundo", { tipo = "FII" }, Modifier.weight(1f))
-                    }
-                    if (tipo == "FII") {
-                        Spacer(Modifier.weight(0.0001f))
-                    } else {
-                        KpBotaoSecundario("Renda fixa", { tipo = "BOND" }, Modifier.weight(1f))
+                    // Seletor de tipo: o escolhido fica verde (primário), os
+                    // outros secundários. Antes o verde era fixo no "Ação" e
+                    // os outros botões somem da linha quando ficavam
+                    // selecionados — dava a sensação de travar.
+                    listOf(
+                        "STOCK" to "Ação",
+                        "FII" to "Fundo",
+                        "BOND" to "Renda fixa",
+                    ).forEach { (valor, rotulo) ->
+                        if (tipo == valor) {
+                            KpBotaoPrimario(rotulo, { tipo = valor }, Modifier.weight(1f))
+                        } else {
+                            KpBotaoSecundario(rotulo, { tipo = valor }, Modifier.weight(1f))
+                        }
                     }
                 }
             }
@@ -87,10 +91,18 @@ fun KpNovoAtivoScreen(
             item {
                 KpCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(Spacing.md)) {
+                        // Renda fixa não tem ticker de bolsa: o backend aceita
+                        // texto livre de até 20 (normalizar_simbolo) e a IA
+                        // busca pelo NOME — o rótulo muda por tipo pra não
+                        // mandar a pessoa procurar código PETR4 em Tesouro.
                         KpCampo(
                             valor = symbol,
                             aoMudar = { symbol = it.uppercase().take(20) },
-                            rotulo = "Código (ex.: PETR4)",
+                            rotulo = when (tipo) {
+                                "FII" -> "Código (ex.: MXRF11)"
+                                "BOND" -> "Nome do papel (ex.: Tesouro Selic 2029)"
+                                else -> "Código (ex.: PETR4)"
+                            },
                             umaLinha = true,
                             // Saiu do campo = momento de perguntar à IA (a
                             // resposta preenche só o que estiver vazio). As
@@ -156,23 +168,27 @@ fun KpNovoAtivoScreen(
                 }
             }
 
-            item {
-                KpCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(Spacing.md)) {
-                        KpCampo(
-                            valor = proximoDividendo,
-                            aoMudar = { proximoDividendo = it.take(10) },
-                            rotulo = "Próximo dividendo (dd/mm/aaaa)",
-                            umaLinha = true,
-                        )
-                        Spacer(Modifier.height(Spacing.xs))
-                        Text(
-                            "Opcional. Preenchido automaticamente quando o ativo paga " +
-                                "dividendos e você informa o código — é uma sugestão: confira " +
-                                "na corretora e edite se estiver diferente.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = sem.demo,
-                        )
+            // Renda fixa não paga dividendo (o backend só sugere data de
+            // dividendos pra ação, via brapi) — escondido em BOND.
+            if (tipo != "BOND") {
+                item {
+                    KpCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(Spacing.md)) {
+                            KpCampo(
+                                valor = proximoDividendo,
+                                aoMudar = { proximoDividendo = it.take(10) },
+                                rotulo = "Próximo dividendo (dd/mm/aaaa)",
+                                umaLinha = true,
+                            )
+                            Spacer(Modifier.height(Spacing.xs))
+                            Text(
+                                "Opcional. Preenchido automaticamente quando o ativo paga " +
+                                    "dividendos e você informa o código — é uma sugestão: confira " +
+                                    "na corretora e edite se estiver diferente.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = sem.demo,
+                            )
+                        }
                     }
                 }
             }
