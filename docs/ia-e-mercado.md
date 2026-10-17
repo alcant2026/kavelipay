@@ -45,12 +45,13 @@ otimização — cada chamada sai do bolso do KaveliPay.
 - Testes: `tests/lookup.rs` (8, com mock — nenhum gasta token real) e seção 10
   do `investments_e2e.sh` (401/422/503 determinística, sem rede e sem chave).
 
-## Sugestão de mercado: preço e dividendo (brapi + Yahoo)
+## Sugestão de mercado: preço e provento (brapi + Yahoo + statusinvest)
 
 Mesmo desenho da IA: o backend chama as fontes, a chave (se um dia houver)
 fica no servidor, o app só recebe a sugestão pronta e a pessoa confirma.
-As duas fontes atuais são **gratuitas e anônimas** — verificado ao vivo em
-2026-10-12, nenhuma tem API key no fluxo.
+As fontes atuais são **gratuitas e anônimas** — verificado ao vivo em
+2026-10-12 (brapi/Yahoo) e 2026-10-17 (statusinvest), nenhuma tem API key no
+fluxo.
 
 - **Ação (STOCK): preço pelo brapi.dev.** `GET {BRAPI}/api/quote/{symbol}` —
   grátis sem token, devolve `regularMarketPrice` (número JSON) e
@@ -62,26 +63,51 @@ As duas fontes atuais são **gratuitas e anônimas** — verificado ao vivo em
   401 em fundo imobiliário sem token** (verificado ao vivo) — ação sim, fundo
   não. Renda fixa (BOND/OTHER) **não tem fonte viva**: a API do Tesouro Direto
   morreu (DNS nem resolve) — fica manual, resposta vazia.
-- **Dividendos só do brapi, e só pra STOCK.** `?dividends=true` →
+- **Provento (data de pagamento): ação pelo brapi, FII pelo statusinvest.**
+  Ação: `GET {BRAPI}/api/quote/{symbol}?dividends=true` →
   `dividendsData.cashDividends[]`, e a regra é pegar o menor `paymentDate`
   **verificado** ainda por vir (`verified:true`, `>= hoje`, convertido pra
-  -03:00 antes de cortar a data). Yahoo só tem data-ex (quando o direito se
-  extingue), não a data do pagamento — sugerir data-ex como "próximo
-  dividendo" enganaria a pessoa. FII não consulta dividendos de ninguém (brapi
-  401 sem token) — o handler nem faz a chamada.
+  -03:00 antes de cortar a data). FII: `GET
+  {STATUSINVEST}/fii/companytickerprovents?ticker={symbol}&chartProventsType=2`
+  (ação usa `/acao/...&chartProventsType=1`), campo `assetEarningsModels[].pd`
+  em `dd/mm/aaaa` — também data de **pagamento**. O statusinvest é a
+  **reserva** da ação: brapi sem provento futuro → pergunta lá antes de
+  desistir (é o que salva WEGE3 e qualquer ticker fora da lista grátis do
+  brapi). Yahoo só tem data-ex (quando o direito se extingue), não a data do
+  pagamento — sugerir data-ex como "próximo dividendo" enganaria a pessoa,
+  por isso o Yahoo fica fora desse campo.
+- **Sem chave do brapi, só 4 tickers respondem** (PETR4, ITUB4, MGLU3, VALE3
+  — o sandbox do provedor) e o endpoint de dividendos de FII é do plano Pro
+  (R$ 139,99/mês). Por isso o statusinvest (grátis, keyless) é a fonte do
+  fundo e a reserva da ação, em vez de um plano pago.
+- **O statusinvest fala por um cliente HTTP próprio (`src/http_cru.rs`).** O
+  site está atrás de um Cloudflare que devolve 403 ("Just a moment…") para
+  requisição HTTP/1.1 com nome de header em **minúsculo** (verificado ao vivo
+  em 2026-10-17: mesmo curl, `User-Agent:` → 200 e `user-agent:` → 403; HTTP/2
+  também é recusado), e `reqwest`/`hyper` só sabem mandar minúsculo — o tipo
+  `HeaderName` do crate `http` normaliza na construção. Então esse módulo
+  escreve o pedido na mão (TCP + TLS rustls + headers capitalizados). É código
+  de exceção, com escopo mínimo (GET, sem redirect, sem cookie, sem
+  `Accept-Encoding`) e teto de tempo/corpo.
+  **Risco declarado:** endpoint não oficial — se o site mudar o formato ou
+  apertar o Cloudflare (inclusive por IP de datacenter), o parse devolve nada,
+  o log registra o aviso e o app simplesmente não preenche a data. A sugestão
+  nunca quebra o formulário.
 - `POST /investments/quote` `{symbol, kind}` → `{price, source, as_of}`.
   `price` é `Money` (string 2 casas, `"56.00"`), `source` é `"brapi"`/`"yahoo"`,
   `as_of` é o momento do provedor. **Renda fixa, ticker não listado e provedor
   fora** devolvem tudo nulo — nunca 500, nunca 404. O contrato da tela:
   sugestão nunca derruba o formulário; falha = "sem sugestão".
 - `POST /investments/lookup` ganhou `next_dividend` (data `AAAA-MM-DD`, se o
-  ativo paga). Vem do brapi **em paralelo** com a IA (`tokio::join!`): o custo
-  é o da IA (a lenta), não a soma. brapi fora = só perde a data; `found:false`
-  descarta a data junto com nome e resumo.
-- Env vars: `BRAPI_BASE_URL`, `YAHOO_BASE_URL` (hooks de teste, default às
-  URLs reais). `tests/cotacao.rs` sobe um mock único servindo IA+brapi+Yahoo
-  por path; a seção 11 do `investments_e2e.sh` roda com as duas fontes mortas
-  (`127.0.0.1:1`) pra provar o caminho determinístico "provedor fora → 200 vazio".
+  ativo paga). Vem do brapi/statusinvest **em paralelo** com a IA
+  (`tokio::join!`): o custo é o da IA (a lenta), não a soma. Provedor fora = só
+  perde a data; `found:false` descarta a data junto com nome e resumo.
+- Env vars: `BRAPI_BASE_URL`, `YAHOO_BASE_URL`, `STATUSINVEST_BASE_URL` (hooks
+  de teste, default às URLs reais). `tests/cotacao.rs` sobe um mock único
+  servindo IA+brapi+Yahoo+statusinvest por path — o `http_cru` fala HTTP/1.1
+  simples, então o mesmo mock serve a fonte crua sem TLS; a seção 11 do
+  `investments_e2e.sh` roda com as três fontes mortas (`127.0.0.1:1`) pra provar
+  o caminho determinístico "provedor fora → 200 vazio".
 - **Fronteira CVM:** a sugestão de preço é rótulo de terceiro com origem
   declarada ("brapi"), nunca recomendação — exibir preço com intenção de
   orientar decisão de compra/venda é assessoria de investimento. O texto da

@@ -90,6 +90,7 @@ async fn subir_app(ai: AiClient) -> String {
     let cotacao = kavelipay_backend::cotacao::CotacaoClient::new(
         "http://127.0.0.1:1".into(),
         "http://127.0.0.1:1".into(),
+        "http://127.0.0.1:1".into(),
     )
     .unwrap();
 

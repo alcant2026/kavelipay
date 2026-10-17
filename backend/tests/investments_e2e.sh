@@ -38,7 +38,8 @@ echo "subindo servidor em $BASE"
 # verdade) tornaria este teste não-determinístico e lento.
 DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/kavelipay" \
 JWT_SECRET="$SECRET" BIND_ADDR="127.0.0.1:3323" RUST_LOG=error \
-BRAPI_BASE_URL="http://127.0.0.1:1" YAHOO_BASE_URL="http://127.0.0.1:1" "$BIN" &
+BRAPI_BASE_URL="http://127.0.0.1:1" YAHOO_BASE_URL="http://127.0.0.1:1" \
+    STATUSINVEST_BASE_URL="http://127.0.0.1:1" "$BIN" &
 SERVER_PID=$!
 for _ in $(seq 1 40); do
     curl -s -o /dev/null -X POST "$BASE/auth/login" -H 'content-type: application/json' \

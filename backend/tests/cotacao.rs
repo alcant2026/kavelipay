@@ -1,11 +1,12 @@
 //! Sugestão de cotação: `POST /investments/quote` (preço) e o campo
 //! `next_dividend` do `POST /investments/lookup` (data do próximo pagamento).
 //!
-//! Um mock único serve OpenRouter, brapi e Yahoo por path — cada teste
-//! aponta o `AiClient`/`CotacaoClient` para ele. Os testes provam as três
-//! regras da feature: validação antes de rede, silêncio na falha do
-//! provedor, e o roteamento por tipo (ação→brapi, FII→Yahoo `.SA`, renda
-//! fixa→nada).
+//! Um mock único serve OpenRouter, brapi, Yahoo e statusinvest por path —
+//! cada teste aponta o `AiClient`/`CotacaoClient` para ele. Os testes provam
+//! as três regras da feature: validação antes de rede, silêncio na falha do
+//! provedor, e o roteamento por tipo (preço: ação→brapi, FII→Yahoo `.SA`,
+//! renda fixa→nada; provento: ação→brapi com statusinvest de reserva,
+//! FII→statusinvest).
 
 use std::sync::{Arc, Mutex};
 
@@ -30,6 +31,9 @@ struct MockFontes {
     yahoo: Option<serde_json::Value>,
     /// Resposta do `/v1/finance/search` (busca do Yahoo). `None` = 404.
     yahoo_busca: Option<serde_json::Value>,
+    /// Resposta de `/fii/companytickerprovents` e `/acao/companytickerprovents`
+    /// (proventos do statusinvest). `None` = 404.
+    statusinvest: Option<serde_json::Value>,
     /// Paths GET recebidos, em ordem.
     chamadas: Arc<Mutex<Vec<String>>>,
     /// Corpo recebido no `/chat/completions` — os testes provam o CONTEXTO
@@ -44,7 +48,14 @@ async fn servir(
     corpo: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let path = uri.path().to_string();
-    m.chamadas.lock().unwrap().push(path.clone());
+    // Path + query: o contrato não é só a rota, é também o `ticker=` e o
+    // `chartProventsType=` que cada tipo pede. Sem query, registra o path
+    // puro (nada de "?" pendurado).
+    let completo = match uri.query() {
+        Some(q) => format!("{path}?{q}"),
+        None => path.clone(),
+    };
+    m.chamadas.lock().unwrap().push(completo);
 
     // O Yahoo responde 429 para cliente sem User-Agent de navegador
     // (verificado ao vivo em 2026-10-13: reqwest sem header levou 429 nas
@@ -68,15 +79,14 @@ async fn servir(
         return m.yahoo.clone().map(Json).ok_or(StatusCode::NOT_FOUND);
     }
     if path == "/v1/finance/search" {
-        // Substitui o path registrado no topo pela URL com query: o sufixo
-        // `.SA` no `q=` é parte do contrato (papel da B3 no Yahoo) e os
-        // testes querem prová-lo.
-        let full = format!("{path}?{}", uri.query().unwrap_or(""));
-        let mut registradas = m.chamadas.lock().unwrap();
-        if let Some(ultima) = registradas.last_mut() {
-            *ultima = full;
-        }
+        // O sufixo `.SA` no `q=` é parte do contrato (papel da B3 no Yahoo) e
+        // os testes querem prová-lo — o path+query já foi registrado acima.
         return m.yahoo_busca.clone().map(Json).ok_or(StatusCode::NOT_FOUND);
+    }
+    if path.starts_with("/fii/companytickerprovents")
+        || path.starts_with("/acao/companytickerprovents")
+    {
+        return m.statusinvest.clone().map(Json).ok_or(StatusCode::NOT_FOUND);
     }
     Err(StatusCode::NOT_FOUND)
 }
@@ -100,11 +110,29 @@ async fn subir_mock_com_busca(
     Arc<Mutex<Vec<String>>>,
     Arc<Mutex<Option<serde_json::Value>>>,
 ) {
+    subir_mock_completo(ia, brapi, yahoo, yahoo_busca, None).await
+}
+
+/// Mock completo: as três fontes de mercado (brapi, Yahoo, statusinvest)
+/// roteadas por path. O statusinvest entra por último porque só a sugestão de
+/// provento o consulta.
+async fn subir_mock_completo(
+    ia: serde_json::Value,
+    brapi: serde_json::Value,
+    yahoo: serde_json::Value,
+    yahoo_busca: Option<serde_json::Value>,
+    statusinvest: Option<serde_json::Value>,
+) -> (
+    String,
+    Arc<Mutex<Vec<String>>>,
+    Arc<Mutex<Option<serde_json::Value>>>,
+) {
     let mock = MockFontes {
         ia: Some(ia),
         brapi: Some(brapi),
         yahoo: Some(yahoo),
         yahoo_busca,
+        statusinvest,
         chamadas: Arc::new(Mutex::new(Vec::new())),
         corpo_ia_recebido: Arc::new(Mutex::new(None)),
     };
@@ -176,7 +204,7 @@ async fn subir_app_com_busca(
         subir_mock_com_busca(ia, brapi, yahoo, yahoo_busca).await;
     let ai = AiClient::new(Some("chave-teste".into()), "modelo/teste".into(), base_mock.clone())
         .unwrap();
-    let cotacao = CotacaoClient::new(base_mock.clone(), base_mock).unwrap();
+    let cotacao = CotacaoClient::new(base_mock.clone(), base_mock.clone(), base_mock).unwrap();
     (subir_app_com(ai, cotacao).await, chamadas, corpo_ia)
 }
 
@@ -185,9 +213,34 @@ async fn subir_app_com_busca(
 async fn subir_app_sem_fontes(ia: serde_json::Value) -> String {
     let (base_mock, _) = subir_mock(ia, serde_json::json!({}), serde_json::json!({})).await;
     let ai = AiClient::new(Some("chave-teste".into()), "modelo/teste".into(), base_mock).unwrap();
-    let cotacao = CotacaoClient::new("http://127.0.0.1:1".into(), "http://127.0.0.1:1".into())
-        .unwrap();
+    let cotacao = CotacaoClient::new(
+        "http://127.0.0.1:1".into(),
+        "http://127.0.0.1:1".into(),
+        "http://127.0.0.1:1".into(),
+    )
+    .unwrap();
     subir_app_com(ai, cotacao).await
+}
+
+/// App com as fontes apontando para o mock e o statusinvest ligado — o
+/// consumidor dele é a sugestão de provento (FII e reserva da ação).
+async fn subir_app_com_proventos(
+    ia: serde_json::Value,
+    brapi: serde_json::Value,
+    statusinvest: serde_json::Value,
+) -> (String, Arc<Mutex<Vec<String>>>) {
+    let (base_mock, chamadas, _) = subir_mock_completo(
+        ia,
+        brapi,
+        serde_json::json!({}),
+        None,
+        Some(statusinvest),
+    )
+    .await;
+    let ai = AiClient::new(Some("chave-teste".into()), "modelo/teste".into(), base_mock.clone())
+        .unwrap();
+    let cotacao = CotacaoClient::new(base_mock.clone(), base_mock.clone(), base_mock).unwrap();
+    (subir_app_com(ai, cotacao).await, chamadas)
 }
 
 // ── helpers de request ────────────────────────────────────────────────────────
@@ -466,13 +519,17 @@ async fn lookup_ativo_nao_encontrado_nao_sugere_dividendo() {
 }
 
 #[tokio::test]
-async fn lookup_fii_nao_pergunta_dividendo_a_ninguem() {
-    // FII no brapi é 401 sem token (verificado). Em vez de fazer uma
-    // chamada que sempre falha, o handler nem pergunta: kind != STOCK não
-    // consulta dividendos.
+async fn lookup_fii_pergunta_provento_ao_statusinvest() {
+    // FII no brapi é 401 sem token (verificado ao vivo em 2026-10-17). Quem
+    // tem a data de PAGAMENTO do rendimento é o statusinvest: o handler
+    // pergunta lá, na rota de fundo, e o campo do app é preenchido.
     let ia = corpo_ia(r#"{"found": true, "name": "Maxi Renda", "summary": "Fundo."}"#);
-    let (base, chamadas) = subir_app(ia, corpo_brapi(serde_json::json!(0), serde_json::json!([])), corpo_yahoo(serde_json::json!(9.45)))
-        .await;
+    let (base, chamadas) = subir_app_com_proventos(
+        ia,
+        corpo_brapi(serde_json::json!(0), serde_json::json!([])),
+        serde_json::json!({ "assetEarningsModels": [{ "pd": "31/12/2099" }] }),
+    )
+    .await;
 
     let (status, json) = post_json(
         &base, "/investments/lookup", Some(&token_de_teste()),
@@ -481,10 +538,17 @@ async fn lookup_fii_nao_pergunta_dividendo_a_ninguem() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["found"], true);
-    assert!(json["next_dividend"].is_null(), "FII não tem data aqui: {json}");
+    assert_eq!(json["next_dividend"], "2099-12-31");
+    let registradas = chamadas.lock().unwrap();
     assert!(
-        !chamadas.lock().unwrap().iter().any(|p| p.starts_with("/api/quote/")),
-        "FII não deve bater no brapi para dividendos"
+        !registradas.iter().any(|p| p.starts_with("/api/quote/")),
+        "FII não deve bater no brapi para dividendos (401 sem token): {registradas:?}"
+    );
+    assert!(
+        registradas
+            .iter()
+            .any(|p| p == "/fii/companytickerprovents?ticker=MXRF11&chartProventsType=2"),
+        "FII deve perguntar o provento na rota de fundo do statusinvest: {registradas:?}"
     );
 }
 

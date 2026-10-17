@@ -4,10 +4,16 @@
 //! dividendo, e a pessoa pode mudar ou limpar antes de salvar. As regras de
 //! ouro da feature:
 //!
-//! 1. **Fontes verificadas ao vivo** (2026-10-12): ação → brapi.dev (grátis,
-//!    sem chave); FII → Yahoo Finance com sufixo `.SA` (o brapi dá 401 em
-//!    fundo); dividendos → só o brapi (tem `paymentDate`, a data que o
-//!    dinheiro cai — Yahoo só tem data-ex, que ia enganar a pessoa).
+//! 1. **Fontes verificadas ao vivo**: ação → brapi.dev (grátis, sem chave);
+//!    FII → Yahoo Finance com sufixo `.SA` (o brapi dá 401 em fundo).
+//!    Provento (a data em que o dinheiro cai): ação → brapi (`paymentDate`
+//!    verificado) e, quando ele não tem nada, statusinvest como reserva;
+//!    FII → statusinvest (verificado ao vivo em 2026-10-17: o brapi recusa
+//!    fundo sem token — e sem chave só atende 4 tickers —, e o statusinvest
+//!    entrega `assetEarningsModels.pd`, a data de pagamento, para ação e
+//!    fundo). O statusinvest não aceita o `reqwest` (Cloudflare recusa header
+//!    minúsculo): quem fala com ele é o `http_cru`. O Yahoo fica de fora aqui:
+//!    só tem data-ex, que ia enganar a pessoa.
 //!    Renda fixa não tem fonte viva (a API do Tesouro Direto morreu:
 //!    DNS nem resolve) — fica manual.
 //! 2. **Falha é silêncio.** Provedor fora, JSON estranho, rede morta: tudo
@@ -33,6 +39,11 @@ pub const BRAPI_BASE_PADRAO: &str = "https://brapi.dev";
 /// Usada para FII (brapi responde 401 em fundo imobiliário sem token).
 pub const YAHOO_BASE_PADRAO: &str = "https://query1.finance.yahoo.com";
 
+/// statusinvest.com.br — proventos com data de PAGAMENTO para ação e fundo,
+/// sem chave. É a fonte do FII (o brapi recusa fundo sem token) e a reserva
+/// da ação quando o brapi não tem nada a oferecer.
+pub const STATUSINVEST_BASE_PADRAO: &str = "https://statusinvest.com.br";
+
 /// Sugestão de preço para uma tela. `preco: None` = não sugira nada.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SugestaoPreco {
@@ -57,10 +68,15 @@ pub struct CotacaoClient {
     http: reqwest::Client,
     brapi_base: String,
     yahoo_base: String,
+    statusinvest_base: String,
 }
 
 impl CotacaoClient {
-    pub fn new(brapi_base: String, yahoo_base: String) -> crate::AppResult<Self> {
+    pub fn new(
+        brapi_base: String,
+        yahoo_base: String,
+        statusinvest_base: String,
+    ) -> crate::AppResult<Self> {
         let http = reqwest::Client::builder()
             // Sugestão não pode prender a tela: provedor lento = desiste.
             .timeout(std::time::Duration::from_secs(8))
@@ -76,6 +92,7 @@ impl CotacaoClient {
             http,
             brapi_base: brapi_base.trim_end_matches('/').to_string(),
             yahoo_base: yahoo_base.trim_end_matches('/').to_string(),
+            statusinvest_base: statusinvest_base.trim_end_matches('/').to_string(),
         })
     }
 
@@ -90,15 +107,26 @@ impl CotacaoClient {
         }
     }
 
-    /// Data do próximo pagamento de dividendos. Só ação, só brapi: o `rate`
-    /// do Yahoo é data-ex (quando o direito se extingue), não a data em que
-    /// o dinheiro cai — sugerir data-ex como "próximo dividendo" enganaria.
+    /// Data do próximo pagamento de provento. Ação → brapi (`paymentDate`
+    /// verificado) e, se ele não tiver nada, o statusinvest como reserva; FII
+    /// → statusinvest (o brapi responde 401 em fundo sem token). Os dois
+    /// provedores dão a data em que o dinheiro CAI — o `rate` do Yahoo é
+    /// data-ex (quando o direito se extingue), e sugerir isso enganaria.
+    /// Qualquer outro tipo → `None`, sem tocar em rede.
     pub async fn proximo_dividendo(&self, symbol: &str, kind: &str) -> Option<NaiveDate> {
         let hoje = chrono::Local::now().date_naive();
-        if kind != "STOCK" {
-            return None;
+        match kind {
+            "STOCK" => match self.dividendo_brapi(symbol, hoje).await {
+                Some(d) => Some(d),
+                None => self.dividendo_statusinvest(symbol, kind, hoje).await,
+            },
+            "FII" => self.dividendo_statusinvest(symbol, kind, hoje).await,
+            _ => None,
         }
+    }
 
+    /// Dividendos no brapi — só ação (o endpoint recusa fundo sem token).
+    async fn dividendo_brapi(&self, symbol: &str, hoje: NaiveDate) -> Option<NaiveDate> {
         let url = format!("{}/api/quote/{}?dividends=true", self.brapi_base, symbol);
         let Ok(resposta) = self.http.get(&url).send().await else {
             tracing::warn!(symbol, "brapi inacessível ao buscar dividendos");
@@ -113,6 +141,46 @@ impl CotacaoClient {
         };
         // `dividendo_brapi` já filtra os futuros e pega o menor.
         dividendo_brapi(&corpo, hoje)
+    }
+
+    /// Proventos no statusinvest — ação em `/acao/`, fundo em `/fii/`, cada um
+    /// com seu `chartProventsType`. A lista tem `pd` (data de pagamento) em
+    /// dd/mm/aaaa, o mesmo dado que a pessoa espera ver no formulário.
+    ///
+    /// Aqui NÃO se usa o `reqwest` como nas outras fontes: o site está atrás
+    /// de um Cloudflare que recusa requisição com nome de header minúsculo, e
+    /// o `reqwest`/`hyper` só sabe mandar minúsculo. Quem fala com ele é o
+    /// `http_cru` (ver o cabeçalho daquele módulo).
+    async fn dividendo_statusinvest(
+        &self,
+        symbol: &str,
+        kind: &str,
+        hoje: NaiveDate,
+    ) -> Option<NaiveDate> {
+        let (rota, tipo) = match kind {
+            "FII" => ("fii", 2),
+            _ => ("acao", 1),
+        };
+        let url = format!(
+            "{}/{rota}/companytickerprovents?ticker={symbol}&chartProventsType={tipo}",
+            self.statusinvest_base
+        );
+
+        let corpo = match crate::http_cru::get(&url).await {
+            Some(texto) => texto,
+            None => {
+                tracing::warn!(symbol, "statusinvest não respondeu proventos");
+                return None;
+            }
+        };
+        let json: serde_json::Value = match serde_json::from_str(&corpo) {
+            Ok(valor) => valor,
+            Err(e) => {
+                tracing::warn!(symbol, "statusinvest devolveu corpo que não é JSON: {e}");
+                return None;
+            }
+        };
+        provento_statusinvest(&json, hoje)
     }
 
     /// Nome oficial do ativo segundo o mercado. Busca do Yahoo
@@ -284,6 +352,22 @@ fn dividendo_brapi(corpo: &serde_json::Value, hoje: NaiveDate) -> Option<NaiveDa
         .min()
 }
 
+/// Provento do statusinvest: varre `assetEarningsModels[]` e pega o menor
+/// `pd` (data de pagamento) ainda por vir. A data vem como data pura
+/// (dd/mm/aaaa, sem hora nem fuso), então compara direto com `hoje` — nada de
+/// converter para -03:00 como no brapi. O statusinvest repete linhas com `pd`
+/// vazio nas bordas da lista; o filtro do parse cuida disso.
+fn provento_statusinvest(corpo: &serde_json::Value, hoje: NaiveDate) -> Option<NaiveDate> {
+    corpo
+        .get("assetEarningsModels")?
+        .as_array()?
+        .iter()
+        .filter_map(|e| e.get("pd")?.as_str())
+        .filter_map(|s| NaiveDate::parse_from_str(s, "%d/%m/%Y").ok())
+        .filter(|d| *d >= hoje)
+        .min()
+}
+
 /// Cotação da B3 tem tick de R$ 0,01. O `round_dp(2)` só limpa a sujeira
 /// binária que o Yahoo às vezes devolve ("9.449999809265137") — o parse já
 /// foi exato pelo texto, aqui não há aritmética de float.
@@ -403,12 +487,170 @@ mod tests {
         assert_eq!(serde_json::to_string(&preco).unwrap(), r#""56.00""#);
     }
 
+    // ── mock das fontes: prova o roteamento sem depender de rede ─────────────
+
+    #[derive(Clone)]
+    struct MockFontes {
+        brapi: serde_json::Value,
+        statusinvest: serde_json::Value,
+        /// Paths+query recebidos, em ordem.
+        chamadas: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    async fn servir_mock(
+        axum::extract::State(m): axum::extract::State<MockFontes>,
+        axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
+    ) -> Result<axum::Json<serde_json::Value>, axum::http::StatusCode> {
+        let path = uri.path().to_string();
+        let completo = match uri.query() {
+            Some(q) => format!("{path}?{q}"),
+            None => path.clone(),
+        };
+        m.chamadas.lock().unwrap().push(completo);
+
+        if path.starts_with("/api/quote/") {
+            return Ok(axum::Json(m.brapi.clone()));
+        }
+        if path.starts_with("/fii/companytickerprovents")
+            || path.starts_with("/acao/companytickerprovents")
+        {
+            return Ok(axum::Json(m.statusinvest.clone()));
+        }
+        Err(axum::http::StatusCode::NOT_FOUND)
+    }
+
+    /// Sobe o mock com brapi e statusinvest e devolve o que foi chamado.
+    async fn subir_mock_fontes(
+        brapi: serde_json::Value,
+        statusinvest: serde_json::Value,
+    ) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        let chamadas = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mock = MockFontes { brapi, statusinvest, chamadas: chamadas.clone() };
+        let app = axum::Router::new().fallback(servir_mock).with_state(mock);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (format!("http://{addr}"), chamadas)
+    }
+
+    #[test]
+    fn provento_statusinvest_pega_o_menor_pagamento_futuro() {
+        // Lista real (enxugada): datas em dd/mm/aaaa, com linha de `pd` vazio
+        // no meio. O certo é o menor pagamento ainda por vir — nem o passado
+        // nem o mais distante.
+        let c = brapi_com_preco(
+            r#"{"assetEarningsModels":[
+                {"ed":"30/09/2026","pd":"15/10/2026","et":"Rendimento","v":0.93},
+                {"ed":"29/10/2026","pd":"23/10/2026","et":"Rendimento","v":0.95},
+                {"pd":"","et":"Rendimento","v":0},
+                {"pd":"21/12/2026","et":"Rendimento","v":0.95}
+            ]}"#,
+        );
+        let hoje = NaiveDate::from_ymd_opt(2026, 10, 17).unwrap();
+
+        assert_eq!(
+            provento_statusinvest(&c, hoje),
+            Some(NaiveDate::from_ymd_opt(2026, 10, 23).unwrap())
+        );
+    }
+
+    #[test]
+    fn provento_statusinvest_sem_futuro_ou_corpo_estranho_e_none() {
+        let hoje = NaiveDate::from_ymd_opt(2026, 10, 17).unwrap();
+
+        // Declarado só até 15/10: já pagou, não há próximo — não inventa.
+        let c = brapi_com_preco(
+            r#"{"assetEarningsModels":[{"pd":"15/10/2026","v":0.93},{"pd":"15/09/2026","v":0.93}]}"#,
+        );
+        assert_eq!(provento_statusinvest(&c, hoje), None);
+
+        // Corpo estranho (site mudou de formato): nenhum campo a ler, nenhum
+        // panic — a sugestão só não aparece.
+        assert_eq!(provento_statusinvest(&brapi_com_preco(r#"{"erro":"x"}"#), hoje), None);
+        assert_eq!(
+            provento_statusinvest(&brapi_com_preco(r#"{"assetEarningsModels":"nada"}"#), hoje),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn fii_busca_provento_no_statusinvest_pelo_caminho_de_fundo() {
+        // O brapi recusa fundo sem token; quem responde pelo FII é o
+        // statusinvest, na rota /fii/... e com chartProventsType=2.
+        let (base, chamadas) = subir_mock_fontes(
+            serde_json::json!({}), // brapi: não deve ser chamado
+            serde_json::json!({"assetEarningsModels":[{"pd":"31/12/2099"}]}),
+        )
+        .await;
+        let cliente = CotacaoClient::new(base.clone(), base.clone(), base).unwrap();
+
+        assert_eq!(
+            cliente.proximo_dividendo("XPML11", "FII").await,
+            Some(NaiveDate::from_ymd_opt(2099, 12, 31).unwrap())
+        );
+        assert_eq!(
+            chamadas.lock().unwrap().as_slice(),
+            ["/fii/companytickerprovents?ticker=XPML11&chartProventsType=2".to_string()],
+            "FII deve bater no statusinvest e não no brapi"
+        );
+    }
+
+    #[tokio::test]
+    async fn acao_cai_no_statusinvest_quando_o_brapi_nao_traz_provento() {
+        // O brapi respondeu, mas sem dividendo futuro: a reserva do
+        // statusinvest salva a sugestão (rota /acao/...) em vez de deixar o
+        // campo vazio.
+        let (base, chamadas) = subir_mock_fontes(
+            serde_json::json!({"results":[{}]}),
+            serde_json::json!({"assetEarningsModels":[{"pd":"31/12/2099"}]}),
+        )
+        .await;
+        let cliente = CotacaoClient::new(base.clone(), base.clone(), base).unwrap();
+
+        assert_eq!(
+            cliente.proximo_dividendo("PETR4", "STOCK").await,
+            Some(NaiveDate::from_ymd_opt(2099, 12, 31).unwrap())
+        );
+        let registradas = chamadas.lock().unwrap();
+        assert_eq!(registradas.len(), 2, "brapi primeiro, statusinvest depois: {registradas:?}");
+        assert!(registradas[0].starts_with("/api/quote/PETR4"));
+        assert!(registradas[1].starts_with("/acao/companytickerprovents?ticker=PETR4"));
+    }
+
+    #[tokio::test]
+    async fn acao_com_brapi_respondido_nao_gasta_chamada_no_statusinvest() {
+        let (base, chamadas) = subir_mock_fontes(
+            serde_json::json!({"results":[{"dividendsData":{"cashDividends":[
+                {"paymentDate":"2099-12-31T03:00:00.000Z","verified":true}
+            ]}}]}),
+            serde_json::json!({"assetEarningsModels":[{"pd":"31/01/2099"}]}),
+        )
+        .await;
+        let cliente = CotacaoClient::new(base.clone(), base.clone(), base).unwrap();
+
+        assert_eq!(
+            cliente.proximo_dividendo("PETR4", "STOCK").await,
+            Some(NaiveDate::from_ymd_opt(2099, 12, 31).unwrap())
+        );
+        assert_eq!(
+            chamadas.lock().unwrap().len(),
+            1,
+            "brapi respondeu: o statusinvest nem é chamado"
+        );
+    }
+
     #[tokio::test]
     async fn preco_renda_fixa_nao_toca_em_rede() {
         // Base URLs apontam para porta morta de propósito: se este teste
         // chegasse a tocar em rede, falharia por timeout, não por vazio.
-        let cliente = CotacaoClient::new("http://127.0.0.1:1".into(), "http://127.0.0.1:1".into())
-            .unwrap();
+        let cliente = CotacaoClient::new(
+            "http://127.0.0.1:1".into(),
+            "http://127.0.0.1:1".into(),
+            "http://127.0.0.1:1".into(),
+        )
+        .unwrap();
 
         let s = cliente.preco("Tesouro Selic 2029", "BOND").await;
 
@@ -416,11 +658,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dividendos_de_renda_fixa_e_fii_nao_tocam_em_rede() {
-        // Só STOCK consulta dividendos; FII o brapi responde 401 sem token
-        // (verificado ao vivo) — nem adianta perguntar.
-        let cliente = CotacaoClient::new("http://127.0.0.1:1".into(), "http://127.0.0.1:1".into())
-            .unwrap();
+    async fn renda_fixa_nao_consulta_provento_e_fii_consulta_o_statusinvest() {
+        // Renda fixa não é ticker: não pergunta provento a ninguém. FII
+        // pergunta (ao statusinvest — o brapi recusa fundo sem token); aqui
+        // as portas estão mortas, então o provedor fora vira silêncio, nunca
+        // erro.
+        let cliente = CotacaoClient::new(
+            "http://127.0.0.1:1".into(),
+            "http://127.0.0.1:1".into(),
+            "http://127.0.0.1:1".into(),
+        )
+        .unwrap();
 
         assert!(cliente.proximo_dividendo("MXRF11", "FII").await.is_none());
         assert!(cliente.proximo_dividendo("Tesouro Selic 2029", "BOND").await.is_none());
@@ -430,8 +678,12 @@ mod tests {
     async fn provedor_morto_e_silencio_nunca_erro() {
         // O contrato da tela: falha de rede não pode explodir em 500 — vira
         // "sem sugestão" e a pessoa digita o preço à mão.
-        let cliente = CotacaoClient::new("http://127.0.0.1:1".into(), "http://127.0.0.1:1".into())
-            .unwrap();
+        let cliente = CotacaoClient::new(
+            "http://127.0.0.1:1".into(),
+            "http://127.0.0.1:1".into(),
+            "http://127.0.0.1:1".into(),
+        )
+        .unwrap();
 
         let s = cliente.preco("PETR4", "STOCK").await;
         assert_eq!(s, SugestaoPreco::vazia());

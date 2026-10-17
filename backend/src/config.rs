@@ -41,6 +41,9 @@ pub struct Config {
     /// Base URL do Yahoo Finance (cotação de FII — brapi dá 401 em fundo
     /// sem token). Mesmo motivo da anterior.
     pub yahoo_base_url: String,
+    /// Base URL do statusinvest (provento de FII e reserva da ação — tem a
+    /// data de PAGAMENTO, que é a que interessa). Mesmo motivo da anterior.
+    pub statusinvest_base_url: String,
 }
 
 impl Config {
@@ -80,6 +83,8 @@ impl Config {
                 .unwrap_or_else(|_| crate::cotacao::BRAPI_BASE_PADRAO.to_string()),
             yahoo_base_url: env::var("YAHOO_BASE_URL")
                 .unwrap_or_else(|_| crate::cotacao::YAHOO_BASE_PADRAO.to_string()),
+            statusinvest_base_url: env::var("STATUSINVEST_BASE_URL")
+                .unwrap_or_else(|_| crate::cotacao::STATUSINVEST_BASE_PADRAO.to_string()),
         })
     }
 }

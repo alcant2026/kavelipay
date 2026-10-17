@@ -47,6 +47,7 @@ async fn main() -> Result<(), AppError> {
     let cotacao = kavelipay_backend::cotacao::CotacaoClient::new(
         config.brapi_base_url.clone(),
         config.yahoo_base_url.clone(),
+        config.statusinvest_base_url.clone(),
     )?;
 
     let state = AppState {

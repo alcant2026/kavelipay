@@ -600,8 +600,9 @@ pub struct LookupResponse {
     found: bool,
     name: Option<String>,
     summary: Option<String>,
-    /// Próxima data de pagamento (AAAA-MM-DD), se o ativo paga e o brapi
-    /// sabe. Nulo = não toque no campo.
+    /// Próxima data de pagamento (AAAA-MM-DD), se o ativo paga e a fonte
+    /// sabe (brapi para ação; statusinvest para ação e fundo). Nulo = não
+    /// toque no campo.
     next_dividend: Option<chrono::NaiveDate>,
 }
 
@@ -623,8 +624,9 @@ pub struct LookupResponse {
 ///    adivinha a empresa errada (CPTS11 → "Cyrela"; o certo é o FII
 ///    Capitania Securities II). Sem mercado (Yahoo fora, renda fixa), a IA
 ///    trabalha só com o ticker e o nome dela vira fallback. A data do
-///    dividendo vem do brapi em paralelo com a IA: o custo total é o da IA
-///    (a lenta), não a soma. Fonte fora = só perde o campo dela.
+///    dividendo vem do brapi (ação) ou do statusinvest (fundo), em paralelo
+///    com a IA: o custo total é o da IA (a lenta), não a soma. Fonte fora =
+///    só perde o campo dela.
 ///
 /// O handler NÃO toca no banco: não lê nem escreve carteira, é uma consulta
 /// stateless. Autenticação existe para não virar balde furado do nosso saldo
