@@ -12,7 +12,9 @@
 - `POST /wallet/transactions` — `{type, amount, description?}`; `amount` é
   **string** (`"10.50"`). Float é 422.
 - `GET /wallet/transactions?limit=&offset=` — extrato paginado (máx 200)
-- `POST /bills` — cria como **sempre PENDING**; `amount` string, `due_date` `YYYY-MM-DD`
+- `POST /bills` — cria como **sempre PENDING**; `amount` string, `due_date`
+  `YYYY-MM-DD`, `linha_digitavel` opcional (texto livre — o app só lê/digita,
+  nunca interpreta; ver lacuna 12B × seção 9 em `docs/spec.md`)
 - `GET /bills?status=&overdue=&limit=&offset=` — `?status=OVERDUE` é 422 de propósito
 - `POST /bills/{id}/pay` — marca pago o que o **usuário afirma** ter pago; gera
   transação `BILL_PAID`. Idempotente: segunda tentativa é 409 sem debitar de novo

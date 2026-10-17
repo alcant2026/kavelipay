@@ -57,10 +57,12 @@ Esta é a regra que mais fácil de violar sem querer, e ela está em código:
 ## Lacunas conhecidas
 
 - Não há upload de comprovante: `comprovante_url` é uma referência externa.
-- Não há OCR, leitura de código de barras nem lembretes de vencimento (a spec
-  deixa OCR como "posteriormente").
-- `linha_digitavel` é texto livre: o backend não interpreta nem valida o
-  conteúdo — ver a lacuna 12B × seção 9 da spec.
+- Não há OCR nem lembretes de vencimento (a spec deixa OCR como
+  "posteriormente").
+- Leitura de código de barras EXISTE na Nova conta (escaneia com a câmera ou
+  digita), mas o app só **lê**: o código vira texto em `linha_digitavel`, sem
+  interpretar. Valor e vencimento continuam vindo dos campos do formulário e o
+  backend valida como sempre — ver a lacuna 12B × seção 9, resolvida abaixo.
 - Fuso de `due_date` usa `chrono::Local`; a spec não define.
 - Saldo negativo é permitido (a spec não define bloqueio de saque).
 - `participant_user_id` existe na tabela mas nenhuma rota o preenche: a divisão
@@ -96,7 +98,10 @@ Esta é a regra que mais fácil de violar sem querer, e ela está em código:
 
 Não preencha estas por conta própria — são decisões do usuário.
 - ~~Linguagem do backend~~ **resolvida: Rust + axum + sqlx.**
-- **Conflito 12B × seção 9:** a spec manda o app interpretar o código de barras e enviar os dados ao backend, mas a seção 9 exige que o backend sempre recalcule/valida. Definir qual prevalece.
+- ~~Conflito 12B × seção 9~~ **resolvida: usuário pediu escanear/digitar.**
+  O app lê o código de barras (câmera ou teclado) e salva a linha digitável
+  como **texto livre, sem interpretar**; a seção 9 prevalece nos dados — valor
+  e vencimento vêm dos campos do formulário e o backend continua validando.
 - **OCR está fora do MVP** — a spec escreve "o sistema poderá posteriormente utilizar OCR". Não implementar agora.
 - Fuso horário de `due_date` e critério de virada do dia não especificados.
 

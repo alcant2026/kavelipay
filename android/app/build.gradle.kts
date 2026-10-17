@@ -97,6 +97,13 @@ dependencies {
     // deep link `kavelipay://`, e nada no app processa pagamento.
     implementation("com.google.zxing:core:3.5.3")
 
+    // Leitor de código de barras do boleto (Nova conta). Preview + análise de
+    // frames; a decodificação é do zxing core que já estava aqui.
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Testes de regra pura (JUnit4). Só isto: a verificação de tela continua

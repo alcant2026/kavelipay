@@ -126,6 +126,7 @@ class KaveliPayApi(private val sessao: SessionStore) {
         dueDate: String,
         beneficiario: String? = null,
         recurrence: String? = null,
+        linhaDigitavel: String? = null,
     ): ItemConta {
         val corpo = JSONObject()
             .put("description", descricao)
@@ -133,6 +134,9 @@ class KaveliPayApi(private val sessao: SessionStore) {
             .put("due_date", dueDate)
         beneficiario?.takeIf { it.isNotBlank() }?.let { corpo.put("beneficiario", it) }
         recurrence?.let { corpo.put("recurrence", it) }
+        // Texto livre, sem interpretação — o backend guarda como está
+        // (`docs/spec.md`, lacuna 12B × seção 9 resolvida: o app só lê).
+        linhaDigitavel?.takeIf { it.isNotBlank() }?.let { corpo.put("linha_digitavel", it) }
         return ApiClient.post("/bills", corpo, token).paraItemConta()
     }
 

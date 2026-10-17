@@ -35,6 +35,7 @@ private object Rota {
     const val NOVA = "nova"
     const val NOVA_DESPESA = "nova_despesa"
     const val NOVA_CONTA = "nova_conta"
+    const val ESCANEAR_CONTA = "escanear_conta"
     const val NOTIFICACOES = "notificacoes"
     const val CONTAS = "contas"
     const val RELATORIO = "relatorio"
@@ -141,6 +142,18 @@ fun KpRaiz(
                 vm = vm,
                 aoVoltar = { nav.popBackStack() },
                 aoSalvar = { nav.popBackStack() },
+                aoEscanear = { nav.navigate(Rota.ESCANEAR_CONTA) },
+            )
+        }
+        composable(Rota.ESCANEAR_CONTA) {
+            KpLeitorCodigoBarrasScreen(
+                aoVoltar = { nav.popBackStack() },
+                aoLer = { codigo ->
+                    // Código lido vira texto na tela de Nova conta (estado
+                    // compartilhado); a rota se descarta em seguida.
+                    vm.registrarLinhaLida(codigo)
+                    nav.popBackStack()
+                },
             )
         }
         composable(Rota.RELATORIO) {

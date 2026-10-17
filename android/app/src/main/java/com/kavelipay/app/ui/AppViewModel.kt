@@ -56,6 +56,14 @@ data class EstadoApp(
     val categorias: List<Categoria> = emptyList(),
     val naoLidas: Int = 0,
 
+    /**
+     * Código lido pelo leitor de código de barras, esperando a tela de Nova
+     * conta consumir. Vive no estado porque o leitor é uma tela separada e
+     * volta por navegação — mais simples que sair passando callback entre
+     * destinos do grafo.
+     */
+    val linhaDigitavelLida: String? = null,
+
     // Novas features
     val splits: ListaSplits? = null,
     val splitDetalhe: ItemSplit? = null,
@@ -234,6 +242,7 @@ class AppViewModel(private val sessao: SessionStore) : ViewModel() {
         amount: String,
         vencimentoIso: String,
         beneficiario: String?,
+        linhaDigitavel: String? = null,
         onOk: () -> Unit,
     ) {
         _estado.update { it.copy(enviando = true, erro = null, enviadoComSucesso = false) }
@@ -244,6 +253,7 @@ class AppViewModel(private val sessao: SessionStore) : ViewModel() {
                     amount = amount,
                     dueDate = vencimentoIso,
                     beneficiario = beneficiario?.trim(),
+                    linhaDigitavel = linhaDigitavel,
                 )
             }
                 .onSuccess {
@@ -255,6 +265,15 @@ class AppViewModel(private val sessao: SessionStore) : ViewModel() {
                     _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) }
                 }
         }
+    }
+
+    /** Leitor de código de barras achou uma linha — Nova conta preenche e consome. */
+    fun registrarLinhaLida(codigo: String) {
+        _estado.update { it.copy(linhaDigitavelLida = codigo) }
+    }
+
+    fun consumirLinhaLida() {
+        _estado.update { it.copy(linhaDigitavelLida = null) }
     }
 
     /**
