@@ -39,7 +39,6 @@ import com.kavelipay.app.ui.components.KpBadgeCritico
 import com.kavelipay.app.ui.components.KpBadgeNeutra
 import com.kavelipay.app.ui.components.KpBotaoPrimario
 import com.kavelipay.app.ui.components.KpBotaoSecundario
-import com.kavelipay.app.ui.components.KpCabecalhoComVoltar
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.components.KpEtiqueta
 import com.kavelipay.app.ui.components.KpLinhaResumo
@@ -63,7 +62,7 @@ fun KpContasScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoNovaConta: () -> Un
     val vencidas = contas.count { it.isOverdue }
     val pendentes = contas.count { it.status == "PENDING" }
 
-    Scaffold(topBar = { KpCabecalhoComVoltar("Contas a pagar", aoVoltar) }) { padding ->
+    Scaffold(topBar = { CabecalhoComVoltar("Contas a pagar", aoVoltar) }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(
@@ -119,18 +118,13 @@ fun KpContasScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoNovaConta: () -> Un
 
             if (contas.isEmpty()) {
                 item {
+                    // Sem botão aqui: o "＋ Nova conta" do topo já é o
+                    // caminho — dois botões pro mesmo lugar só poluem.
                     KpCard(Modifier.fillMaxWidth()) {
                         KpVazio(
                             icone = Icons.Default.ReceiptLong,
                             titulo = "Nenhuma conta cadastrada",
                             descricao = "Cadastre uma conta para acompanhar o vencimento.",
-                            acao = {
-                                KpBotaoPrimario(
-                                    texto = "Cadastrar conta",
-                                    onClick = aoNovaConta,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            },
                         )
                     }
                 }

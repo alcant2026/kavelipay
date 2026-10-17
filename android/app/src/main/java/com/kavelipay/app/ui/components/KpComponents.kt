@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.Brightness7
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
@@ -700,37 +699,3 @@ fun KpTabBar(
 }
 
 private data class TabItem(val icone: ImageVector, val label: String)
-
-/** Cabeçalho simples com botão voltar (para telas de detalhe/formulário). */
-@Composable
-fun KpCabecalhoComVoltar(
-    titulo: String,
-    aoVoltar: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            // Mesmo motivo do KpTopBar: sem o inset + piso o voltar fica
-            // atrás da barra do sistema (ou da tira do Waydroid) e o clique
-            // se perde.
-            .windowInsetsPadding(
-                WindowInsets.statusBars.union(WindowInsets(top = 40.dp)),
-            )
-            .height(56.dp)
-            .padding(horizontal = Spacing.md),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = aoVoltar) {
-            Icon(
-                imageVector = Icons.Default.ExpandLess,
-                contentDescription = "Voltar",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(24.dp),
-            )
-        }
-        Text(titulo, style = TituloTela, color = MaterialTheme.colorScheme.onSurface)
-        Spacer(Modifier.width(48.dp)) // balanceia o ícone de voltar
-    }
-}

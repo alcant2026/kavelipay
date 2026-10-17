@@ -31,7 +31,6 @@ import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpBotaoPrimario
 import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
-import com.kavelipay.app.ui.components.KpCabecalhoComVoltar
 import com.kavelipay.app.ui.components.Money
 import com.kavelipay.app.ui.theme.Spacing
 import java.time.LocalDate
@@ -82,7 +81,7 @@ fun KpNovaContaScreen(
     val vencimentoErrado = vencimento.isNotBlank() && vencimentoIso == null
     val podeSalvar = descricao.isNotBlank() && valorOk && vencimentoIso != null
 
-    Scaffold(topBar = { KpCabecalhoComVoltar("Nova conta", aoVoltar) }) { padding ->
+    Scaffold(topBar = { CabecalhoComVoltar("Nova conta", aoVoltar) }) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()

@@ -48,7 +48,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.kavelipay.app.ui.components.KpBotaoSecundario
-import com.kavelipay.app.ui.components.KpCabecalhoComVoltar
 import com.kavelipay.app.ui.theme.Pilula
 import com.kavelipay.app.ui.theme.Spacing
 import com.google.zxing.BinaryBitmap
@@ -99,7 +98,7 @@ fun KpLeitorCodigoBarrasScreen(
         if (permissao != true) pedido.launch(Manifest.permission.CAMERA)
     }
 
-    Scaffold(topBar = { KpCabecalhoComVoltar("Escanear código de barras", aoVoltar) }) { padding ->
+    Scaffold(topBar = { CabecalhoComVoltar("Escanear código de barras", aoVoltar) }) { padding ->
         // Erro de câmera tem de desmontar o preview: senão o bind falho fica
         // preto na tela e a mensagem de degradação nunca aparece.
         if (permissao == true && !erroCamera) {
