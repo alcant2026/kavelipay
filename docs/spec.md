@@ -31,10 +31,14 @@ Carteira:
 ## Fronteira: não somos provedor de PIX
 
 Esta é a regra que mais fácil de violar sem querer, e ela está em código:
-- `payment::DemoPaymentProvider` gera `kavelipay://cobranca/<id>?valor=...`
+- `payment::DemoPaymentProvider` gera `kavelipay://cobranca/<token>`
   — um **deep link do app**, não BR Code/EMV. `PaymentPayload::is_br_code()`
   é testado: o payload do demo nunca começa com `0002` nem menciona
-  `BR.GOV.BCB.PIX`.
+  `BR.GOV.BCB.PIX`. O token (32 hex, gerado pelo banco) é o segredo de
+  compartilhamento; o id da cobrança **não** vai no QR.
+- O payload não carrega valor. `GET /cobranca/{token}` (pública, sem sessão) é
+  quem devolve descrição/valor/status para quem recebeu o link; o app do
+  devedor nunca é fonte da verdade.
 - `POST /charges/{id}/receive` **não confirma pagamento**. É o usuário
   declarando que recebeu, como `bills/{id}/pay`. Sem webhook, sem polling.
 - `PaymentProvider::moves_real_money()` é `false` para o demo. Um provider
@@ -59,10 +63,14 @@ Esta é a regra que mais fácil de violar sem querer, e ela está em código:
 - Não há upload de comprovante: `comprovante_url` é uma referência externa.
 - Não há OCR nem lembretes de vencimento (a spec deixa OCR como
   "posteriormente").
-- Leitura de código de barras EXISTE na Nova conta (escaneia com a câmera ou
-  digita), mas o app só **lê**: o código vira texto em `linha_digitavel`, sem
+- Leitura de código EXISTE na Nova conta (escaneia com a câmera ou digita),
+  mas o app só **lê**: o código vira texto em `linha_digitavel`, sem
   interpretar. Valor e vencimento continuam vindo dos campos do formulário e o
   backend valida como sempre — ver a lacuna 12B × seção 9, resolvida abaixo.
+  É **um leitor só** para boleto (1D) e cobrança (QR): quem reconhece o tipo é
+  o app, não o usuário antes de apontar a câmera. Código válido na tela errada
+  não vira "inválido" — a tela diz onde ele vive (boleto → Contas → Nova conta;
+  QR → Cobranças → Ler QR de cobrança).
 - Fuso de `due_date` usa `chrono::Local`; a spec não define.
 - Saldo negativo é permitido (a spec não define bloqueio de saque).
 - `participant_user_id` existe na tabela mas nenhuma rota o preenche: a divisão
@@ -76,23 +84,16 @@ Esta é a regra que mais fácil de violar sem querer, e ela está em código:
   transferência entre carteiras.
 - **Item 8 da lista de sugestões (PIN/biometria) NÃO foi implementado: é
   cliente** (app Android). Não depende do backend.
-- **O QR de cobrança não é renderizado no app.** A tela mostra o payload como
-  texto copiável e um placeholder. `payload` é um deep link
-  `kavelipay://cobranca/<id>?valor=...`, **não** BR Code/EMV — gerar um QR Code
-  aqui sem deixar isso explícito seria fingir um PIX que o KaveliPay não
-  processa. Precisa de ZXing (dependência nova, exige download).
-- **Não há tela de criar cobrança, divisão, categoria ou lançamento novo** —
-  `KpNovaChargeScreen`, `KpNovaSplitScreen` e `KpNovaCategoriaScreen` são
-  placeholders "Em construção", e não estão no grafo de navegação. Só existem
-  leitura e as ações de quitar/receber/pagar.
-- **Editar nome no Perfil é botão sem ação** (`onClick = { }`), apesar de
-  `PATCH /profile` existir no client e no ViewModel.
-- **"Copiar link" do QR não copia** — falta `ClipboardManager`.
-- `ApiClient` não renova token: access expirado dá 401 e o usuário reautentica.
-  `POST /auth/refresh` existe no backend e não é chamado.
+- **O QR de cobrança é renderizado no app** (ZXing) e aponta para
+  `kavelipay://cobranca/<token>`, **não** BR Code/EMV. Quem recebe abre
+  `GET /cobranca/{token}` — rota pública, sem sessão — pela tela do link ou
+  lendo o QR em Cobranças → "Ler QR de cobrança". O QR carrega só o token,
+  nunca o valor. **Não há domínio https nem página web pública**: o link
+  `kavelipay://` abre só em quem tem o app e não vira link clicável no
+  WhatsApp — o caminho completo hoje é o QR lido dentro do app. Página web
+  pública exigiria domínio + hospedagem (decisão do usuário).
 - `categories.display_order` só muda via `PUT /categories/reorder`; o `NULL`
   dos padrões cai no fim da ordenação, não no começo.
-- Nenhum `.git` — repositório ainda não inicializado.
 
 ## Lacunas abertas da spec
 

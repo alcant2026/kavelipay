@@ -25,7 +25,13 @@
 - `POST /splits/{id}/parts/{part_id}/settle` — quita a parte e devolve o dinheiro
   ao dono via transação `SETTLEMENT`
 - `POST /charges` — cria cobrança e devolve o QR. **NÃO gera lançamento**
-- `GET /charges`, `GET /charges/{id}/qr`
+- `GET /charges`, `GET /charges/{id}/qr` — o QR é
+  `kavelipay://cobranca/<token>` (deep link do app, **nunca** BR Code/EMV); o
+  payload não carrega valor
+- `GET /cobranca/{token}` — **pública, sem sessão**: descrição, valor, status,
+  vencimento e nome de quem cobra. É o que abre quando alguém recebe o
+  link/QR — inclusive sem conta no app. Token malformado e inexistente dão o
+  mesmo 404; a resposta não expõe wallet, id da cobrança nem nome do devedor
 - `POST /charges/{id}/receive` — registra o recebimento; único toque na carteira
 - `DELETE /charges/{id}` — cancela; só PENDING
 - `POST /investments/lookup` — `{symbol, kind}` → `{found, name?, summary?}`;

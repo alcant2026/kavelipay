@@ -8,7 +8,7 @@
 cd android
 ./gradlew :app:assembleRelease      # APK assinado em app/build/outputs/apk/release/
 ./gradlew :app:assembleDebug
-./gradlew :app:testDebugUnitTest    # JUnit das regras puras (36 testes, sem emulador)
+./gradlew :app:testDebugUnitTest    # JUnit das regras puras (65 testes, sem emulador)
 ```
 
 Saída: `android/app/build/outputs/apk/release/KaveliPay-release.apk`
@@ -174,20 +174,24 @@ boot (`sqlx::migrate!`).
 Depois de editar qualquer `.sql`, rode `cargo build` — senão o servidor sobe
 com a versão antiga e o teste falha com um erro que parece de lógica.
 
-Estado atual dos testes: 141 Rust (inclui 8 de `lookup.rs` com mock da IA, 17
+Estado atual dos testes: 142 Rust (inclui 8 de `lookup.rs` com mock da IA, 17
 de `cotacao.rs` com mock do brapi/Yahoo/statusinvest — nenhum gasta token ou
 rede real — e 7 de `http_cru.rs`, o cliente HTTP/1.1 que fala com o
 statusinvest; entre os de `cotacao.rs`, o nome oficial do mercado vence o da IA,
 a ação usa brapi com reserva no statusinvest, e o FII usa só o statusinvest) +
-13 schema + 20 auth + 15 ledger + 26 bills + 17 splits + 24 charges + 31 perfil
+13 schema + 20 auth + 15 ledger + 26 bills + 17 splits + 37 charges + 31 perfil
 + 52 transparência + 28 investimentos (4 e2e a mais cobrindo
 `POST /investments/quote` + a data no padrão dd/mm/aaaa) + 14 refresh + 69
 dívidas (`debts_e2e.sh`, porta 3317) =
-**450, todos passando** (309 deles shell e2e), mais a simulação de jornada
-completa, mais 36 JUnit
+**464, todos passando** (322 deles shell e2e), mais a simulação de jornada
+completa, mais 65 JUnit
 do app (`./gradlew :app:testDebugUnitTest`, regras puras do prefill por IA, da
 sugestão de preço/dividendo, do total de negociação `qtd × preço`, do prefill
-de data em `dd/mm/aaaa` e de `DividaRegras` — normalização de valor pt-BR).
+de data em `dd/mm/aaaa`, de `DividaRegras` — normalização de valor pt-BR — e do
+QR/pixel (`QrCodeTest`: a cor tem de virar ARGB opaco, senão o QR sai
+transparente), do link de cobrança (`tokenDeCobranca`) e do reconhecimento do
+que foi lido (`classificarLeitura`: boleto × cobrança e a tela certa para cada
+um, sobre a lista única de `formatosDeLeitura`)).
 
 `cargo clippy` e `cargo fmt` NÃO estão instalados (`rustfmt`/`clippy` ausentes no
 Fedora; instalar exige sudo). Não documente `cargo fmt` como se funcionasse.
