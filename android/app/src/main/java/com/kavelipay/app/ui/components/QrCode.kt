@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -87,15 +88,19 @@ fun KpQrCode(
 /**
  * Gera a matriz de módulos. `null` quando o ZXing não consegue codificar.
  *
- * `MARGIN` 1 módulo é o mínimo que a spec do QR aceita (o padrão do ZXing é 4
- * e some área útil). Margem de 1 já dá o "respiro" que o leitor precisa.
+ * `MARGIN` = 4 módulos: é a quiet zone que a norma do QR (ISO/IEC 18004) exige
+ * e o que o leitor precisa para achar o código. Começar em 1 módulo "economiza
+ * área útil", mas a área em volta do quadrado é o fundo da tela — no tema
+ * escuro, quase preto. Com 1 módulo, o contraste acaba colado no código e a
+ * leitura pela câmera fica na dependência de luz e ângulo; o ganho de margem
+ * custa poucos pixels por módulo (o QR da cobrança continua grande).
  */
-private fun gerarModulos(payload: String): BitMatrix? {
+internal fun gerarModulos(payload: String): BitMatrix? {
     if (payload.isBlank()) return null
     return try {
         val hints = mapOf(
             EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
-            EncodeHintType.MARGIN to 1,
+            EncodeHintType.MARGIN to 4,
             EncodeHintType.CHARACTER_SET to "UTF-8",
         )
         QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 0, 0, hints)
@@ -112,30 +117,33 @@ private fun gerarModulos(payload: String): BitMatrix? {
  * 4px) e o leitor perde a leitura em parte — o sintoma é "às vezes o QR não
  * abre", que é bem pior que um QR um pouco menor.
  */
-private fun escalaPara(modulos: BitMatrix, tamanho: Dp, densidade: Float): Int {
+internal fun escalaPara(modulos: BitMatrix, tamanho: Dp, densidade: Float): Int {
     val alvoPx = (tamanho.value * densidade).toInt().coerceAtLeast(1)
     return (alvoPx / modulos.width).coerceAtLeast(1)
 }
 
 /**
- * `BitMatrix` → `Bitmap` com cada módulo como um quadrado de [escala] px.
+ * Módulos → pixels ARGB, linha a linha, `lado * lado` valores.
+ *
+ * Separado do `Bitmap` para ser testável em JVM: `Bitmap` não existe em teste
+ * unitário, e foi justamente a conversão de cor que já saiu errada uma vez —
+ * o QR renderizou 100% transparente e a tela parecia vazia. O teste em
+ * `QrCodeTest` garante que existe pixel escuro no resultado.
  *
  * `ARGB_8888` e não `ALPHA_8`: um bitmap só com alpha não sabe qual é a cor do
  * módulo ligado, então o QR sairia todo escuro ou todo claro.
  */
-private fun BitMatrix.paraBitmap(
+internal fun pixelsDoQr(
+    modulos: BitMatrix,
     escala: Int,
-    corFundo: Color,
-    corCodigo: Color,
-): Bitmap {
-    val lado = width * escala
-    val bitmap = Bitmap.createBitmap(lado, lado, Bitmap.Config.ARGB_8888)
-    val fundo = corFundo.toArgbInt()
-    val codigo = corCodigo.toArgbInt()
+    fundo: Int,
+    codigo: Int,
+): IntArray {
+    val lado = modulos.width * escala
     val pixels = IntArray(lado * lado) { fundo }
-    for (y in 0 until height) {
-        for (x in 0 until width) {
-            if (!get(x, y)) continue
+    for (y in 0 until modulos.height) {
+        for (x in 0 until modulos.width) {
+            if (!modulos.get(x, y)) continue
             val base = y * escala * lado + x * escala
             for (dy in 0 until escala) {
                 val linha = base + dy * lado
@@ -145,22 +153,21 @@ private fun BitMatrix.paraBitmap(
             }
         }
     }
-    bitmap.setPixels(pixels, 0, lado, 0, 0, lado, lado)
-    return bitmap
+    return pixels
 }
 
-/**
- * `Color` → int ARGB.
- *
- * `Color.value` é um `ULong` no formato `0xAARRGGBB`. Deslocar com `0xFF` e
- * converter para `Int` direto não compila (`shr` de literal com sinal é
- * proibido), então o shift vai para `Long` e a conversão final é `toInt()`.
- */
-private fun Color.toArgbInt(): Int {
-    val v = value.toLong() and 0xFFFFFFFFL
-    val a = ((v shr 24) and 0xFFL).toInt()
-    val r = ((v shr 16) and 0xFFL).toInt()
-    val g = ((v shr 8) and 0xFFL).toInt()
-    val b = (v and 0xFFL).toInt()
-    return (a shl 24) or (r shl 16) or (g shl 8) or b
+private fun BitMatrix.paraBitmap(
+    escala: Int,
+    corFundo: Color,
+    corCodigo: Color,
+): Bitmap {
+    val lado = width * escala
+    val bitmap = Bitmap.createBitmap(lado, lado, Bitmap.Config.ARGB_8888)
+    // `Color.toArgb()` e NÃO leitura manual de `Color.value`: o Compose guarda
+    // o ARGB nos 32 bits ALTOS e o id do color space nos baixos. Ler
+    // `value and 0xFFFFFFFF` devolvia 0 para preto e branco — os dois viravam
+    // `0x00000000` e o QR saía transparente. `toArgb()` é a conversão oficial.
+    val pixels = pixelsDoQr(this, escala, corFundo.toArgb(), corCodigo.toArgb())
+    bitmap.setPixels(pixels, 0, lado, 0, 0, lado, lado)
+    return bitmap
 }
