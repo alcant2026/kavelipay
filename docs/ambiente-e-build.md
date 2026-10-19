@@ -174,14 +174,16 @@ boot (`sqlx::migrate!`).
 Depois de editar qualquer `.sql`, rode `cargo build` — senão o servidor sobe
 com a versão antiga e o teste falha com um erro que parece de lógica.
 
-Estado atual dos testes: 128 Rust (inclui 8 de `lookup.rs` com mock da IA e 17
-de `cotacao.rs` com mock do brapi/Yahoo — nenhum gasta token ou rede real; os 5
-testes novos de `cotacao.rs` cobrem o nome oficial do mercado vencendo o da IA) +
+Estado atual dos testes: 141 Rust (inclui 8 de `lookup.rs` com mock da IA, 17
+de `cotacao.rs` com mock do brapi/Yahoo/statusinvest — nenhum gasta token ou
+rede real — e 7 de `http_cru.rs`, o cliente HTTP/1.1 que fala com o
+statusinvest; entre os de `cotacao.rs`, o nome oficial do mercado vence o da IA,
+a ação usa brapi com reserva no statusinvest, e o FII usa só o statusinvest) +
 13 schema + 20 auth + 15 ledger + 26 bills + 17 splits + 24 charges + 31 perfil
 + 52 transparência + 28 investimentos (4 e2e a mais cobrindo
 `POST /investments/quote` + a data no padrão dd/mm/aaaa) + 14 refresh + 69
 dívidas (`debts_e2e.sh`, porta 3317) =
-**437, todos passando** (309 deles shell e2e), mais a simulação de jornada
+**450, todos passando** (309 deles shell e2e), mais a simulação de jornada
 completa, mais 36 JUnit
 do app (`./gradlew :app:testDebugUnitTest`, regras puras do prefill por IA, da
 sugestão de preço/dividendo, do total de negociação `qtd × preço`, do prefill

@@ -4,7 +4,7 @@ App Android de organização financeira e pagamentos para **pessoa física**, co
 
 ## Estado atual
 
-Backend Rust (`backend/`) completo: **437 testes passando** (128 Rust + 309 shell e2e) + 36 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
+Backend Rust (`backend/`) completo: **450 testes passando** (141 Rust + 309 shell e2e) + 36 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
 
 ## Comandos essenciais
 
@@ -12,7 +12,7 @@ Backend Rust (`backend/`) completo: **437 testes passando** (128 Rust + 309 shel
 # Postgres dev: Docker porta 55432, user/senha/db = kavelipay (docs/ambiente-e-build.md)
 # O dev usa VOLUME NOMEADO kavelipay-pgdata — sem ele, um docker rm apaga o banco (já aconteceu).
 cd backend
-cargo build && cargo test                        # 128 Rust, sem banco
+cargo build && cargo test                        # 141 Rust, sem banco
 PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/<nome>_e2e.sh
 DATABASE_URL=postgres://kavelipay:kavelipay@localhost:55432/kavelipay \
 JWT_SECRET=$(head -c 48 /dev/urandom | base64) BIND_ADDR=0.0.0.0:3000 \
