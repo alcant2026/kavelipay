@@ -257,9 +257,10 @@ data class Ativo(
  * monetário (a IA pode inventar "vale R$ 35,00"; o trigger da migration 0007
  * recusaria o INSERT na hora de salvar).
  *
- * `proximoDividendo` NÃO vem da IA — vem do brapi (mercado). A IA barata
- * inventa data de dividendo com convicção; o calendário é fato verificável,
- * e `paymentDate` do brapi é a data real do pagamento (não a data-ex).
+ * `proximoDividendo` NÃO vem da IA — vem do mercado (brapi pra ação,
+ * statusinvest pra FII e como reserva de ação). A IA barata inventa data de
+ * dividendo com convicção; o calendário é fato verificável, e a data devolvida
+ * é a de PAGAMENTO (não a data-ex). Sem data futura declarada, vem null.
  */
 data class PesquisaAtivo(
     val achou: Boolean,

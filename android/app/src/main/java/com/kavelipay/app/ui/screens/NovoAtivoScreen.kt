@@ -27,6 +27,7 @@ import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpBotaoPrimario
 import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
+import com.kavelipay.app.ui.components.Money
 import com.kavelipay.app.ui.theme.KpTheme
 import com.kavelipay.app.ui.theme.Spacing
 
@@ -130,10 +131,16 @@ fun KpNovoAtivoScreen(
                                     PesquisaAtivoRegras.aplicar(nome, resumo, proximoDividendo, r)?.let { s ->
                                         s.nome?.let { nome = it }
                                         s.resumo?.let { resumo = it }
-                                        // Data do mercado (brapi), só se o
-                                        // campo estiver vazio — a pessoa pode
-                                        // já ter digitado a que viu.
-                                        s.proximoDividendo?.let { proximoDividendo = it }
+                                        // Data do mercado (brapi/statusinvest),
+                                        // só se o campo estiver vazio — a
+                                        // pessoa pode já ter digitado a que
+                                        // viu. A API devolve ISO e o rótulo do
+                                        // campo diz dd/mm/aaaa: converter na
+                                        // exibição; o backend aceita os dois
+                                        // formatos na gravação (`parse_data`).
+                                        s.proximoDividendo?.let {
+                                            proximoDividendo = Money.dataAno(it)
+                                        }
                                     }
                                 }
                             },
@@ -168,8 +175,9 @@ fun KpNovoAtivoScreen(
                 }
             }
 
-            // Renda fixa não paga dividendo (o backend só sugere data de
-            // dividendos pra ação, via brapi) — escondido em BOND.
+            // Renda fixa não paga dividendo com data de mercado (o backend
+            // sugere pra ação e FII — brapi/statusinvest —, não pra BOND) —
+            // campo escondido em BOND.
             if (tipo != "BOND") {
                 item {
                     KpCard(Modifier.fillMaxWidth()) {

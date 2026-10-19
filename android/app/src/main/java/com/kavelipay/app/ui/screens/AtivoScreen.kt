@@ -54,7 +54,7 @@ import com.kavelipay.app.ui.theme.TituloSecao
  * Detalhe de um ativo: posição, custos, resumo e extrato de movimentos.
  *
  * Mostra o que o usuário PRECISA para decidir e nada do que ele não pode ter:
- * custo médio, custos acumulados, próximo dividendo (sugestão do brapi que
+ * custo médio, custos acumulados, próximo dividendo (sugestão do mercado que
  * ele confirmou, ou registro manual), e o extrato. Não há "preço justo" —
  * essa é uma decisão dele, e o app mostrar um número que recomenda compra é
  * território de assessor de investimento.
@@ -165,7 +165,7 @@ fun KpAtivoScreen(
                             )
                             Spacer(Modifier.height(Spacing.xs))
                             Text(
-                                "Data sugerida pelo brapi e confirmada por você, ou digitada à " +
+                                "Data sugerida pelo mercado e confirmada por você, ou digitada à " +
                                     "mão. Confira na sua corretora antes de decidir qualquer coisa.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
