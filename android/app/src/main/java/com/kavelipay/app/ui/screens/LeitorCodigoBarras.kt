@@ -59,7 +59,86 @@ import com.google.zxing.common.HybridBinarizer
 import java.util.concurrent.Executors
 
 /**
- * Leitor de código de barras (linha digitável do boleto).
+ * De onde a leitura foi pedida. Não é o formato do código: é o **destino** do
+ * que for lido.
+ *
+ * `CONTA` é o "Escanear" da Nova conta — ali o que interessa é a linha
+ * digitável do boleto. `COBRANCA` é o "Ler QR de cobrança" — ali o que
+ * interessa é o token de uma cobrança do app. Quem escolhe o destino é a tela
+ * onde o usuário está; o formato quem descobre é o [classificarLeitura], e não
+ * o usuário antes de apontar a câmera.
+ */
+enum class ContextoLeitura { CONTA, COBRANCA }
+
+/** Veredito de [classificarLeitura] para o [ContextoLeitura] da tela. */
+sealed interface ResultadoLeitura {
+    /** Serve para esta tela. [valor] é a linha do boleto ou o token do QR. */
+    data class Aceito(val valor: String) : ResultadoLeitura
+
+    /** É boleto, mas a tela esperava cobrança. */
+    data object BoletoForaDeContexto : ResultadoLeitura
+
+    /** É QR de cobrança, mas a tela esperava boleto. */
+    data object CobrancaForaDeContexto : ResultadoLeitura
+
+    /** Não é nenhum dos dois. */
+    data object NaoReconhecido : ResultadoLeitura
+}
+
+/**
+ * Reconhece o texto lido: boleto (44/47 dígitos) ou QR de cobrança do app.
+ *
+ * Um leitor só, dois formatos — e é o app que diz de qual se trata. Sem isso,
+ * o usuário teria de saber de antemão "isto é um boleto" ou "isto é um QR"
+ * antes de apontar a câmera, o que é exatamente o trabalho que o app deveria
+ * fazer.
+ *
+ * Quando o código é válido mas pertence à outra tela, o resultado não é
+ * "inválido": é [ResultadoLeitura.BoletoForaDeContexto] /
+ * [ResultadoLeitura.CobrancaForaDeContexto], porque a mensagem certa é "isto
+ * vai em tal lugar", não "não consegui ler".
+ */
+internal fun classificarLeitura(bruto: String, contexto: ContextoLeitura): ResultadoLeitura {
+    tokenDeCobranca(bruto)?.let { token ->
+        return if (contexto == ContextoLeitura.COBRANCA) {
+            ResultadoLeitura.Aceito(token)
+        } else {
+            ResultadoLeitura.CobrancaForaDeContexto
+        }
+    }
+    val linha = normalizarLinhaDigitavel(bruto) ?: return ResultadoLeitura.NaoReconhecido
+    return if (contexto == ContextoLeitura.CONTA) {
+        ResultadoLeitura.Aceito(linha)
+    } else {
+        ResultadoLeitura.BoletoForaDeContexto
+    }
+}
+
+/**
+ * Mensagem para o que foi lido e não serve nesta tela.
+ *
+ * O tom é o do gate de review: pt-BR, sem jargão e dizendo o próximo passo. "O
+ * código é inválido" seria falso e inútil — o código está certo, só não é
+ * daqui.
+ */
+internal fun mensagemLeitura(resultado: ResultadoLeitura, contexto: ContextoLeitura): String =
+    when (resultado) {
+        ResultadoLeitura.BoletoForaDeContexto ->
+            "Esse é o código de barras de um boleto, não uma cobrança. " +
+                "Ele é cadastrado em Contas → Nova conta."
+        ResultadoLeitura.CobrancaForaDeContexto ->
+            "Esse é o QR de uma cobrança do KaveliPay, não um boleto. " +
+                "Ele abre em Cobranças → Ler QR de cobrança."
+        else -> if (contexto == ContextoLeitura.COBRANCA) {
+            "Não reconheci este QR como uma cobrança do KaveliPay."
+        } else {
+            "Não reconheci este código como um boleto."
+        }
+    }
+
+/**
+ * Leitor único: lê o código de barras do boleto **ou** o QR de uma cobrança do
+ * app, e o app reconhece qual dos dois veio.
  *
  * A spec pedia "app lê código de barras" (12B) e "backend sempre valida"
  * (seção 9) — a decisão registrada em `docs/spec.md` foi: o app SÓ LÊ. O
@@ -68,22 +147,29 @@ import java.util.concurrent.Executors
  * que o backend valida normalmente. Nada do que o código "diz" é usado como
  * dado.
  *
+ * Na cobrança o leitor devolve o TOKEN do link, e a tela pública busca
+ * descrição e valor no servidor: o QR não carrega valor, então não há nada
+ * nele para acreditar.
+ *
  * Sem câmera ou sem permissão a tela degrada: mostra o motivo e o caminho de
- * digitação manual — nunca trava o cadastro da conta.
+ * digitação manual — nunca trava o cadastro da conta nem a leitura do QR.
  */
 @Composable
 fun KpLeitorCodigoBarrasScreen(
     aoVoltar: () -> Unit,
     aoLer: (String) -> Unit,
+    contexto: ContextoLeitura = ContextoLeitura.CONTA,
 ) {
-    val contexto = LocalContext.current
+    val contextoApp = LocalContext.current
     val ciclo = LocalLifecycleOwner.current
     // null = ainda pedindo; depois disso, concedida ou não.
     var permissao by remember { mutableStateOf<Boolean?>(null) }
     var erroCamera by remember { mutableStateOf(false) }
-    var codigoInvalido by remember { mutableStateOf(false) }
-    // Depois de um código que não é de boleto, o leitor pausa — sem isso ele
-    // leria o mesmo frame inválido em loop e a mensagem piscaria.
+    // Guarda o veredito ruim para mostrar a mensagem certa (e não a mesma
+    // frase para "não é boleto" e "é boleto da outra tela").
+    var leituraRuim by remember { mutableStateOf<ResultadoLeitura?>(null) }
+    // Depois de um código que não serve, o leitor pausa — sem isso ele leria o
+    // mesmo frame em loop e a mensagem piscaria.
     val pausado = remember { booleanArrayOf(false) }
     val executor = remember { Executors.newSingleThreadExecutor() }
 
@@ -93,12 +179,17 @@ fun KpLeitorCodigoBarrasScreen(
 
     LaunchedEffect(Unit) {
         permissao = ContextCompat.checkSelfPermission(
-            contexto, Manifest.permission.CAMERA,
+            contextoApp, Manifest.permission.CAMERA,
         ) == PackageManager.PERMISSION_GRANTED
         if (permissao != true) pedido.launch(Manifest.permission.CAMERA)
     }
 
-    Scaffold(topBar = { CabecalhoComVoltar("Escanear código de barras", aoVoltar) }) { padding ->
+    Scaffold(topBar = {
+        CabecalhoComVoltar(
+            if (contexto == ContextoLeitura.COBRANCA) "Ler QR de cobrança" else "Escanear boleto",
+            aoVoltar,
+        )
+    }) { padding ->
         // Erro de câmera tem de desmontar o preview: senão o bind falho fica
         // preto na tela e a mensagem de degradação nunca aparece.
         if (permissao == true && !erroCamera) {
@@ -108,21 +199,24 @@ fun KpLeitorCodigoBarrasScreen(
                 executor = executor,
                 pausado = pausado,
                 aoDetectar = { bruto ->
-                    val codigo = normalizarLinhaDigitavel(bruto)
-                    if (codigo != null) {
-                        pausado[0] = true
-                        aoLer(codigo)
-                    } else {
-                        pausado[0] = true
-                        codigoInvalido = true
+                    when (val resultado = classificarLeitura(bruto, contexto)) {
+                        is ResultadoLeitura.Aceito -> {
+                            pausado[0] = true
+                            aoLer(resultado.valor)
+                        }
+                        else -> {
+                            pausado[0] = true
+                            leituraRuim = resultado
+                        }
                     }
                 },
                 aoErroCamera = { erroCamera = true },
             )
         } else {
             // Sem permissão, sem câmera ou câmera falhou: mesmo destino —
-            // digitar a linha na mão.
+            // digitar a linha na mão (boleto) ou fechar e pedir o link (cobrança).
             SemCamera(
+                contexto = contexto,
                 motivo = when {
                     erroCamera -> "Não deu pra abrir a câmera neste aparelho."
                     permissao == false -> "Sem acesso à câmera."
@@ -145,19 +239,29 @@ fun KpLeitorCodigoBarrasScreen(
             verticalArrangement = Arrangement.Bottom,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (codigoInvalido) {
-                Aviso("Esse código não é de boleto. Tente de novo.")
+            val ruim = leituraRuim
+            if (ruim != null) {
+                Aviso(mensagemLeitura(ruim, contexto))
                 Spacer(Modifier.height(Spacing.sm))
                 KpBotaoSecundario(texto = "Tentar de novo", onClick = {
-                    codigoInvalido = false
+                    leituraRuim = null
                     pausado[0] = false
                 })
             } else if (previewAtivo) {
-                Aviso("Aponte para o código de barras do boleto.")
+                Aviso(
+                    if (contexto == ContextoLeitura.COBRANCA) {
+                        "Aponte para o QR Code da cobrança."
+                    } else {
+                        "Aponte para o código de barras do boleto."
+                    },
+                )
                 Spacer(Modifier.height(Spacing.sm))
             }
             if (previewAtivo) {
-                KpBotaoSecundario(texto = "Digitar manualmente", onClick = aoVoltar)
+                KpBotaoSecundario(
+                    texto = if (contexto == ContextoLeitura.COBRANCA) "Fechar" else "Digitar manualmente",
+                    onClick = aoVoltar,
+                )
             }
         }
     }
@@ -182,6 +286,7 @@ private fun Aviso(texto: String) {
 
 @Composable
 private fun SemCamera(
+    contexto: ContextoLeitura,
     motivo: String,
     aoVoltar: () -> Unit,
     modifier: Modifier = Modifier,
@@ -201,14 +306,21 @@ private fun SemCamera(
         Text(motivo, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(Spacing.xs))
         Text(
-            "Sem problema: a linha digitável pode ser digitada no formulário.",
+            if (contexto == ContextoLeitura.COBRANCA) {
+                "Sem problema: peça o link da cobrança a quem cobrou."
+            } else {
+                "Sem problema: a linha digitável pode ser digitada no formulário."
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = Spacing.xl),
         )
         Spacer(Modifier.height(Spacing.md))
-        KpBotaoSecundario(texto = "Digitar manualmente", onClick = aoVoltar)
+        KpBotaoSecundario(
+            texto = if (contexto == ContextoLeitura.COBRANCA) "Fechar" else "Digitar manualmente",
+            onClick = aoVoltar,
+        )
     }
 }
 
@@ -287,14 +399,7 @@ private class LeitorYuv(
         setHints(
             mapOf(
                 DecodeHintType.TRY_HARDER to true,
-                // Boleto brasileiro é CODE_128 (CBB) ou ITF; restringir formats
-                // deixa o por-frame mais leve que MultiFormatReader solto.
-                DecodeHintType.POSSIBLE_FORMATS to listOf(
-                    com.google.zxing.BarcodeFormat.CODE_128,
-                    com.google.zxing.BarcodeFormat.ITF,
-                    com.google.zxing.BarcodeFormat.CODE_39,
-                    com.google.zxing.BarcodeFormat.EAN_13,
-                ),
+                DecodeHintType.POSSIBLE_FORMATS to formatosDeLeitura(),
             ),
         )
     }
@@ -389,3 +494,54 @@ internal fun normalizarLinhaDigitavel(bruto: String): String? {
     val digitos = bruto.filter { it.isDigit() }
     return if (digitos.length == 44 || digitos.length == 47) digitos else null
 }
+
+/**
+ * Extrai o token de um QR/link de cobrança: `kavelipay://cobranca/<token>`.
+ *
+ * O token é o segredo de 32 hex que o backend gera (migration 0010); o QR não
+ * carrega valor, então não há nada aqui para "decodificar" além do endereço.
+ * Formato fora do contrato devolve `null` — aceitar um link "quase certo" e
+ * abrir a tela com token inválido daria um 404 que parece bug do app.
+ *
+ * Query e fragmento são ignorados: o backend já não os manda, mas um QR
+ * impresso por uma versão anterior (que tinha `?valor=`) continua abrindo.
+ */
+internal fun tokenDeCobranca(bruto: String): String? {
+    val prefixo = "kavelipay://cobranca/"
+    val texto = bruto.trim()
+    if (texto.length <= prefixo.length) return null
+    if (!texto.regionMatches(0, prefixo, 0, prefixo.length, ignoreCase = true)) return null
+    val token = texto.substring(prefixo.length)
+        .substringBefore('?')
+        .substringBefore('#')
+        .trim()
+        .lowercase()
+    return token.takeIf { it.length == 32 && it.all { c -> c in '0'..'9' || c in 'a'..'f' } }
+}
+
+/**
+ * Formatos que o decodificador procura — lista única, com os dois mundos.
+ *
+ * A câmera é uma só (CameraX + zxing) e o app reconhece o que leu
+ * ([classificarLeitura]); portanto a lista não pode ser de um só tipo. Sem
+ * `QR_CODE` aqui o leitor varre o frame atrás apenas de código de barras 1D e
+ * nunca acha o QR — mesmo com a imagem perfeita, a tela fica "procurando" e
+ * parece câmera quebrada. Sem os 1D, o caminho do boleto (12B) morre.
+ *
+ * Um QR qualquer que entre como texto não é mais "código inválido":
+ * [classificarLeitura] devolve [ResultadoLeitura.NaoReconhecido] se não for
+ * cobrança do app, e a tela diz isso em pt-BR.
+ *
+ * Lista curta não é só estética: `MultiFormatReader` tenta formato por
+ * formato, por frame — esta é a ordem em que ele tenta.
+ */
+internal fun formatosDeLeitura(): List<com.google.zxing.BarcodeFormat> = listOf(
+    // Boleto brasileiro é CODE_128 (CBB) ou ITF; CODE_39/EAN_13 cobrem
+    // boletos e carnês antigos que aparecem na prática.
+    com.google.zxing.BarcodeFormat.CODE_128,
+    com.google.zxing.BarcodeFormat.ITF,
+    com.google.zxing.BarcodeFormat.CODE_39,
+    com.google.zxing.BarcodeFormat.EAN_13,
+    // QR do próprio app (`kavelipay://cobranca/<token>`).
+    com.google.zxing.BarcodeFormat.QR_CODE,
+)

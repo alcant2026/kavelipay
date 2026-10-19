@@ -47,6 +47,8 @@ private object Rota {
     const val CHARGES = "charges"
     const val CHARGES_QR = "charges_qr"
     const val NOVA_CHARGE = "nova_charge"
+    const val LER_COBRANCA = "ler_cobranca"
+    const val COBRANCA_PUBLICA = "cobranca_publica"
     const val CATEGORIAS = "categorias"
     const val NOVA_CATEGORIA = "nova_categoria"
     const val INVESTIMENTOS = "investimentos"
@@ -71,8 +73,18 @@ fun KpRaiz(
     vm: AppViewModel,
     temaEscuro: Boolean,
     aoAlternarTema: () -> Unit,
+    linkCobranca: String? = null,
+    aoFecharLink: () -> Unit = {},
 ) {
     val estado by vm.estado.collectAsState()
+
+    // Deep link de cobrança vem ANTES do gate de login de propósito: quem
+    // recebe o link pode não ter conta no app. A tela é só leitura (rota
+    // pública, token no link) e não toca carteira de ninguém.
+    if (linkCobranca != null) {
+        KpCobrancaPublicaScreen(token = linkCobranca, aoVoltar = aoFecharLink)
+        return
+    }
 
     if (!estado.autenticado) {
         KpLoginScreen(vm, aoEntrar = {})
@@ -147,11 +159,14 @@ fun KpRaiz(
         }
         composable(Rota.ESCANEAR_CONTA) {
             KpLeitorCodigoBarrasScreen(
+                contexto = ContextoLeitura.CONTA,
                 aoVoltar = { nav.popBackStack() },
-                aoLer = { codigo ->
-                    // Código lido vira texto na tela de Nova conta (estado
-                    // compartilhado); a rota se descarta em seguida.
-                    vm.registrarLinhaLida(codigo)
+                aoLer = { linhaDigitavel ->
+                    // Só chega aqui o que a tela reconheceu como boleto (um QR
+                    // de cobrança é barrado antes, com o aviso de onde ele
+                    // vive). Vira texto na tela de Nova conta e a rota se
+                    // descarta em seguida.
+                    vm.registrarLinhaLida(linhaDigitavel)
                     nav.popBackStack()
                 },
             )
@@ -211,7 +226,26 @@ fun KpRaiz(
                 aoVoltar = { nav.popBackStack() },
                 aoNovaCharge = { nav.navigate(Rota.NOVA_CHARGE) },
                 aoAbrirQr = { id -> nav.navigate("${Rota.CHARGES_QR}/$id") },
+                aoEscanearCobranca = { nav.navigate(Rota.LER_COBRANCA) },
             )
+        }
+        composable(Rota.LER_COBRANCA) {
+            // Escanear o QR de OUTRA pessoa é o caminho que dispensa domínio/
+            // link clicável: o QR aparece na tela de quem cobra e é lido aqui.
+            // Um código de barras de boleto lido por engano não abre nada —
+            // o leitor avisa que ele é cadastrado em Nova conta.
+            KpLeitorCodigoBarrasScreen(
+                contexto = ContextoLeitura.COBRANCA,
+                aoVoltar = { nav.popBackStack() },
+                aoLer = { token -> nav.navigate("${Rota.COBRANCA_PUBLICA}/$token") },
+            )
+        }
+        composable(
+            route = "${Rota.COBRANCA_PUBLICA}/{token}",
+            arguments = listOf(navArgument("token") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val token = backStackEntry.arguments?.getString("token").orEmpty()
+            KpCobrancaPublicaScreen(token = token, aoVoltar = { nav.popBackStack() })
         }
         composable(Rota.NOVA_CHARGE) {
             KpNovaChargeScreen(

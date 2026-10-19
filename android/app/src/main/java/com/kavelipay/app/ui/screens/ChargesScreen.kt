@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -61,9 +62,14 @@ import com.kavelipay.app.ui.theme.TituloSecao
 
 /** Lista de cobranças. */
 @Composable
-fun KpChargesScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoNovaCharge: () -> Unit = {}, aoAbrirQr: (String) -> Unit = {}) {
+fun KpChargesScreen(
+    vm: AppViewModel,
+    aoVoltar: () -> Unit,
+    aoNovaCharge: () -> Unit = {},
+    aoAbrirQr: (String) -> Unit = {},
+    aoEscanearCobranca: () -> Unit = {},
+) {
     val estado by vm.estado.collectAsState()
-    val sem = KpTheme.semanticas
 
     LaunchedEffect(Unit) {
         vm.carregarCharges()
@@ -83,15 +89,18 @@ fun KpChargesScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoNovaCharge: () -> 
             }
 
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     KpBotaoPrimario(
                         texto = "Nova cobrança",
                         onClick = aoNovaCharge,
                         icone = Icons.Default.Add,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    KpBotaoSecundario(
+                        texto = "Ler QR de cobrança",
+                        onClick = aoEscanearCobranca,
+                        icone = Icons.Default.QrCodeScanner,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -220,7 +229,7 @@ fun KpChargeQrScreen(vm: AppViewModel, chargeId: String, aoVoltar: () -> Unit) {
                     Spacer(Modifier.height(Spacing.md))
 
                     if (qr != null) {
-                        // QR do deep link `kavelipay://cobranca/<id>?valor=...`.
+                        // QR do deep link `kavelipay://cobranca/<token>`.
                         // **Não** é BR Code/EMV e não é pagamento: o app não
                         // processa PIX, e o código só abre outra tela do próprio
                         // app. O texto abaixo deixa isso explícito para quem
@@ -229,8 +238,8 @@ fun KpChargeQrScreen(vm: AppViewModel, chargeId: String, aoVoltar: () -> Unit) {
 
                         Spacer(Modifier.height(Spacing.md))
                         Text(
-                            "QR Code do próprio app — abre a cobrança no KaveliPay. " +
-                                "Não é PIX nem boleto.",
+                            "QR Code do próprio app. Quem receber abre em KaveliPay, " +
+                                "em Cobranças → Ler QR de cobrança. Não é PIX nem boleto.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,

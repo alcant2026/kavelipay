@@ -506,3 +506,17 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
         ApiClient.patch("/wallet/transactions/$transactionId/category",
             JSONObject().put("category_id", categoryId), token)
 }
+
+/**
+ * `GET /cobranca/{token}` — a cobrança vista por quem recebeu o link.
+ *
+ * Fora da classe de propósito: é a ÚNICA chamada que não usa sessão. Quem
+ * recebe uma cobrança pode não ter conta (ou estar deslogado), então a tela
+ * pública não pode depender de `SessionStore` — e o token do link, não o
+ * login, é o que autoriza a leitura.
+ *
+ * O valor que aparece na tela vem daqui, do servidor. O link carrega só o
+ * token: nada no QR é fonte da verdade.
+ */
+suspend fun buscarCobrancaPublica(shareToken: String): CobrancaPublica =
+    ApiClient.get("/cobranca/$shareToken", null).paraCobrancaPublica()

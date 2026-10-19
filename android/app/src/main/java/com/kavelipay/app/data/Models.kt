@@ -147,6 +147,22 @@ data class ItemCharge(
 
 data class ListaCharges(val itens: List<ItemCharge>)
 
+/**
+ * Cobrança como quem RECEBEU o link a vê (`GET /cobranca/{token}`).
+ *
+ * Não é `ItemCharge`: essa é a visão do dono (tem id, devedor, QR). Aqui só
+ * existe o que a rota pública devolve — e o valor vem do servidor, nunca do
+ * link. `cobrador`/`vencimento` são opcionais no backend.
+ */
+data class CobrancaPublica(
+    val descricao: String,
+    val valor: String,
+    val moeda: String,
+    val status: String,
+    val vencimento: String?,
+    val cobrador: String?,
+)
+
 // ── Dívidas (Eu devo) ─────────────────────────────────────────────────────────
 /**
  * Uma dívida do usuário ("eu devo"), lado inverso de `ItemSplit`.
@@ -432,6 +448,17 @@ fun JSONObject.paraChargeQr() = ChargeQr(
     payload = optString("payload"),
     format = optString("format"),
     provider = optString("provider"),
+)
+
+fun JSONObject.paraCobrancaPublica() = CobrancaPublica(
+    descricao = optString("description"),
+    valor = optString("amount", "0.00"),
+    moeda = optString("currency", "BRL"),
+    status = optString("status"),
+    // `null` explícito vira `optString` = "null" no org.json — testar `isNull`
+    // antes é o que evita "De: null" na tela.
+    vencimento = if (isNull("due_date")) null else optString("due_date").takeIf { it.isNotBlank() },
+    cobrador = if (isNull("cobrador")) null else optString("cobrador").takeIf { it.isNotBlank() },
 )
 
 // ── Dívidas (Eu devo) ─────────────────────────────────────────────────────────

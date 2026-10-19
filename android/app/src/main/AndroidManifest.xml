@@ -19,11 +19,23 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.KaveliPay">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Link de cobrança: `kavelipay://cobranca/<token>`.
+                 `singleTop` acima é o que faz um link com o app já aberto
+                 chegar em `onNewIntent` em vez de abrir uma segunda Activity.
+                 Isto NÃO é App Link https (não temos domínio) nem PIX: é um
+                 esquema próprio do app, aberto só por quem tem o app. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kavelipay" android:host="cobranca" />
             </intent-filter>
         </activity>
     </application>

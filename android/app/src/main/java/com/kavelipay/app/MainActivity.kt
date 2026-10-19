@@ -1,5 +1,6 @@
 package com.kavelipay.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,9 +20,20 @@ import com.kavelipay.app.data.SessionStore
 import com.kavelipay.app.data.TemaStore
 import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.screens.KpRaiz
+import com.kavelipay.app.ui.screens.tokenDeCobranca
 import com.kavelipay.app.ui.theme.KaveliPayTheme
 
 class MainActivity : ComponentActivity() {
+
+    /**
+     * Token do deep link `kavelipay://cobranca/<token>`, se veio um.
+     *
+     * Fica na Activity (e não no `KpRaiz`) porque o Intent chega antes do
+     * Compose e pode chegar de novo com o app já aberto — `onNewIntent`, que
+     * só é chamado por causa do `launchMode="singleTop"` do manifesto.
+     */
+    private val linkCobranca = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -29,12 +41,37 @@ class MainActivity : ComponentActivity() {
         // lembrar qual host do backend respondeu (Waydroid, aparelho físico ou
         // AVD). Sem persistência, a sonda de host recomeçaria a cada abertura.
         ApiClient.configurar(applicationContext)
-        setContent { AppRaiz() }
+        linkCobranca.value = tokenDoIntent(intent)
+        setContent {
+            AppRaiz(
+                linkCobranca = linkCobranca.value,
+                aoFecharLink = { linkCobranca.value = null },
+            )
+        }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // `?.let`: abrir o app pelo launcher (ou qualquer Intent sem link) não
+        // pode apagar uma cobrança que já está aberta.
+        tokenDoIntent(intent)?.let { linkCobranca.value = it }
+    }
+
+    /**
+     * Lê o token do link. `null` para qualquer outra entrada (launcher, share
+     * comum). A validação é a mesma do leitor de QR — `tokenDeCobranca` — para
+     * link torto virar tela de "não encontrada", não erro de programação.
+     */
+    private fun tokenDoIntent(intent: Intent?): String? =
+        intent?.dataString?.let(::tokenDeCobranca)
 }
 
 @Composable
-private fun AppRaiz() {
+private fun AppRaiz(
+    linkCobranca: String?,
+    aoFecharLink: () -> Unit,
+) {
     val contexto = LocalContext.current
 
     // `remember`: o SessionStore guarda o token e precisa sobreviver a
@@ -66,6 +103,8 @@ private fun AppRaiz() {
                 preferenciaTema = novo
                 temaStore.salvar(novo)
             },
+            linkCobranca = linkCobranca,
+            aoFecharLink = aoFecharLink,
         )
     }
 }
