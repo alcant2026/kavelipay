@@ -5,7 +5,7 @@
 //! fronteira éLevada a sério aqui, e não é uma Questão de documentação:
 //!
 //! - `DemoPaymentProvider` gera um deep link do próprio app
-//!   (`kavelipay://cobranca/<id>`). NÃO gera payload BR Code / EMV.
+//!   (`kavelipay://cobranca/<token>`). NÃO gera payload BR Code / EMV.
 //! - O pagamento só é registrado por ação explícita do usuário. Nada é
 //!   confirmado por webhook, polling de terceiro ou status que o app se
 //!   auto-atribua.
@@ -42,8 +42,13 @@ pub trait PaymentProvider: Send + Sync {
     /// Identificador do provider, para log e para o app decidir o que exibir.
     fn name(&self) -> &'static str;
 
-    /// Gera o conteúdo do QR Code para uma cobrança.
-    fn qr_payload(&self, charge_id: uuid::Uuid, amount: rust_decimal::Decimal) -> PaymentPayload;
+    /// Gera o conteúdo do QR Code de uma cobrança.
+    ///
+    /// Recebe o **token de compartilhamento**, não o id: o QR é público e UUID
+    /// não é segredo (`migrations/0010`). O valor também não entra no payload —
+    /// quem recebe lê a cobrança no servidor, que é a fonte da verdade; um
+    /// `?valor=` no link seria um número que o app de fora teria que acreditar.
+    fn qr_payload(&self, share_token: &str) -> PaymentPayload;
 
     /// Este provider movimenta dinheiro de verdade?
     ///
@@ -63,26 +68,20 @@ impl PaymentProvider for DemoPaymentProvider {
         "demo"
     }
 
-    fn qr_payload(&self, charge_id: uuid::Uuid, amount: rust_decimal::Decimal) -> PaymentPayload {
+    fn qr_payload(&self, share_token: &str) -> PaymentPayload {
         // Deliberadamente NÃO é BR Code/EMV. Um payload EMV (começando em
         // "00020126BR.GOV.BCB.PIX...") faria o KaveliPay parecer provedor de
         // PIX — exatamente o que a spec proíbe. Aqui o QR só identifica a
-        // cobrança dentro do app.
+        // cobrança dentro do app, e o token é o único dado que ele carrega.
         PaymentPayload {
-            payload: format!("kavelipay://cobranca/{charge_id}"),
+            payload: format!("kavelipay://cobranca/{share_token}"),
             format: PayloadFormat::DeepLink,
             provider: "demo",
         }
-        .with_amount(amount)
     }
 }
 
 impl PaymentPayload {
-    fn with_amount(mut self, amount: rust_decimal::Decimal) -> Self {
-        self.payload = format!("{}?valor={:.2}", self.payload, amount);
-        self
-    }
-
     /// O payload é um BR Code/EMV do PIX?
     ///
     /// Existe como método (e é testado) para deixar a regra explícita: se um
@@ -97,32 +96,36 @@ impl PaymentPayload {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal::Decimal;
-    use uuid::Uuid;
+
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef";
 
     #[test]
-    fn demo_provider_gera_deep_link_com_valor() {
-        let id = Uuid::new_v4();
-        let p = DemoPaymentProvider.qr_payload(id, Decimal::new(1050, 2));
+    fn demo_provider_gera_deep_link_com_token() {
+        let p = DemoPaymentProvider.qr_payload(TOKEN);
 
-        assert_eq!(p.payload, format!("kavelipay://cobranca/{id}?valor=10.50"));
+        assert_eq!(p.payload, format!("kavelipay://cobranca/{TOKEN}"));
         assert_eq!(p.format, PayloadFormat::DeepLink);
         assert_eq!(p.provider, "demo");
+    }
+
+    #[test]
+    fn payload_nao_carrega_valor() {
+        // O valor tem que vir do servidor (`GET /cobranca/{token}`). Um
+        // `?valor=` no link seria um número que o app de quem recebe teria
+        // que acreditar sem conferir — e é justamente o app de fora que não
+        // pode ser fonte da verdade.
+        let p = DemoPaymentProvider.qr_payload(TOKEN);
+        assert!(!p.payload.contains("valor="), "payload carrega valor: {}", p.payload);
+        assert!(!p.payload.contains('?'), "payload carrega query: {}", p.payload);
     }
 
     #[test]
     fn demo_provider_nunca_gera_br_code() {
         // Este é o teste da fronteira "não somos provedor de PIX". Payload
         // EMV/BR Code do PIX começa com "0002" e carrega BR.GOV.BCB.PIX.
-        for valor in [
-            Decimal::new(100, 2),
-            Decimal::new(1050, 2),
-            Decimal::new(999999, 2),
-        ] {
-            let p = DemoPaymentProvider.qr_payload(Uuid::new_v4(), valor);
-            assert!(!p.is_br_code(), "payload do demo virou BR Code: {}", p.payload);
-            assert!(!p.payload.contains("BR.GOV.BCB.PIX"));
-        }
+        let p = DemoPaymentProvider.qr_payload(TOKEN);
+        assert!(!p.is_br_code(), "payload do demo virou BR Code: {}", p.payload);
+        assert!(!p.payload.contains("BR.GOV.BCB.PIX"));
     }
 
     #[test]
@@ -136,7 +139,7 @@ mod tests {
     fn provider_real_tera_de_mudar_so_o_payload() {
         // Um PixProvider mudaria `payload` e `format`, nunca o resto. Este
         // teste documenta a fronteira da abstração.
-        let demo = DemoPaymentProvider.qr_payload(Uuid::new_v4(), Decimal::new(500, 2));
+        let demo = DemoPaymentProvider.qr_payload(TOKEN);
         assert_eq!(demo.format, PayloadFormat::DeepLink);
         assert_eq!(demo.provider, "demo");
         assert!(!demo.is_br_code());

@@ -68,6 +68,10 @@ pub fn router(state: AppState) -> Router {
         .route("/charges/{id}/qr", get(charges::charge_qr))
         .route("/charges/{id}/receive", post(charges::receive_charge))
         .route("/charges/{id}", delete(charges::cancel_charge))
+        // cobrança pública: o que o QR do app aponta. Sem sessão de propósito —
+        // quem recebe a cobrança pode não ter conta (ou estar deslogado). O
+        // segredo é o token do link, não o login.
+        .route("/cobranca/{token}", get(charges::cobranca_publica))
         // notificações
         .route("/notifications", get(notifications::list))
         .route("/notifications/generate", post(notifications::generate))

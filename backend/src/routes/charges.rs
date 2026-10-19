@@ -1,8 +1,9 @@
 //! Cobranças: pedir dinheiro a outra pessoa, gerar QR Code, receber.
 //!
 //! O KaveliPay NÃO é provedor de PIX nem processador. O QR gerado aqui é um
-//! deep link do próprio app (`kavelipay://cobranca/<id>`), não um BR Code/EMV —
-//! ver `payment::DemoPaymentProvider`.
+//! deep link do próprio app (`kavelipay://cobranca/<token>`), não um BR Code/EMV
+//! — ver `payment::DemoPaymentProvider`. O token é o segredo de
+//! compartilhamento (128 bits), não o id da cobrança.
 //!
 //! Uma cobrança tem duas pernas contábeis e elas NÃO podem ser confundidas:
 //! cobrar registra um direito a receber (a carteira não muda); receber move o
@@ -88,10 +89,12 @@ pub async fn create_charge(
 
     let wallet = wallet_ativa(&state, auth.user_id()).await?;
 
-    let id = sqlx::query_scalar::<_, Uuid>(
+    // O token vem do banco (DEFAULT da migration 0010), não do app: é o
+    // segredo que vai no QR e a única coisa que quem recebe o link carrega.
+    let (id, share_token) = sqlx::query_as::<_, (Uuid, String)>(
         "INSERT INTO charges (wallet_id, description, amount, due_date, debtor_name)
          SELECT w.id, $2, $3, $4, $5 FROM wallets w WHERE w.id = $1
-         RETURNING id",
+         RETURNING id, share_token",
     )
     .bind(wallet)
     .bind(description)
@@ -102,7 +105,7 @@ pub async fn create_charge(
     .await?;
 
     let charge = buscar(&state, id, wallet).await?;
-    let qr = DemoPaymentProvider.qr_payload(id, req.amount.amount());
+    let qr = DemoPaymentProvider.qr_payload(&share_token);
 
     Ok((StatusCode::CREATED, Json(ChargeWithQr { charge, qr })))
 }
@@ -170,9 +173,83 @@ pub async fn charge_qr(
         ));
     }
 
-    Ok(Json(
-        DemoPaymentProvider.qr_payload(id, charge.amount.amount()),
-    ))
+    Ok(Json(DemoPaymentProvider.qr_payload(&token_do_qr(&state, id, wallet).await?)))
+}
+
+/// Lê o token de compartilhamento da cobrança. Só o dono chega aqui: o id vem
+/// da URL de uma rota autenticada e `buscar()` já filtrou por carteira.
+async fn token_do_qr(state: &AppState, id: Uuid, wallet: Uuid) -> AppResult<String> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT share_token FROM charges WHERE id = $1 AND wallet_id = $2",
+    )
+    .bind(id)
+    .bind(wallet)
+    .fetch_one(&state.db)
+    .await
+    .map_err(AppError::from)
+}
+
+/// O que quem recebeu o link vê. Não é a cobrança inteira: descrição, valor,
+/// status e quem cobra são o suficiente para entender o pedido.
+#[derive(Serialize)]
+pub struct CobrancaPublica {
+    pub description: String,
+    pub amount: Money,
+    pub currency: String,
+    /// PENDING | RECEIVED | CANCELED.
+    pub status: String,
+    pub due_date: Option<chrono::NaiveDate>,
+    /// Nome de quem cobra, se preenchido no perfil. Sem nome o app mostra só
+    /// "Cobrança" — melhor que inventar identificação.
+    pub cobrador: Option<String>,
+}
+
+/// GET /cobranca/{token} — **pública**, sem sessão.
+///
+/// É o endereço que o QR da cobrança carrega. O token é segredo de 128 bits
+/// gerado pelo banco: quem recebeu o link vê a cobrança; quem não recebeu não
+/// vê nada. Token malformado e token inexistente devolvem o **mesmo** 404 —
+/// diferenciar os dois transformaria a rota num oráculo para adivinhar tokens.
+///
+/// A resposta não inclui wallet, id da cobrança, nome do devedor nem
+/// histórico: o link é público e não leva a carteira inteira junto. O valor
+/// vem daqui, nunca do link — é a fronteira de confiança da cobrança.
+pub async fn cobranca_publica(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> AppResult<Json<CobrancaPublica>> {
+    let token = token.trim().to_ascii_lowercase();
+    if token.len() != 32 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AppError::NotFound("cobrança"));
+    }
+
+    let row = sqlx::query_as::<_, (
+        String,
+        rust_decimal::Decimal,
+        String,
+        String,
+        Option<chrono::NaiveDate>,
+        Option<String>,
+    )>(
+        "SELECT c.description, c.amount, c.currency, c.status, c.due_date, u.display_name
+           FROM charges c
+           JOIN wallets w ON w.id = c.wallet_id
+           JOIN users u ON u.id = w.user_id
+          WHERE c.share_token = $1",
+    )
+    .bind(&token)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("cobrança"))?;
+
+    Ok(Json(CobrancaPublica {
+        description: row.0,
+        amount: Money::new(row.1),
+        currency: row.2,
+        status: row.3,
+        due_date: row.4,
+        cobrador: row.5.filter(|n| !n.trim().is_empty()),
+    }))
 }
 
 /// POST /charges/{id}/receive

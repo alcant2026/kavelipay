@@ -99,16 +99,64 @@ check "format é DEEP_LINK (recebido $FORMAT)" \
     "$([ "$FORMAT" = "DEEP_LINK" ] && echo true || echo false)"
 check "provider é 'demo' (recebido $PROVIDER)" \
     "$([ "$PROVIDER" = "demo" ] && echo true || echo false)"
-check "payload referencia o id da cobrança" \
-    "$(case "$PAYLOAD" in *"$ID_CH"*) echo true;; *) echo false;; esac)"
-check "payload carrega o valor" \
-    "$(case "$PAYLOAD" in *"50.00"*) echo true;; *) echo false;; esac)"
+
+TOKEN="${PAYLOAD#kavelipay://cobranca/}"
+echo "    token: $TOKEN"
+check "payload aponta para /cobranca/<token> de 32 hex" \
+    "$(case "$PAYLOAD" in kavelipay://cobranca/*) [[ "$TOKEN" =~ ^[0-9a-f]{32}$ ]] && echo true || echo false;; *) echo false;; esac)"
+check "payload NÃO expõe o id da cobrança" \
+    "$(case "$PAYLOAD" in *"$ID_CH"*) echo false;; *) echo true;; esac)"
+check "payload NÃO carrega valor (o valor vem do servidor)" \
+    "$(case "$PAYLOAD" in *valor=*|*\?*) echo false;; *) echo true;; esac)"
+
+TOKEN_DB=$(psql -v ON_ERROR_STOP=1 -q -X -t -A -d "$DB" -c \
+    "SELECT share_token FROM charges WHERE id='$ID_CH'")
+check "token do QR é o token gravado no banco" \
+    "$([ "$TOKEN" = "$TOKEN_DB" ] && echo true || echo false)"
+
+echo
+echo "rota pública /cobranca/{token}: o que quem recebe o link vê"
+
+# Nome de quem cobra existe para o devedor saber quem pediu.
+curl -s -o /dev/null -X PATCH "$BASE/profile" -H "$AUTH" \
+    -H 'content-type: application/json' -d '{"display_name":"Alice"}'
+
+PUB=$(curl -s "$BASE/cobranca/$TOKEN")
+C_PUB=$(code "$BASE/cobranca/$TOKEN")
+check "GET público responde 200 sem sessão (recebido $C_PUB)" \
+    "$([ "$C_PUB" = "200" ] && echo true || echo false)"
+check "devedor vê a descrição (recebido $(get description <<<"$PUB"))" \
+    "$([ "$(get description <<<"$PUB")" = "Aluguel do sobrinho" ] && echo true || echo false)"
+check "devedor vê o valor vindo do servidor (recebido $(get amount <<<"$PUB"))" \
+    "$([ "$(get amount <<<"$PUB")" = "50.00" ] && echo true || echo false)"
+check "devedor vê o status PENDING (recebido $(get status <<<"$PUB"))" \
+    "$([ "$(get status <<<"$PUB")" = "PENDING" ] && echo true || echo false)"
+check "devedor vê quem cobra (recebido $(get cobrador <<<"$PUB"))" \
+    "$([ "$(get cobrador <<<"$PUB")" = "Alice" ] && echo true || echo false)"
+
+# A resposta pública é mínima de propósito: o link roda fora da sessão e não
+# pode levar wallet, id interno ou o nome de outra pessoa junto.
+check "resposta pública não expõe wallet nem id da cobrança" \
+    "$(case "$PUB" in *"$ID_CH"*|*wallet*) echo false;; *) echo true;; esac)"
+check "resposta pública não expõe o nome do devedor" \
+    "$(case "$PUB" in *Bruno*) echo false;; *) echo true;; esac)"
+
+C_PUB_CURTO=$(code "$BASE/cobranca/abc")
+C_PUB_INEXISTENTE=$(code "$BASE/cobranca/0123456789abcdef0123456789abcdef")
+check "token malformado é 404 (recebido $C_PUB_CURTO)" \
+    "$([ "$C_PUB_CURTO" = "404" ] && echo true || echo false)"
+check "token inexistente é o MESMO 404 (recebido $C_PUB_INEXISTENTE)" \
+    "$([ "$C_PUB_INEXISTENTE" = "404" ] && echo true || echo false)"
 
 echo
 echo "receber move o dinheiro"
 
 REC=$(curl -s -X POST "$BASE/charges/$ID_CH/receive" -H "$AUTH")
 check "cobrança vira RECEIVED" "$([ "$(get status <<<"$REC")" = "RECEIVED" ] && echo true || echo false)"
+
+PUB_REC=$(curl -s "$BASE/cobranca/$TOKEN")
+check "rota pública passa a mostrar RECEIVED (recebido $(get status <<<"$PUB_REC"))" \
+    "$([ "$(get status <<<"$PUB_REC")" = "RECEIVED" ] && echo true || echo false)"
 
 SALDO_RECEBIDO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
 check "saldo subiu para 150.00 ao receber (recebido $SALDO_RECEBIDO)" \
@@ -170,6 +218,12 @@ ID_CH2=$(get id <<<"$CH2")
 C_CANCEL=$(code -X DELETE "$BASE/charges/$ID_CH2" -H "$AUTH")
 check "DELETE cancela cobrança pendente (recebido $C_CANCEL)" \
     "$([ "$C_CANCEL" = "200" ] && echo true || echo false)"
+
+TOKEN_CH2=$(psql -v ON_ERROR_STOP=1 -q -X -t -A -d "$DB" -c \
+    "SELECT share_token FROM charges WHERE id='$ID_CH2'")
+PUB_CANCEL=$(curl -s "$BASE/cobranca/$TOKEN_CH2")
+check "rota pública mostra CANCELED para cobrança cancelada (recebido $(get status <<<"$PUB_CANCEL"))" \
+    "$([ "$(get status <<<"$PUB_CANCEL")" = "CANCELED" ] && echo true || echo false)"
 
 C_CANCEL_RECEBIDA=$(code -X DELETE "$BASE/charges/$ID_CH" -H "$AUTH")
 check "cancelar cobrança recebida é 409 (recebido $C_CANCEL_RECEBIDA)" \
