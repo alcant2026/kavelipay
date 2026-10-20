@@ -88,7 +88,7 @@ private fun AppRaiz(
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                AppViewModel(sessao) as T
+                AppViewModel(sessao, contexto.applicationContext) as T
         }
     }
 

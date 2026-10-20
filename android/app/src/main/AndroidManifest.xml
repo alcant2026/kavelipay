@@ -2,6 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+        Só Android 8 e 9: a exportação da LGPD grava em Downloads por pasta
+        pública e o sistema exige a permissão. Do Android 10 em diante a
+        gravação é pela MediaStore, que não pede permissão — por isso o teto.
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <!-- Escanear linha digitável do boleto. required=false: quem não tem
          câmera (ou nega) instala e usa o caminho de digitação manual. -->
     <uses-permission android:name="android.permission.CAMERA" />

@@ -13,6 +13,7 @@ import com.kavelipay.app.data.Historico
 import com.kavelipay.app.data.ItemCharge
 import com.kavelipay.app.data.ItemHistorico
 import com.kavelipay.app.data.ItemSplit
+import com.kavelipay.app.data.Exportador
 import com.kavelipay.app.data.KaveliPayApi
 import com.kavelipay.app.data.ListaContas
 import com.kavelipay.app.data.ListaCharges
@@ -115,7 +116,15 @@ data class EstadoApp(
     val enviadoComSucesso: Boolean = false,
 )
 
-class AppViewModel(private val sessao: SessionStore) : ViewModel() {
+class AppViewModel(
+    private val sessao: SessionStore,
+    /**
+     * Só para gravar o arquivo da LGPD em Downloads (MediaStore precisa de
+     * ContentResolver). É o `applicationContext`: guardar uma Activity aqui
+     * vazaria a tela inteira enquanto o ViewModel vivesse.
+     */
+    private val contexto: android.content.Context,
+) : ViewModel() {
 
     private val api = KaveliPayApi(sessao)
 
@@ -717,19 +726,15 @@ fun carregarChargeQr(chargeId: String) {
         viewModelScope.launch {
             runCatching { api.lgpdExportJson() }
                 .onSuccess { dados ->
-                    val arquivo = salvarEmArquivo("kavelipay_dados.json", dados.toString(2))
-                    _estado.update {
-                        it.copy(
-                            avisoPerfil = "Arquivo salvo no aparelho: $arquivo",
-                            avisoPerfilFalhou = false,
-                        )
-                    }
+                    salvarExportacao(
+                        base = "kavelipay_dados",
+                        extensao = "json",
+                        mime = "application/json",
+                        conteudo = dados.toString(2),
+                        confirmacao = "Arquivo completo salvo",
+                    )
                 }
-                .onFailure { e ->
-                    _estado.update {
-                        it.copy(avisoPerfil = mensagemDe(e), avisoPerfilFalhou = true)
-                    }
-                }
+                .onFailure { avisoFalha(it) }
         }
     }
 
@@ -737,20 +742,50 @@ fun carregarChargeQr(chargeId: String) {
         viewModelScope.launch {
             runCatching { api.lgpdExportCsv() }
                 .onSuccess { csv ->
-                    val arquivo = salvarEmArquivo("kavelipay_extrato.csv", csv)
-                    _estado.update {
-                        it.copy(
-                            avisoPerfil = "Planilha salva no aparelho: $arquivo",
-                            avisoPerfilFalhou = false,
-                        )
-                    }
+                    salvarExportacao(
+                        base = "kavelipay_extrato",
+                        extensao = "csv",
+                        mime = "text/csv",
+                        conteudo = csv,
+                        confirmacao = "Planilha salva",
+                    )
                 }
-                .onFailure { e ->
-                    _estado.update {
-                        it.copy(avisoPerfil = mensagemDe(e), avisoPerfilFalhou = true)
-                    }
-                }
+                .onFailure { avisoFalha(it) }
         }
+    }
+
+    /**
+     * Grava em Downloads e SÓ ENTÃO anuncia sucesso.
+     *
+     * Antes a gravação devolvia o texto do erro como se fosse caminho de
+     * arquivo, e a tela exibia "Arquivo salvo" em verde com "EACCES" no meio.
+     * Separar em dois resultados (gravou / não gravou) é o que impede isso de
+     * voltar: falha de escrita agora pinta o aviso de vermelho.
+     */
+    private fun salvarExportacao(
+        base: String,
+        extensao: String,
+        mime: String,
+        conteudo: String,
+        confirmacao: String,
+    ) {
+        runCatching {
+            val nome = Exportador.nomeComCarimbo(base, extensao)
+            Exportador.salvar(contexto, nome, mime, conteudo)
+        }
+            .onSuccess { arquivo ->
+                _estado.update {
+                    it.copy(
+                        avisoPerfil = "$confirmacao em Downloads: $arquivo",
+                        avisoPerfilFalhou = false,
+                    )
+                }
+            }
+            .onFailure { avisoFalha(it) }
+    }
+
+    private fun avisoFalha(e: Throwable) {
+        _estado.update { it.copy(avisoPerfil = mensagemDe(e), avisoPerfilFalhou = true) }
     }
 
     fun eliminarConta(senha: String) {
@@ -1005,19 +1040,6 @@ fun carregarChargeQr(chargeId: String) {
         }
     }
 
-    /** Salva o conteúdo em um arquivo na pasta Download e retorna o caminho. */
-    private fun salvarEmArquivo(nome: String, conteudo: String): String {
-        return try {
-            val dir = android.os.Environment.getExternalStoragePublicDirectory(
-                android.os.Environment.DIRECTORY_DOWNLOADS
-            )
-            val arquivo = java.io.File(dir, nome)
-            arquivo.writeText(conteudo)
-            arquivo.absolutePath
-        } catch (e: Exception) {
-            "erro ao salvar: ${e.message}"
-        }
-    }
 }
 
 /**

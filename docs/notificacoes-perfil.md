@@ -34,3 +34,12 @@
   não o `sid`). Por isso o app chama `POST /auth/logout` em seguida e cai para a
   tela de entrada — o texto é "Sair de todos os aparelhos", não "encerrar as
   outras".
+- **Exportação da LGPD no app**: grava em Downloads pela `MediaStore`
+  (`Exportador.salvar`), com nome carimbado
+  (`kavelipay_extrato_2026-10-20_1940.csv`) e `IS_PENDING` enquanto escreve.
+  Gravar com `File.writeText` na pasta pública funcionava só até o app subir de
+  targetSdk: no Android 10+ dá `EACCES`, e o erro era devolvido como texto de
+  sucesso — a tela dizia "Arquivo salvo" em verde e o arquivo nunca existia.
+  Regra: **arquivo só é anunciado depois de gravado**; falha pinta o aviso de
+  vermelho. Android 8/9 usa pasta pública + `WRITE_EXTERNAL_STORAGE`
+  (`maxSdkVersion="28"`).
