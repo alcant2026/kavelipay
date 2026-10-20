@@ -644,6 +644,31 @@ internal fun JSONObject.paraOfertaParceiro() = OfertaParceiro(
     id = getString("id"),
     loja = optString("loja"),
     titulo = optString("titulo"),
-    imagemUrl = optString("imagem_url"),
+    // `optString` num campo JSON `null` devolve o TEXTO "null" em algumas
+    // versões do org.json — e "null" não começa com https, então viraria
+    // placeholder. A checagem explícita evita o card com imagem "carregando"
+    // para sempre por causa de uma string inventada.
+    imagemUrl = if (isNull("imagem_url")) "" else optString("imagem_url"),
     destinoUrl = optString("destino_url"),
+)
+
+/**
+ * Uma página da vitrine.
+ *
+ * `total` é o que permite dizer "fim" com honestidade: sem ele, o app só
+ * saberia que a última página veio menor que 10 — e uma página cheia de 10
+ * seguida de nada pareceria erro de rede.
+ */
+data class PaginaParceiros(
+    val itens: List<OfertaParceiro>,
+    val total: Int,
+    val limit: Int,
+    val offset: Int,
+)
+
+internal fun JSONObject.paraPaginaParceiros() = PaginaParceiros(
+    itens = optJSONArray("itens").paraObjetos { it.paraOfertaParceiro() },
+    total = optInt("total"),
+    limit = optInt("limit", 10),
+    offset = optInt("offset"),
 )

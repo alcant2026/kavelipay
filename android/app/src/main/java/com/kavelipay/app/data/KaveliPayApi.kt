@@ -143,14 +143,18 @@ class KaveliPayApi(private val sessao: SessionStore) {
     // ── Categorias e relatórios ──────────────────────────────────────────────
 
     /**
-     * `GET /parceiros` — vitrine de indicações de loja.
+     * `GET /parceiros?limit=&offset=` — vitrine de indicações de loja.
      *
      * Lista vazia quando não há oferta ativa: o app NÃO inventa card. Inventar
      * seria mostrar produto que não existe, com link que não leva a lugar
      * nenhum — e a vitrine é propaganda, então ela precisa ser verdadeira.
+     *
+     * A ordem vem do servidor (`criado_em DESC`): o que o admin cadastrou por
+     * último aparece primeiro. Ordenar no app por `id` ou por título seria
+     * outra ordem, e a vitrine passaria a discordar do que foi cadastrado.
      */
-    suspend fun parceiros(): List<OfertaParceiro> =
-        ApiClient.getArray("/parceiros", token).paraObjetos { it.paraOfertaParceiro() }
+    suspend fun parceiros(limit: Int = 10, offset: Int = 0): PaginaParceiros =
+        ApiClient.get("/parceiros?limit=$limit&offset=$offset", token).paraPaginaParceiros()
 
     suspend fun categorias(kind: String? = null): List<Categoria> {
             val caminho = if (kind == null) "/categories" else "/categories?kind=$kind"

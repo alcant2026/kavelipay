@@ -44,8 +44,11 @@ import java.util.concurrent.TimeUnit
  */
 private const val TAMANHO_MAXIMO_BYTES = 4L * 1024 * 1024
 
-/** 24 entradas cabem folgado em memória e cobrem a vitrine inteira. */
-private val cacheImagens = LruCache<String, ImageBitmap>(24)
+/**
+ * 48 entradas: a vitrine pagina de 10 em 10, então 24 obrigariam a rebuscar
+ * foto já vista ao rolar de volta. Cada imagem é um bitmap pequeno de card.
+ */
+private val cacheImagens = LruCache<String, ImageBitmap>(48)
 
 private val clienteImagens: OkHttpClient by lazy {
     OkHttpClient.Builder()

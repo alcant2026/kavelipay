@@ -93,6 +93,12 @@ data class EstadoApp(
      */
     val parceiros: List<OfertaParceiro> = emptyList(),
 
+    /** Quantas ofertas ativas existem no total (diz se há próxima página). */
+    val parceirosTotal: Int = 0,
+
+    /** "Carregar mais" em andamento — evita pedir a mesma página duas vezes. */
+    val carregandoMaisParceiros: Boolean = false,
+
     /**
      * Resultado da última ação do Perfil (hoje: exportação de dados).
      *
@@ -174,7 +180,9 @@ class AppViewModel(private val sessao: SessionStore) : ViewModel() {
                 // Vitrine: silenciosa de propósito. Se cair, a Home continua
                 // inteira — propaganda indisponível não é erro do usuário.
                 val parceiros = async {
-                    runCatching { api.parceiros() }.getOrDefault(emptyList())
+                    // `getOrNull`: falha aqui não derruba a Home, e `null`
+                    // distingue "não carregou" de "não há oferta".
+                    runCatching { api.parceiros() }.getOrNull()
                 }
 
                 // Gerar lembretes antes de ler: senão a lista vem vazia na
@@ -193,13 +201,76 @@ class AppViewModel(private val sessao: SessionStore) : ViewModel() {
                         contas = contas.await(),
                         relatorio = relatorio.await(),
                         naoLidas = naoLidas.await(),
-                        parceiros = parceiros.await(),
+                        parceiros = parceiros.await()?.itens.orEmpty(),
+                        parceirosTotal = parceiros.await()?.total ?: 0,
                     )
                 }
             } catch (e: Exception) {
                 // Token expirado ou rede caída: uma mensagem e o usuário
                 // reautentica. Não mostrar tela branca.
                 _estado.update { it.copy(carregando = false, erro = mensagemDe(e)) }
+            }
+        }
+    }
+
+    /**
+     * Primeira página da vitrine, sem refazer a Home inteira.
+     *
+     * O "Tentar de novo" da tela de parceiros chamava `carregarTudo()`, que
+     * refaz carteira, extrato, contas e relatório — cinco chamadas para
+     * consertar uma lista. Falha continua silenciosa: propaganda fora do ar
+     * não é erro do usuário, e o botão já convida a tentar de novo.
+     */
+    fun carregarParceiros() {
+        viewModelScope.launch {
+            _estado.update { it.copy(carregandoMaisParceiros = true) }
+            val pagina = runCatching { api.parceiros() }
+            _estado.update { estado ->
+                pagina.fold(
+                    onSuccess = { primeira ->
+                        estado.copy(
+                            parceiros = primeira.itens,
+                            parceirosTotal = primeira.total,
+                            carregandoMaisParceiros = false,
+                        )
+                    },
+                    onFailure = { estado.copy(carregandoMaisParceiros = false) },
+                )
+            }
+        }
+    }
+
+    /**
+     * Próxima página da vitrine, anexada ao fim.
+     *
+     * A página é pedida pelo tamanho da lista já carregada, não por um contador
+     * à parte: se o admin desativar uma oferta no meio do caminho, o servidor
+     * devolve a lista deslocada e o contador divergiria da tela.
+     */
+    fun carregarMaisParceiros() {
+        val atual = _estado.value
+        if (atual.carregandoMaisParceiros) return
+        if (atual.parceiros.isNotEmpty() && atual.parceiros.size >= atual.parceirosTotal) return
+
+        viewModelScope.launch {
+            _estado.update { it.copy(carregandoMaisParceiros = true) }
+            val pagina = runCatching { api.parceiros(offset = atual.parceiros.size) }
+            _estado.update { estado ->
+                pagina.fold(
+                    onSuccess = { proxima ->
+                        // Oferta cadastrada entre uma página e outra empurraria
+                        // a lista e repetiria item: o filtro por id segura.
+                        val novos = proxima.itens.filter { nova ->
+                            estado.parceiros.none { it.id == nova.id }
+                        }
+                        estado.copy(
+                            parceiros = estado.parceiros + novos,
+                            parceirosTotal = proxima.total,
+                            carregandoMaisParceiros = false,
+                        )
+                    },
+                    onFailure = { estado.copy(carregandoMaisParceiros = false) },
+                )
             }
         }
     }
