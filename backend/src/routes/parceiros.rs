@@ -169,14 +169,25 @@ pub async fn criar(
         }
     }
 
-    // Só busca a página quando falta algo. Admin que manda tudo não espera
-    // rede nenhuma — e o Mercado Livre, que bloqueia bot, não atrasa um
-    // cadastro já completo.
-    if titulo.is_none() || imagem.is_none() {
-        let meta = buscar_metadados(&link).await;
-        titulo = titulo.or(meta.titulo);
-        imagem = imagem.or(meta.imagem);
+    // A página é buscada SEMPRE, mesmo quando o admin manda título e imagem
+    // prontos: é a única oportunidade de descobrir que o link morreu antes de
+    // ele entrar na vitrine. Custa até 6 s num cadastro (ação rara) e evita
+    // publicar oferta que abre "produto não encontrado" na cara do usuário.
+    //
+    // Só 404/410 recusam. 403 é o Mercado Livre bloqueando leitor automático —
+    // isso não diz nada sobre o produto, e recusar por isso impediria de
+    // cadastrar justamente as lojas que obrigam o admin a mandar `titulo`.
+    let (meta, status) = buscar_metadados(&link).await;
+    if let Some(codigo) = status {
+        if link_morto(codigo) {
+            return Err(AppError::Validation(format!(
+                "esse link não existe mais na loja (a página respondeu {codigo}). \
+                 Confira o endereço antes de cadastrar."
+            )));
+        }
     }
+    titulo = titulo.or(meta.titulo);
+    imagem = imagem.or(meta.imagem);
 
     let titulo = titulo.ok_or_else(|| {
         AppError::Validation(
@@ -394,30 +405,36 @@ struct Metadados {
     imagem: Option<String>,
 }
 
-/// Busca a página e extrai título/imagem. Silencioso por natureza: qualquer
-/// falha (timeout, 403, página sem meta) vira `Metadados` vazio e quem decide
-/// o que fazer é o chamador — que responde 422 pedindo o título.
-async fn buscar_metadados(url: &str) -> Metadados {
+/// Busca a página e devolve `(metadados, status HTTP)`.
+///
+/// O status sai junto porque 404/410 significam "esse produto saiu do ar" e
+/// merecem recusa, enquanto 403 (loja bloqueando bot) e erro de rede não
+/// significam nada sobre a existência do produto. Silencioso no resto: página
+/// sem meta vira `Metadados` vazio e o chamador responde 422 pedindo o título.
+///
+/// `None` = nem chegou a haver resposta (DNS, TLS, timeout).
+async fn buscar_metadados(url: &str) -> (Metadados, Option<u16>) {
     let cliente = match reqwest::Client::builder()
         .timeout(Duration::from_secs(6))
         .user_agent("KaveliPayBot/1.0 (+vitrine de parceiros)")
         .build()
     {
         Ok(c) => c,
-        Err(_) => return Metadados::default(),
+        Err(_) => return (Metadados::default(), None),
     };
 
     let resposta = match cliente.get(url).send().await {
         Ok(r) => r,
-        Err(_) => return Metadados::default(),
+        Err(_) => return (Metadados::default(), None),
     };
+    let status = resposta.status().as_u16();
     if !resposta.status().is_success() {
-        return Metadados::default();
+        return (Metadados::default(), Some(status));
     }
 
     let corpo = match resposta.text().await {
         Ok(c) => c,
-        Err(_) => return Metadados::default(),
+        Err(_) => return (Metadados::default(), Some(status)),
     };
     // Meta tag mora no `<head>`. 512 KB é folgado para o head e impede que um
     // link para um arquivo enorme trave o handler.
@@ -427,7 +444,13 @@ async fn buscar_metadados(url: &str) -> Metadados {
     let imagem = extrair_meta(&corpo, "og:image")
         .filter(|url| url.starts_with("https://"));
 
-    Metadados { titulo, imagem }
+    (Metadados { titulo, imagem }, Some(status))
+}
+
+/// Link morto é 404/410 — definitivo. Qualquer outro código pode ser bot
+/// block ou instabilidade da loja, e recusar por isso quebraria cadastro bom.
+fn link_morto(status: u16) -> bool {
+    status == 404 || status == 410
 }
 
 /// Procura `<meta … og:title … content="…">`, aceitando a ordem de atributos
@@ -566,5 +589,17 @@ mod tests {
         assert!(tempo_constante_igual(b"abc", b"abc"));
         assert!(!tempo_constante_igual(b"abc", b"abd"));
         assert!(!tempo_constante_igual(b"abc", b"ab"));
+    }
+
+    #[test]
+    fn so_404_e_410_contam_como_link_morto() {
+        assert!(link_morto(404));
+        assert!(link_morto(410));
+        // 403 é bot block (Mercado Livre), 429 é rate limit, 500 é instabilidade
+        // da loja — nenhum deles diz que o produto saiu do ar.
+        assert!(!link_morto(403));
+        assert!(!link_morto(429));
+        assert!(!link_morto(500));
+        assert!(!link_morto(200));
     }
 }

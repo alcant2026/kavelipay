@@ -6,10 +6,12 @@ import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -120,9 +122,38 @@ fun KpParceiroWebScreen(oferta: OfertaParceiro?, aoVoltar: () -> Unit) {
                     }
                 }
 
+                /**
+                 * 404/410 é produto que saiu do ar: a loja respondeu "não
+                 * existe", e insistir não resolve. Sem isto o usuário leria a
+                 * página de erro da própria loja, em inglês, sem saber se o
+                 * problema é o app.
+                 *
+                 * Limite honesto: loja que devolve 200 com "produto não
+                 * encontrado" escrito na página (soft 404) passa batido — não
+                 * há como distinguir isso de uma página normal sem conhecer o
+                 * HTML de cada loja.
+                 */
+                override fun onReceivedHttpError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    errorResponse: WebResourceResponse?,
+                ) {
+                    if (request?.isForMainFrame != true) return
+                    val codigo = errorResponse?.statusCode ?: return
+                    if (codigo == 404 || codigo == 410) {
+                        carregando = false
+                        erro = "Essa indicação saiu do ar: a loja respondeu $codigo " +
+                            "para este link."
+                    }
+                }
+
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     carregando = true
-                    erro = null
+                    // NÃO limpa `erro` aqui: em algumas versões do WebView a
+                    // ordem é onReceivedHttpError -> onPageStarted (recarga da
+                    // página de erro) -> onPageFinished, e limpar apagava a
+                    // mensagem de 404 recém-recebida. Quem limpa é o botão
+                    // "Tentar de novo", que é uma ação explícita do usuário.
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -172,19 +203,24 @@ fun KpParceiroWebScreen(oferta: OfertaParceiro?, aoVoltar: () -> Unit) {
             }
 
             Box(Modifier.weight(1f)) {
-                AndroidView(
-                    factory = { webView },
-                    modifier = Modifier.fillMaxSize(),
-                )
-
-                erro?.let { mensagem ->
+                // A WebView é nativa e é desenhada DEPOIS do conteúdo Compose:
+                // um aviso sobreposto a ela ficaria escondido atrás da página.
+                // Por isso o erro substitui a WebView em vez de cobri-la.
+                if (erro == null) {
+                    AndroidView(
+                        factory = { webView },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
                             .padding(Spacing.lg),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
+                        val mensagem = erro!!
                         Text(
                             text = mensagem,
                             style = MaterialTheme.typography.bodyMedium,

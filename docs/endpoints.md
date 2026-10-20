@@ -71,6 +71,12 @@
     leitura, é 422 pedindo `titulo` — **nunca** inventa nome de produto.
   - A loja é deduzida do domínio (`mercadolivre.com.br` → Mercado Livre, senão
     o rótulo do domínio capitalizado).
+  - Link que responde **404/410** é recusado com 422 ("esse link não existe
+    mais na loja"). A página é buscada em **todo** cadastro, não só quando falta
+    título ou imagem: é a única chance de pegar link morto antes de ele entrar
+    na vitrine. `403`, `429` e `5xx` **não** recusam — são bot-block, limite de
+    acesso ou instabilidade da loja, e punir isso travaria justamente as lojas
+    que bloqueiam leitura automática.
   - `201` com a oferta criada. Link que já está ativo é `409`; link desativado é
     **reativado** e volta para o topo (`criado_em = now()`), não duplicado —
     há índice único em `destino_url`.
@@ -79,10 +85,19 @@
 - `DELETE /admin/parceiros/{id}` — desativa (`ativo = FALSE`), `204`. É o jeito
   de tirar da vitrine sem apagar o registro; id inexistente ou já desativado é
   `404`. Mesmo `X-Admin-Token`.
+- `scripts/verificar_ofertas.sh [--desativar]` — varre a vitrine e testa o
+  destino de cada oferta: `404`/`410` viram `MORTA`, sem resposta vira
+  `SEM-RESPOSTA` (não conta como morta: pode ser rede). Sem a flag só relata;
+  com `--desativar` chama o `DELETE` acima.
 - A compra acontece na loja, numa WebView do app. Nada toca o ledger: não há
   pagamento, não há recebível, não há saldo. O KaveliPay recebe comissão de
   afiliado da loja, não do usuário — e isso está escrito na tela e no rodapé
   dos cards.
+- Oferta que morre **depois** de cadastrada: a WebView escuta erro HTTP de
+  navegação principal e, em `404`/`410`, troca a página por "Essa indicação
+  saiu do ar" com "Tentar de novo" e "Abrir no navegador". *Soft 404* (loja
+  responde `200` com "produto não encontrado" no HTML) não é detectável sem
+  conhecer o HTML de cada loja — é limitação assumida.
 - `imagem_url` pode ser nula (oferta sem `og:image`): o app mostra o ícone de
   loja no lugar. Quando existe, é `https://` por `CHECK` no banco — e
   `destino_url` também (defesa em profundidade: a WebView recusa
