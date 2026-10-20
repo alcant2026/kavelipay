@@ -109,6 +109,12 @@ resposta e o app com erro de rede — o serviço "existe", mas não está escuta
 Quando a porta responde, `/health` dá 404 (não existe rota de health): use
 `/profile` (405 sem método) ou um login real para saber se está de pé.
 
+O script também exporta `ADMIN_TOKEN` (a config recusa subir com menos de 24
+caracteres). Sem ela, `POST /admin/parceiros` responde 503 e a vitrine só pode
+ser cadastrada por migration. Ao ler o token de volta, cuidado com o `=`: ele é
+base64 e termina em `=`, então `cut -d= -f2` trunca e a API devolve 401 — use
+`sed -n 's/^export ADMIN_TOKEN=//p' ~/.local/bin/kavelipay-backend.sh`.
+
 ### Testar a UI do app (Waydroid)
 
 O app roda no **Waydroid**, não emulador. O `ApiClient` sonda os candidatos

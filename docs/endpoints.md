@@ -52,18 +52,39 @@
 
 ## Parceiros (vitrine de indicação)
 
-- `GET /parceiros` — lista as ofertas ativas, na ordem curada. **Sem campo de
-  preço**, e a ausência é regra: o Mercado Livre bloqueia leitura automática
-  (403 na API anônima, bot-block na página), então preço só existiria digitado
-  à mão — e preço digitado à mão envelhece calado. O app mostra "ver preço na
-  loja" e o número verdadeiro fica no destino.
-- **Só leitura.** Não há `POST`: a vitrine é curada por migration
-  (`0011_parceiros`), não por API. O app é de pessoa física — não existe painel
-  de lojista, catálogo, estoque ou pedido aqui.
+- `GET /parceiros?limit=10&offset=0` — ofertas ativas, **da mais nova para a
+  mais antiga** (`criado_em DESC`), em página de 10 (teto 50). Resposta
+  `{itens, total, limit, offset}`: `total` é quantas ofertas ativas existem, o
+  que deixa o app saber que acabou sem adivinhar pela página incompleta. Exige
+  login (`AuthUser`), mas não filtra por usuário — a vitrine é a mesma para
+  todos e a resposta não tem dado de ninguém.
+- **Sem campo de preço**, e a ausência é regra: o Mercado Livre bloqueia leitura
+  automática (403 na API anônima, bot-block na página), então preço só existiria
+  digitado à mão — e preço digitado à mão envelhece calado. O app mostra "ver
+  preço na loja" e o número verdadeiro fica no destino.
+- `POST /admin/parceiros` — cadastro pelo dono (não é painel: uma rota, sem
+  tela). Header `X-Admin-Token` com o valor de `ADMIN_TOKEN` (mínimo 24
+  caracteres, conferido no boot). Corpo `{link, titulo?, imagem?, loja?}`:
+  - `link` precisa ser `https://` — 422 se não for.
+  - Sem `titulo`/`imagem`, o servidor busca `og:title`/`og:image` da página
+    (timeout 6 s, corpo até 512 KB, User-Agent próprio). Se a loja bloquear a
+    leitura, é 422 pedindo `titulo` — **nunca** inventa nome de produto.
+  - A loja é deduzida do domínio (`mercadolivre.com.br` → Mercado Livre, senão
+    o rótulo do domínio capitalizado).
+  - `201` com a oferta criada. Link que já está ativo é `409`; link desativado é
+    **reativado** e volta para o topo (`criado_em = now()`), não duplicado —
+    há índice único em `destino_url`.
+  - `401` com token ausente/errado; `503` quando `ADMIN_TOKEN` não está
+    definida (o resto do app funciona normalmente).
+- `DELETE /admin/parceiros/{id}` — desativa (`ativo = FALSE`), `204`. É o jeito
+  de tirar da vitrine sem apagar o registro; id inexistente ou já desativado é
+  `404`. Mesmo `X-Admin-Token`.
 - A compra acontece na loja, numa WebView do app. Nada toca o ledger: não há
   pagamento, não há recebível, não há saldo. O KaveliPay recebe comissão de
   afiliado da loja, não do usuário — e isso está escrito na tela e no rodapé
   dos cards.
-- `imagem_url` e `destino_url` são `https://` por `CHECK` no banco (defesa em
-  profundidade: a WebView também recusa `http`/`file`/`javascript` em
-  `classificarDestinoWeb`, testado em `NavegacaoWebTest`).
+- `imagem_url` pode ser nula (oferta sem `og:image`): o app mostra o ícone de
+  loja no lugar. Quando existe, é `https://` por `CHECK` no banco — e
+  `destino_url` também (defesa em profundidade: a WebView recusa
+  `http`/`file`/`javascript` em `classificarDestinoWeb`, testado em
+  `NavegacaoWebTest`).
