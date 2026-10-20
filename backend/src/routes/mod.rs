@@ -10,6 +10,7 @@ pub mod history;
 pub mod investments;
 pub mod lgpd;
 pub mod notifications;
+pub mod parceiros;
 pub mod profile;
 pub mod recurrence;
 pub mod reports;
@@ -114,6 +115,8 @@ pub fn router(state: AppState) -> Router {
             "/investments/{id}/movements",
             get(investments::list_movements),
         )
+        // vitrine de lojas parceiras (indicação de afiliado) — leitura só
+        .route("/parceiros", get(parceiros::list))
         // LGPD
         .route("/lgpd/export", get(lgpd::export))
         .route("/lgpd/export.csv", get(lgpd::export_csv))

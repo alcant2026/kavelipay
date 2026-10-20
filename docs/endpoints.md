@@ -49,3 +49,21 @@
   só `PENDING` (pago/confirmado é 409); 422 com as mesmas mensagens do POST
 - `DELETE /debts/{id}` — só `PENDING` (estado final é 409); pendente nunca
   tocou o ledger, então não estorna nada. Id de outra carteira é 404, nunca 403
+
+## Parceiros (vitrine de indicação)
+
+- `GET /parceiros` — lista as ofertas ativas, na ordem curada. **Sem campo de
+  preço**, e a ausência é regra: o Mercado Livre bloqueia leitura automática
+  (403 na API anônima, bot-block na página), então preço só existiria digitado
+  à mão — e preço digitado à mão envelhece calado. O app mostra "ver preço na
+  loja" e o número verdadeiro fica no destino.
+- **Só leitura.** Não há `POST`: a vitrine é curada por migration
+  (`0011_parceiros`), não por API. O app é de pessoa física — não existe painel
+  de lojista, catálogo, estoque ou pedido aqui.
+- A compra acontece na loja, numa WebView do app. Nada toca o ledger: não há
+  pagamento, não há recebível, não há saldo. O KaveliPay recebe comissão de
+  afiliado da loja, não do usuário — e isso está escrito na tela e no rodapé
+  dos cards.
+- `imagem_url` e `destino_url` são `https://` por `CHECK` no banco (defesa em
+  profundidade: a WebView também recusa `http`/`file`/`javascript` em
+  `classificarDestinoWeb`, testado em `NavegacaoWebTest`).
