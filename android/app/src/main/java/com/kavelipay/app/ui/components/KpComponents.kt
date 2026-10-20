@@ -384,81 +384,6 @@ fun KpFilaAcoes(
     }
 }
 
-/** Card do carrossel "Descubra mais". */
-@Composable
-fun KpCarrosselItem(
-    icone: ImageVector,
-    titulo: String,
-    descricao: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .width(280.dp)
-            .clip(RoundedCornerShape(RaioCard))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(RaioCard))
-            .padding(Spacing.md)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = icone,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-            Spacer(Modifier.height(Spacing.md))
-            Text(
-                titulo,
-                style = TituloCard,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(Spacing.xs))
-            Text(
-                descricao,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-/** Carrossel horizontal "Descubra mais". */
-@Composable
-fun KpCarrossel(
-    itens: List<@Composable () -> Unit>,
-    modifier: Modifier = Modifier,
-) {
-    LazyRow(
-        modifier = modifier
-            .fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-        contentPadding = PaddingValues(horizontal = Spacing.md),
-    ) {
-        items(itens.size) { index ->
-            itens[index]()
-        }
-    }
-}
-
 /** Card de saldo herói (Home) — estilo Nubank. */
 @Composable
 fun KpHeroCardSaldo(
@@ -556,6 +481,20 @@ fun KpHeroCardSaldo(
                     onClick = aoVerDerivacao,
                     icone = Icons.Default.ExpandMore,
                     modifier = Modifier.padding(top = Spacing.xs),
+                )
+            }
+
+            // A frase mora AQUI, dentro do cartão do saldo. Antes ela era um
+            // segundo cartão logo abaixo, que repetia o selo "Demonstrativo" e
+            // o valor ("Saldo de hoje: R$ 100,00") que já estavam 20dp acima.
+            // O aviso continua na tela; o que saiu foi a segunda via dele.
+            if (demonstrativa) {
+                Spacer(Modifier.height(Spacing.sm))
+                Text(
+                    "Não é dinheiro real: o KaveliPay organiza seus registros " +
+                        "e não custodia nem movimenta valores.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

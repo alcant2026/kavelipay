@@ -116,6 +116,8 @@ fun KpRaiz(
                 aoVerInvestimentos = { nav.navigate(Rota.INVESTIMENTOS) },
                 aoVerNotificacoes = { nav.navigate(Rota.NOTIFICACOES) },
                 aoNovaDespesa = { nav.navigate(Rota.NOVA_DESPESA) },
+                aoNovaConta = { nav.navigate(Rota.NOVA_CONTA) },
+                aoNovaCharge = { nav.navigate(Rota.NOVA_CHARGE) },
                 aoVerParceiros = { nav.navigate(Rota.PARCEIROS) },
                 temaEscuro = temaEscuro,
                 aoAlternarTema = aoAlternarTema,

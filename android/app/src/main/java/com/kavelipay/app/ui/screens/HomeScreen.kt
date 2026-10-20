@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
@@ -51,14 +50,12 @@ import androidx.compose.ui.unit.dp
 import com.kavelipay.app.data.ItemConta
 import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpAcaoItem
-import com.kavelipay.app.ui.components.KpAvisoSaldoDemonstrativo
 import com.kavelipay.app.ui.components.KpBadgeCritico
 import com.kavelipay.app.ui.components.KpBadgeNeutra
 import com.kavelipay.app.ui.components.KpBotaoPrimario
 import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
-import com.kavelipay.app.ui.components.KpCarrossel
-import com.kavelipay.app.ui.components.KpCarrosselItem
+import com.kavelipay.app.ui.components.KpMenuRow
 import com.kavelipay.app.ui.components.KpEtiqueta
 import com.kavelipay.app.ui.components.KpFilaAcoes
 import com.kavelipay.app.ui.components.KpHeroCardSaldo
@@ -82,11 +79,22 @@ import kotlinx.coroutines.launch
  * Home — padrão Nubank:
  * 1. TopBar (saudação + tema + notificações + ocultar saldo)
  * 2. Saldo herói (GET /wallet) com selo Demonstrativo + toggle ocultar
- * 3. Fila de ações (LazyRow horizontal): Entrada, Despesa, Boleto, Cobrança, Divisão, Investir
+ * 3. Fila de ações (LazyRow horizontal): Entrada, Despesa, Boleto, Cobrar,
+ *    Dividir, Investir, Parceiro
  * 4. Bloco "Contas a pagar" com badges de vencido
- * 5. Carrossel "Descubra mais"
+ * 5. Cartão "Mais" (só o que não tem outro caminho na Home)
  * 6. Últimos lançamentos (extrato resumido)
  * 7. TabBar inferior 5 abas
+ *
+ * REGRA DE OURO desta tela: cada destino aparece UMA vez.
+ * Aba = lista (Contas, Histórico, Cobranças). Atalho = criar (Entrada,
+ * Despesa, Boleto, Cobrar). Cartão "Mais" = só o que não cabe em nenhum dos
+ * dois (Relatório, Categorias). "Ver todas" é overflow do bloco que ele resume,
+ * não atalho — por isso pode repetir a aba: ali ele significa "o resto desta
+ * lista", sem sair do contexto do cartão.
+ * Quando um atalho apontava para a mesma lista da aba, a Home tinha dois
+ * caminhos para o mesmo lugar, com rótulos diferentes, e nenhum deles criava
+ * nada — o verbo "Boleto" abria a lista em vez de cadastrar o boleto.
  */
 @Composable
 fun KpHomeScreen(
@@ -106,6 +114,11 @@ fun KpHomeScreen(
     // traz as rotas novas.
     aoVerNotificacoes: () -> Unit = {},
     aoNovaDespesa: () -> Unit = {},
+    // Atalho = criar. "Boleto" e "Cobrar" abriam as LISTAS — que já são a aba
+    // "Contas" e a aba "Cobranças" — então dois caminhos davam no mesmo lugar
+    // e nenhum cadastrava nada. Agora eles abrem o formulário.
+    aoNovaConta: () -> Unit = {},
+    aoNovaCharge: () -> Unit = {},
     // Vitrine de parceiros. Default vazio para a Home não quebrar em preview
     // ou em chamador antigo; quem alimenta é a raiz.
     aoVerParceiros: () -> Unit = {},
@@ -160,7 +173,10 @@ fun KpHomeScreen(
                 start = Spacing.md,
                 end = Spacing.md,
                 top = Spacing.sm,
-                bottom = Spacing.xxl + 64.dp, // espaço para TabBar
+                // Sem "+ altura da TabBar": a TabBar vive no `bottomBar` do
+                // Scaffold e o `padding` acima já reserva o espaço dela.
+                // Somar 64dp de novo deixava um vão morto no fim da rolagem.
+                bottom = Spacing.xl,
             ),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
@@ -176,14 +192,9 @@ fun KpHomeScreen(
                 )
             }
 
-            // Aviso demonstrativo (aparece logo abaixo do herói se demonstrativo)
-            if (estado.carteira?.demonstrativa != false && !ocultarSaldo) {
-                item {
-                    KpAvisoSaldoDemonstrativo(
-                        saldoMostrado = brl(estado.carteira?.saldo ?: "0.00")
-                    )
-                }
-            }
+            // O aviso de saldo demonstrativo saiu daqui: virou uma linha
+            // dentro do cartão do saldo, que já traz o selo e o valor. Este
+            // bloco repetia os três (selo, frase e valor) num segundo cartão.
 
             // 2. Fila de ações (LazyRow horizontal)
             item {
@@ -191,8 +202,8 @@ fun KpHomeScreen(
                     acoes = listOf(
                         { KpAcaoItem(Icons.Default.Add, "Entrada", aoNovaTransacao) },
                         { KpAcaoItem(Icons.Default.Remove, "Despesa", aoNovaDespesa) },
-                        { KpAcaoItem(Icons.Default.ReceiptLong, "Boleto", aoVerContas) },
-                        { KpAcaoItem(Icons.Default.QrCode, "Cobrar", aoVerCobrancas) },
+                        { KpAcaoItem(Icons.Default.ReceiptLong, "Boleto", aoNovaConta) },
+                        { KpAcaoItem(Icons.Default.QrCode, "Cobrar", aoNovaCharge) },
                         { KpAcaoItem(Icons.Default.SwapHoriz, "Dividir", aoVerDivisoes) },
                         { KpAcaoItem(Icons.Default.TrendingUp, "Investir", aoVerInvestimentos) },
                         // "Parceiro", não "Loja": o atalho não leva a uma loja
@@ -261,16 +272,41 @@ fun KpHomeScreen(
                 }
             }
 
-            // 4. Carrossel "Descubra mais"
+            // 4. "Mais" — o que não tem atalho nem aba.
+            //
+            // Era um carrossel de quatro cartões grandes. Tirando as duas
+            // duplicatas sobraram dois, e dois cartões de 280dp num carrossel
+            // viram uma faixa enorme para dois links. Virou duas linhas, do
+            // mesmo jeito do Perfil — cabe na tela e não esconde o segundo
+            // item fora da dobra lateral.
             item {
-                KpCarrossel(
-                    itens = listOf(
-                        { KpCarrosselItem(Icons.Default.Info, "Saldo explicado", "Veja de onde vem cada centavo do seu saldo", aoVerDerivacao) },
-                        { KpCarrosselItem(Icons.Default.SwapHoriz, "Divisões", "Divida contas com amigos e acompanhe quem deve", aoVerDivisoes) },
-                        { KpCarrosselItem(Icons.Default.PieChart, "Relatório do mês", "Entradas, saídas e para onde foi o dinheiro", aoVerRelatorio) },
-                        { KpCarrosselItem(Icons.Default.Label, "Categorias", "Classifique entradas e despesas do seu jeito", aoVerCategorias) },
-                    )
-                )
+                KpCard(Modifier.fillMaxWidth()) {
+                    Column {
+                        Text(
+                            "Mais",
+                            style = TituloCard,
+                            modifier = Modifier.padding(
+                                start = Spacing.md,
+                                end = Spacing.md,
+                                top = Spacing.md,
+                                bottom = Spacing.xs,
+                            ),
+                        )
+                        KpMenuRow(
+                            icone = Icons.Default.PieChart,
+                            rotulo = "Relatório do mês",
+                            subtitulo = "Entradas, saídas e para onde foi o dinheiro",
+                            onClick = aoVerRelatorio,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        KpMenuRow(
+                            icone = Icons.Default.Label,
+                            rotulo = "Categorias",
+                            subtitulo = "Classifique entradas e despesas do seu jeito",
+                            onClick = aoVerCategorias,
+                        )
+                    }
+                }
             }
 
             // 5. Últimos lançamentos
@@ -281,7 +317,10 @@ fun KpHomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Últimos lançamentos", style = TituloCard)
-                    KpBotaoSecundario("Ver tudo", onClick = aoVerContas)
+                    // Era `aoVerContas`: o "Ver tudo" do extrato abria a lista
+                    // de BOLETOS. Além de errado, era a terceira porta para a
+                    // mesma tela na Home.
+                    KpBotaoSecundario("Ver tudo", onClick = aoVerHistorico)
                 }
             }
 
