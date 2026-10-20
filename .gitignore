@@ -12,3 +12,4 @@ nohup.out
 # Infra de agente e de ferramenta
 .superpowers/
 .gitnexus/
+.opencode/

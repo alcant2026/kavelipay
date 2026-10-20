@@ -47,7 +47,7 @@ docker run -d --rm --name kp_pgtest \
 ```
 
 Primeira execução demora (baixa a imagem). Conectar:
-`PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=test psql -d kavelipay`
+`PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay psql -d kavelipay`
 
 **O dev de desenvolvimento usa o volume nomeado `kavelipay-pgdata`** (montado
 em `/var/lib/postgresql/data`) — os dados sobrevivem a `docker restart`,
@@ -77,6 +77,37 @@ Smoke test mínimo: `POST /auth/register` → token → `POST /wallet/transactio
 com `{"type":"ENTRY","amount":"150.50"}` → `GET /wallet` deve bater.
 Obs: `POST /bills` exige campo `description` (não `title`); `type` aceita
 `ENTRY|EXPENSE|BILL_PAID` (`INCOME` é 422).
+
+### Backend como serviço (systemd de usuário)
+
+Além do `nohup` acima, nesta máquina o backend sobe por um serviço de usuário:
+
+```
+~/.config/systemd/user/kavelipay-backend.service   # Restart=on-failure, RestartSec=5
+└─ executa ~/.local/bin/kavelipay-backend.sh       # exporta DATABASE_URL/JWT_SECRET/BIND_ADDR e faz exec no binário
+```
+
+```
+systemctl --user status kavelipay-backend
+journalctl --user -u kavelipay-backend -n 30 --no-pager   # por que morreu
+systemctl --user restart kavelipay-backend
+```
+
+O serviço **não** sobe o Postgres junto, e é aí que ele se perde de duas formas:
+
+- **Banco parado** (container `kavelipay-pg` caiu ou a máquina reiniciou): o
+  serviço fica em `activating (auto-restart)`, tentando de novo a cada 5s,
+  indefinidamente. Conserto: `docker start kavelipay-pg`.
+- **Senha divergente** entre o script e o container: o log mostra
+  `28P01: password authentication failed for user "kavelipay"`. A senha válida é
+  a do `POSTGRES_PASSWORD` usado na criação do container (`kavelipay`), não a que
+  estiver escrita no script. Conserto: acertar o script e reiniciar o serviço —
+  não recriar o container (recriar sem o volume `kavelipay-pgdata` apaga o banco).
+
+Nos dois casos o sintoma é o mesmo: `ss -ltnp | grep :3000` vazio, curl sem
+resposta e o app com erro de rede — o serviço "existe", mas não está escutando.
+Quando a porta responde, `/health` dá 404 (não existe rota de health): use
+`/profile` (405 sem método) ou um login real para saber se está de pé.
 
 ### Testar a UI do app (Waydroid)
 
