@@ -27,3 +27,10 @@
   divergentes é como uma delas deixa de ser aplicada.
 - `GET /profile/sessions`, `DELETE /profile/sessions/{id}`,
   `POST /profile/sessions/revoke-all` — revogar de outra pessoa dá 404.
+- `GET /profile/sessions` já filtra `revoked_at IS NULL AND expires_at > now()`:
+  sessão expirada some sozinha, sem cron. O que aparece na tela é login real —
+  se há seis, foram seis entradas (cada login abre uma sessão de 30 dias).
+- `revoke-all` **não poupa a sessão atual** (o access token carrega só `sub`,
+  não o `sid`). Por isso o app chama `POST /auth/logout` em seguida e cai para a
+  tela de entrada — o texto é "Sair de todos os aparelhos", não "encerrar as
+  outras".
