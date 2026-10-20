@@ -56,7 +56,7 @@ Fuso/`due_date`, conflito 12B × seção 9 (app lê código de barras × backend
 
 ## Ferramentas do agente
 
-- **GitNexus** — MCP `gitnexus` (17 tools) + skills `.claude/skills/gitnexus-*`: grafo do código indexado (2.947 nós / 6.808 arestas). Antes de mexer em código, use `impact`/`trace`/`context`/`query` em vez de varrer o repo. Índice em `.gitnexus/` (já no `.gitignore`).
+- **GitNexus** — MCP `gitnexus` (17 tools) + skills `.claude/skills/gitnexus-*`: grafo do código indexado (3.027 nós / 6.991 arestas). Antes de mexer em código, use `impact`/`trace`/`context`/`query` em vez de varrer o repo. Índice em `.gitnexus/` (já no `.gitignore`).
 - Reindexar após mudança grande: `gitnexus analyze --skip-agents-md`. **`--skip-agents-md` é obrigatório** — este arquivo é curado à mão e o GitNexus o reescreve sem o flag.
 - **Gate de review de UI** (`docs/ui-review.md`) — tela só fecha depois do gate: checklist mecânico (entrada no padrão do cliente, erro pt-BR sem jargão, dinheiro sem float, estados, contraste) + screenshot no Waydroid contra a referência Nubank. O `revisor` roda nos dois níveis.
 
