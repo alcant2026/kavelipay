@@ -37,6 +37,13 @@ async fn main() -> Result<(), AppError> {
         config.openrouter_base_url.clone(),
     )?;
 
+    if config.admin_token.is_none() {
+        tracing::warn!(
+            "ADMIN_TOKEN não definida: cadastro de ofertas da vitrine \
+             desligado (POST /admin/parceiros devolve 503)"
+        );
+    }
+
     if config.openrouter_api_key.is_none() {
         tracing::warn!(
             "OPENROUTER_API_KEY não definida: prefill de ativos desligado \
@@ -59,6 +66,7 @@ async fn main() -> Result<(), AppError> {
         ),
         ai,
         cotacao,
+        admin_token: config.admin_token.clone(),
     };
 
     let app = routes::router(state)

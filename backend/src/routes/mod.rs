@@ -115,8 +115,11 @@ pub fn router(state: AppState) -> Router {
             "/investments/{id}/movements",
             get(investments::list_movements),
         )
-        // vitrine de lojas parceiras (indicação de afiliado) — leitura só
+        // vitrine de lojas parceiras (indicação de afiliado): usuário só lê;
+        // cadastro é /admin com X-Admin-Token (503 se ADMIN_TOKEN não existe)
         .route("/parceiros", get(parceiros::list))
+        .route("/admin/parceiros", post(parceiros::criar))
+        .route("/admin/parceiros/{id}", delete(parceiros::desativar))
         // LGPD
         .route("/lgpd/export", get(lgpd::export))
         .route("/lgpd/export.csv", get(lgpd::export_csv))

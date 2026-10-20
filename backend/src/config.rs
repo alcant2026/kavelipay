@@ -13,6 +13,11 @@ const REFRESH_TOKEN_TTL_DAYS: i64 = 30;
 /// Segredo JWT tem 32 bytes. Abaixo disso um segredo curto é adivinhável.
 const MIN_SECRET_LEN: usize = 32;
 
+/// Piso do token de admin. 24 caracteres aleatórios já não se adivinham por
+/// força bruta; abaixo disso o valor é quase certamente "1234" digitado com
+/// pressa.
+const MIN_ADMIN_TOKEN_LEN: usize = 24;
+
 #[derive(Clone)]
 pub struct Config {
     pub database_url: String,
@@ -44,6 +49,13 @@ pub struct Config {
     /// Base URL do statusinvest (provento de FII e reserva da ação — tem a
     /// data de PAGAMENTO, que é a que interessa). Mesmo motivo da anterior.
     pub statusinvest_base_url: String,
+    /// Segredo do cadastro de ofertas da vitrine (`POST /admin/parceiros`).
+    ///
+    /// `None` desliga a rota com 503 — o padrão é NÃO existir admin. Um token
+    /// padrão seria uma porta dos fundos: quem lê o repositório cadastraria
+    /// propaganda no app de todo mundo. Igual à OpenRouter, é segredo de
+    /// operação, não configuração de infraestrutura.
+    pub admin_token: Option<String>,
 }
 
 impl Config {
@@ -68,6 +80,23 @@ impl Config {
             .map(|k| k.trim().to_string())
             .filter(|k| !k.is_empty());
 
+        // Mesmo tratamento da chave da IA, mas com piso de tamanho: um token
+        // de 4 caracteres é adivinhável em segundos, e este token escreve
+        // conteúdo que aparece para todos os usuários. Curto demais é erro de
+        // boot, não aviso.
+        let admin_token = env::var("ADMIN_TOKEN")
+            .ok()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty());
+        if let Some(token) = &admin_token {
+            if token.len() < MIN_ADMIN_TOKEN_LEN {
+                return Err(AppError::Config(format!(
+                    "ADMIN_TOKEN tem {} caracteres; mínimo {MIN_ADMIN_TOKEN_LEN}",
+                    token.len()
+                )));
+            }
+        }
+
         Ok(Self {
             database_url,
             bind_addr: env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string()),
@@ -85,6 +114,7 @@ impl Config {
                 .unwrap_or_else(|_| crate::cotacao::YAHOO_BASE_PADRAO.to_string()),
             statusinvest_base_url: env::var("STATUSINVEST_BASE_URL")
                 .unwrap_or_else(|_| crate::cotacao::STATUSINVEST_BASE_PADRAO.to_string()),
+            admin_token,
         })
     }
 }

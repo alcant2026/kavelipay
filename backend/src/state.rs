@@ -18,4 +18,9 @@ pub struct AppState {
     /// Cliente das fontes de cotação (brapi/Yahoo) — sugestão de preço e
     /// data de dividendo. Mesmo motivo do `ai`: um pool, não um por tela.
     pub cotacao: CotacaoClient,
+    /// Token do cadastro de ofertas da vitrine. `None` = rota de admin
+    /// desligada (503). Fica no estado, e não numa env lida no handler, para
+    /// o processo morrer no boot se o token for fraco — e para os testes
+    /// conseguirem ligar a rota sem mexer no ambiente do processo.
+    pub admin_token: Option<String>,
 }
