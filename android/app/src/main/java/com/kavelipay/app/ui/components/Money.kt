@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import com.kavelipay.app.ui.theme.KpTheme
 import com.kavelipay.app.ui.theme.Spacing
 import com.kavelipay.app.ui.theme.ValorLista
+import java.time.Instant
+import java.time.ZoneId
 
 object Money {
 
@@ -211,3 +213,29 @@ fun formatarData(iso: String): String {
     val p = data.split("-")
     return if (p.size >= 3) "${p[2]}/${p[1]}" else data
 }
+
+/**
+ * Timestamp ISO-8601 da API → `dd/mm às HH:mm`, no fuso do aparelho.
+ *
+ * Usado nas sessões abertas: duas aberturas no mesmo dia viravam "Aberta em
+ * 20/10" duas vezes, e a pessoa não tinha como saber qual estava encerrando.
+ * Só a hora separa uma da outra.
+ *
+ * O fuso é PARÂMETRO (padrão: o do aparelho) porque a API manda UTC com `Z`.
+ * Fatiar a string como `formatarData` faz mostraria 04:18 para uma sessão
+ * aberta às 01:18 em São Paulo — três horas erradas, e erradas de um jeito que
+ * ninguém confere.
+ */
+fun formatarDataHora(iso: String, fuso: ZoneId = ZoneId.systemDefault()): String =
+    runCatching {
+        val local = Instant.parse(iso.trim()).atZone(fuso)
+        val dia = local.dayOfMonth.toString().padStart(2, '0')
+        val mes = local.monthValue.toString().padStart(2, '0')
+        val hora = local.hour.toString().padStart(2, '0')
+        val minuto = local.minute.toString().padStart(2, '0')
+        "$dia/$mes às $hora:$minuto"
+    }.getOrElse {
+        // Data sem hora (ou formato inesperado): cai no formato curto em vez
+        // de sumir com a informação.
+        formatarData(iso)
+    }

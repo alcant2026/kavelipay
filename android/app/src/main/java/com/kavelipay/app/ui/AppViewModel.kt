@@ -93,6 +93,17 @@ data class EstadoApp(
      */
     val parceiros: List<OfertaParceiro> = emptyList(),
 
+    /**
+     * Resultado da última ação do Perfil (hoje: exportação de dados).
+     *
+     * Separado de `erro` de propósito. Antes a exportação escrevia "Dados
+     * salvos em …" dentro de `erro`, e a tela precisava ADIVINHAR pelo texto
+     * (`contains("salvo")`) se aquilo era sucesso ou falha — heurística que
+     * quebra na primeira mensagem nova. Agora o tipo diz o que é.
+     */
+    val avisoPerfil: String? = null,
+    val avisoPerfilFalhou: Boolean = false,
+
     // formulário de novo lançamento
     val enviando: Boolean = false,
     val enviadoComSucesso: Boolean = false,
@@ -567,7 +578,10 @@ fun carregarChargeQr(chargeId: String) {
     // ── Perfil / Sessões ──────────────────────────────────────────────────────
     fun carregarPerfilESessoes() {
         viewModelScope.launch {
-            _estado.update { it.copy(enviando = true, erro = null) }
+            // Limpa o aviso da exportação ao entrar: "Arquivo salvo" de uma
+            // visita anterior não pode parecer resposta a algo que a pessoa
+            // acabou de fazer.
+            _estado.update { it.copy(enviando = true, erro = null, avisoPerfil = null) }
             runCatching { api.perfil() }
                 .onSuccess { perfil ->
                     _estado.update { it.copy(enviando = false, perfil = perfil) }
@@ -615,7 +629,13 @@ fun carregarChargeQr(chargeId: String) {
             runCatching { api.revogarTodasSessoes() }
                 .onSuccess {
                     _estado.update { it.copy(enviando = false) }
-                    carregarPerfilESessoes()
+                    // O backend revoga TODAS as sessões, inclusive a atual —
+                    // `revoke_all_sessions` não exclui nenhuma (o access token
+                    // só carrega `sub`, não tem id de sessão para poupar).
+                    // Ficar "logado" aqui seria mentira: o refresh token já
+                    // morreu e a próxima renovação falharia calada. Então sai
+                    // de verdade, com a pessoa sabendo.
+                    sair()
                 }
                 .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
         }
@@ -627,9 +647,18 @@ fun carregarChargeQr(chargeId: String) {
             runCatching { api.lgpdExportJson() }
                 .onSuccess { dados ->
                     val arquivo = salvarEmArquivo("kavelipay_dados.json", dados.toString(2))
-                    _estado.update { it.copy(enviadoComSucesso = true, erro = "Dados salvos em $arquivo") }
+                    _estado.update {
+                        it.copy(
+                            avisoPerfil = "Arquivo salvo no aparelho: $arquivo",
+                            avisoPerfilFalhou = false,
+                        )
+                    }
                 }
-                .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
+                .onFailure { e ->
+                    _estado.update {
+                        it.copy(avisoPerfil = mensagemDe(e), avisoPerfilFalhou = true)
+                    }
+                }
         }
     }
 
@@ -638,9 +667,18 @@ fun carregarChargeQr(chargeId: String) {
             runCatching { api.lgpdExportCsv() }
                 .onSuccess { csv ->
                     val arquivo = salvarEmArquivo("kavelipay_extrato.csv", csv)
-                    _estado.update { it.copy(enviadoComSucesso = true, erro = "CSV salvo em $arquivo") }
+                    _estado.update {
+                        it.copy(
+                            avisoPerfil = "Planilha salva no aparelho: $arquivo",
+                            avisoPerfilFalhou = false,
+                        )
+                    }
                 }
-                .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
+                .onFailure { e ->
+                    _estado.update {
+                        it.copy(avisoPerfil = mensagemDe(e), avisoPerfilFalhou = true)
+                    }
+                }
         }
     }
 

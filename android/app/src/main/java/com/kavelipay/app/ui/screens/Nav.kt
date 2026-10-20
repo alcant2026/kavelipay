@@ -59,6 +59,7 @@ private object Rota {
     const val HISTORICO = "historico"
     const val PERFIL = "perfil"
     const val LGPD = "lgpd"
+    const val SESSOES = "sessoes"
     const val PARCEIROS = "parceiros"
     const val PARCEIRO = "parceiro"
 }
@@ -287,8 +288,12 @@ fun KpRaiz(
                 vm = vm,
                 aoVoltar = { nav.popBackStack() },
                 aoAbrirLgpd = { nav.navigate(Rota.LGPD) },
+                aoAbrirSessoes = { nav.navigate(Rota.SESSOES) },
                 aoSair = { vm.sair() },
             )
+        }
+        composable(Rota.SESSOES) {
+            KpSessoesScreen(vm, aoVoltar = { nav.popBackStack() })
         }
         composable(Rota.LGPD) {
             KpLgpdScreen(vm, aoVoltar = { nav.popBackStack() })
