@@ -156,16 +156,16 @@ Senha `kavelipay` = container `kavelipay-pg` (o de volume nomeado, dono de
 55432 agora); o recipe `kp_pgtest` mais acima usa `test`. Com a porta ocupada
 por um, o outro não sobe.
 
-Doze scripts. `simulacao.sh` é a **jornada completa** de um usuário (cadastro →
+Treze scripts. `simulacao.sh` é a **jornada completa** de um usuário (cadastro →
 entradas → contas → pagar → despesas → divisão → cobrança + QR → lembretes →
 histórico → segurança → isolamento entre contas → conferência contábil) e
 imprime o dinheiro entrando e saindo a cada passo. Rode para ver o produto
 funcionar, não só para passar: `bash tests/simulacao.sh`.
 
-Os dez outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
+Os onze outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
 binário real (`:3311` auth, `:3312` ledger, `:3313` bills, `:3314` splits,
 `:3315` charges, `:3316` perfil/notif/histórico, `:3317` dívidas, `:3321`
-transparência, `:3322` refresh, `:3323` investimentos).
+transparência, `:3319` parceiros, `:3322` refresh, `:3323` investimentos).
 Exigem `cargo build` antes. Não
 aplique migrations manualmente nos bancos de teste: quem aplica é o servidor no
 boot (`sqlx::migrate!`).
@@ -182,9 +182,10 @@ a ação usa brapi com reserva no statusinvest, e o FII usa só o statusinvest) 
 13 schema + 20 auth + 15 ledger + 26 bills + 17 splits + 37 charges + 31 perfil
 + 52 transparência + 28 investimentos (4 e2e a mais cobrindo
 `POST /investments/quote` + a data no padrão dd/mm/aaaa) + 14 refresh + 69
-dívidas (`debts_e2e.sh`, porta 3317) =
-**464, todos passando** (322 deles shell e2e), mais a simulação de jornada
-completa, mais 65 JUnit
+dívidas (`debts_e2e.sh`, porta 3317) + 12 parceiros
+(`parceiros_e2e.sh`, porta 3319) =
+**476, todos passando** (334 deles shell e2e), mais a simulação de jornada
+completa, mais 75 JUnit
 do app (`./gradlew :app:testDebugUnitTest`, regras puras do prefill por IA, da
 sugestão de preço/dividendo, do total de negociação `qtd × preço`, do prefill
 de data em `dd/mm/aaaa`, de `DividaRegras` — normalização de valor pt-BR — e do

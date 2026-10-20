@@ -4,7 +4,7 @@ App Android de organização financeira e pagamentos para **pessoa física**, co
 
 ## Estado atual
 
-Backend Rust (`backend/`) completo: **464 testes passando** (142 Rust + 322 shell e2e) + 65 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
+Backend Rust (`backend/`) completo: **476 testes passando** (142 Rust + 334 shell e2e) + 75 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
 
 ## Comandos essenciais
 
@@ -25,7 +25,7 @@ cd android
 
 - **Depois de editar qualquer `.sql`, `cargo build` é obrigatório** — `sqlx::migrate!` embute as migrations no binário; sem rebuild o servidor sobe com a versão antiga e o teste falha parecendo bug de lógica.
 - `cargo clippy` e `cargo fmt` **não existem** neste Fedora. Não documente como se existissem.
-- Doze scripts e2e (ports, cobertura, `simulacao.sh`), Waydroid + adb (receita, IP muda por boot) e assinatura do APK: `docs/ambiente-e-build.md`.
+- Treze scripts e2e (ports, cobertura, `simulacao.sh`), Waydroid + adb (receita, IP muda por boot) e assinatura do APK: `docs/ambiente-e-build.md`.
 
 ## Regras inegociáveis (texto completo em `docs/spec.md`)
 

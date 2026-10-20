@@ -6,6 +6,7 @@
 
 Produto:
 - Somente pessoa física. NÃO criar: painel de comerciantes, cadastro de empresas, gestão de clientes, catálogo, estoque, vendas, PDV, CRM, dashboard empresarial.
+- Vitrine de parceiros é INDICAÇÃO, não loja: card com produto e link de afiliado, **sem preço no app**, sem carrinho, sem checkout, sem pedido, sem estoque. A compra acontece no site da loja, numa WebView. Nada disso toca o ledger — não há pagamento, recebível nem saldo. A comissão é paga pela loja ao KaveliPay, nunca pelo usuário, e a tela diz isso em texto.
 - KaveliPay NÃO se apresenta como banco, instituição de pagamento, custodiante, emissor de moeda eletrônica, provedor de PIX próprio ou processador próprio. Não implementar mecanismos para contornar regulamentação financeira.
 
 Ledger:
