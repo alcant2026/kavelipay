@@ -44,7 +44,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpBotaoPrimario
-import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.components.KpEtiqueta
 import com.kavelipay.app.ui.components.KpLinhaResumo
@@ -56,7 +55,13 @@ import com.kavelipay.app.ui.theme.Spacing
 import com.kavelipay.app.ui.theme.TituloSecao
 
 /**
- * Novo lançamento: entrada ou despesa.
+ * Nova entrada ou nova despesa — o tipo vem de quem abriu a tela.
+ *
+ * "Entrada" e "Despesa" são duas rotas e duas telas: título e botão dizem o
+ * que está sendo registrado. Antes havia um seletor aqui dentro, e o tipo era
+ * escolhido duas vezes (na Home e de novo no formulário) — o par de pills
+ * ainda saía assimétrico, com o selecionado parecendo um botão e o outro
+ * parecendo legenda. Escolhe-se uma vez só. Trocar de ideia é voltar.
  *
  * O campo de valor aceita SOMENTE string. Um `TextField` de número real com
  * keypad decimal gera `Double` no estado, e é exatamente aí que a regra de
@@ -69,14 +74,11 @@ fun KpNovaTransacaoScreen(
     aoVoltar: () -> Unit,
     aoSalvar: () -> Unit,
     categorias: List<com.kavelipay.app.data.Categoria>,
-    // O botão "Despesa" da Home abre a tela já com o tipo certo; sem isto a
-    // pessoa clicava em Despesa, caía em "Entrada" e ainda tinha que trocar.
-    entradaInicial: Boolean = true,
+    entrada: Boolean,
 ) {
     val estado by vm.estado.collectAsState()
     val sem = KpTheme.semanticas
 
-    var entrada by rememberSaveable(entradaInicial) { mutableStateOf(entradaInicial) }
     var valor by rememberSaveable { mutableStateOf("") }
     var descricao by rememberSaveable { mutableStateOf("") }
     var categoriaId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -85,7 +87,9 @@ fun KpNovaTransacaoScreen(
         it.kind == if (entrada) "INCOME" else "EXPENSE"
     }
 
-    Scaffold(topBar = { CabecalhoComVoltar("Novo lançamento", aoVoltar) }) { padding ->
+    Scaffold(topBar = {
+        CabecalhoComVoltar(if (entrada) "Nova entrada" else "Nova despesa", aoVoltar)
+    }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
             contentPadding = PaddingValues(
@@ -94,40 +98,6 @@ fun KpNovaTransacaoScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
-            item {
-                // Seletor Entrada/Despesa. Pills grandes em vez de switch: o
-                // usuário decide o tipo uma vez e erra menos. O estilo VERDE é
-                // do SELECIONADO — antes era fixo (Entrada sempre verde) e a
-                // pessoa abrindo por "Despesa" via a tela toda errada.
-                val aoEscolherEntrada = { entrada = true; categoriaId = null }
-                val aoEscolherDespesa = { entrada = false; categoriaId = null }
-                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    if (entrada) {
-                        KpBotaoPrimario(
-                            texto = "Entrada",
-                            onClick = aoEscolherEntrada,
-                            modifier = Modifier.weight(1f),
-                        )
-                        KpBotaoSecundario(
-                            texto = "Despesa",
-                            onClick = aoEscolherDespesa,
-                            modifier = Modifier.weight(1f),
-                        )
-                    } else {
-                        KpBotaoSecundario(
-                            texto = "Entrada",
-                            onClick = aoEscolherEntrada,
-                            modifier = Modifier.weight(1f),
-                        )
-                        KpBotaoPrimario(
-                            texto = "Despesa",
-                            onClick = aoEscolherDespesa,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-
             item {
                 KpCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(Spacing.md)) {

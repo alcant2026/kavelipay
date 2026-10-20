@@ -121,14 +121,14 @@ fun KpRaiz(
             KpNotificacoesScreen(vm = vm, aoVoltar = { nav.popBackStack() })
         }
         composable(Rota.NOVA_DESPESA) {
-            // Mesma tela do "Entrada", só que já nascendo como despesa — o
-            // seletor da tela continua livre pra trocar depois.
+            // Mesma tela do "Entrada", mas a despesa é uma tela própria: título
+            // "Nova despesa", categorias de saída, botão "Registrar despesa".
             KpNovaTransacaoScreen(
                 vm = vm,
                 aoVoltar = { nav.popBackStack() },
                 aoSalvar = { nav.popBackStack() },
                 categorias = estado.categorias,
-                entradaInicial = false,
+                entrada = false,
             )
         }
         composable(Rota.DERIVACAO) {
@@ -140,6 +140,7 @@ fun KpRaiz(
                 aoVoltar = { nav.popBackStack() },
                 aoSalvar = { nav.popBackStack() },
                 categorias = estado.categorias,
+                entrada = true,
             )
         }
         composable(Rota.CONTAS) {
