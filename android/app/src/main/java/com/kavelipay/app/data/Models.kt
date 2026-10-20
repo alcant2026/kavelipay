@@ -619,3 +619,31 @@ internal fun <T> JSONArray?.paraObjetos(transform: (JSONObject) -> T): List<T> {
         optJSONObject(i)?.let(transform)
     }
 }
+/**
+ * Oferta da vitrine de parceiros (`GET /parceiros`).
+ *
+ * NÃO TEM PREÇO, e a ausência é deliberada — ver o cabeçalho de
+ * `migrations/0011_parceiros.sql`. O Mercado Livre bloqueia leitura
+ * automática (403 na API, bot-block na página), então preço só existiria
+ * digitado à mão; preço digitado à mão envelhece calado, e num app de
+ * dinheiro número velho é pior que número ausente. A tela diz "ver preço na
+ * loja" e o valor verdadeiro fica no destino.
+ *
+ * `destinoUrl` já vem com os parâmetros de rastreio gerados pela loja — o app
+ * NÃO mexe neles (reescrever seria adulterar a atribuição de comissão).
+ */
+data class OfertaParceiro(
+    val id: String,
+    val loja: String,
+    val titulo: String,
+    val imagemUrl: String,
+    val destinoUrl: String,
+)
+
+internal fun JSONObject.paraOfertaParceiro() = OfertaParceiro(
+    id = getString("id"),
+    loja = optString("loja"),
+    titulo = optString("titulo"),
+    imagemUrl = optString("imagem_url"),
+    destinoUrl = optString("destino_url"),
+)

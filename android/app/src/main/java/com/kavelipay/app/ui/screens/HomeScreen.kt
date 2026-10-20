@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.HorizontalDivider
@@ -105,6 +106,9 @@ fun KpHomeScreen(
     // traz as rotas novas.
     aoVerNotificacoes: () -> Unit = {},
     aoNovaDespesa: () -> Unit = {},
+    // Vitrine de parceiros. Default vazio para a Home não quebrar em preview
+    // ou em chamador antigo; quem alimenta é a raiz.
+    aoVerParceiros: () -> Unit = {},
     temaEscuro: Boolean = false,
     aoAlternarTema: () -> Unit = {},
 ) {
@@ -191,6 +195,11 @@ fun KpHomeScreen(
                         { KpAcaoItem(Icons.Default.QrCode, "Cobrar", aoVerCobrancas) },
                         { KpAcaoItem(Icons.Default.SwapHoriz, "Dividir", aoVerDivisoes) },
                         { KpAcaoItem(Icons.Default.TrendingUp, "Investir", aoVerInvestimentos) },
+                        // "Parceiro", não "Loja": o atalho não leva a uma loja
+                        // NOSSA (o app não vende). Ele leva a uma vitrine de
+                        // indicações de lojas de terceiros — e o rótulo tem
+                        // que dizer isso antes do clique, não depois.
+                        { KpAcaoItem(Icons.Default.Storefront, "Parceiro", aoVerParceiros) },
                     )
                 )
             }

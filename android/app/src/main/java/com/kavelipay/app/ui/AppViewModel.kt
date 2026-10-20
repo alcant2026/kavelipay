@@ -21,6 +21,7 @@ import com.kavelipay.app.data.ListaSessoes
 import com.kavelipay.app.data.ListaSplits
 import com.kavelipay.app.data.MovimentoInvestimento
 import com.kavelipay.app.data.Notificacao
+import com.kavelipay.app.data.OfertaParceiro
 import com.kavelipay.app.data.Perfil
 import com.kavelipay.app.data.PesquisaAtivo
 import com.kavelipay.app.data.Relatorio
@@ -82,6 +83,15 @@ data class EstadoApp(
     val resumoInvestimentos: ResumoInvestimentos? = null,
     val ativoSelecionado: Ativo? = null,
     val movimentosAtivo: List<MovimentoInvestimento> = emptyList(),
+
+    /**
+     * Vitrine de parceiros. Vive no estado (como as categorias) porque a tela
+     * de oferta é um destino de navegação: ela recebe o `id` pela rota e
+     * precisa achar a oferta já carregada, sem refazer a chamada. Ficar vazia
+     * por falha de rede é aceitável — propaganda fora do ar não pode derrubar
+     * a Home.
+     */
+    val parceiros: List<OfertaParceiro> = emptyList(),
 
     // formulário de novo lançamento
     val enviando: Boolean = false,
@@ -150,6 +160,11 @@ class AppViewModel(private val sessao: SessionStore) : ViewModel() {
                 val derivacao = async { api.derivacao(limite = 100) }
                 val contas = async { api.contas() }
                 val relatorio = async { api.relatorio() }
+                // Vitrine: silenciosa de propósito. Se cair, a Home continua
+                // inteira — propaganda indisponível não é erro do usuário.
+                val parceiros = async {
+                    runCatching { api.parceiros() }.getOrDefault(emptyList())
+                }
 
                 // Gerar lembretes antes de ler: senão a lista vem vazia na
                 // primeira abertura e o usuário acha que não tem aviso nenhum.
@@ -167,6 +182,7 @@ class AppViewModel(private val sessao: SessionStore) : ViewModel() {
                         contas = contas.await(),
                         relatorio = relatorio.await(),
                         naoLidas = naoLidas.await(),
+                        parceiros = parceiros.await(),
                     )
                 }
             } catch (e: Exception) {

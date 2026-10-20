@@ -142,6 +142,16 @@ class KaveliPayApi(private val sessao: SessionStore) {
 
     // ── Categorias e relatórios ──────────────────────────────────────────────
 
+    /**
+     * `GET /parceiros` — vitrine de indicações de loja.
+     *
+     * Lista vazia quando não há oferta ativa: o app NÃO inventa card. Inventar
+     * seria mostrar produto que não existe, com link que não leva a lugar
+     * nenhum — e a vitrine é propaganda, então ela precisa ser verdadeira.
+     */
+    suspend fun parceiros(): List<OfertaParceiro> =
+        ApiClient.getArray("/parceiros", token).paraObjetos { it.paraOfertaParceiro() }
+
     suspend fun categorias(kind: String? = null): List<Categoria> {
             val caminho = if (kind == null) "/categories" else "/categories?kind=$kind"
             val arr = ApiClient.getArray(caminho, token)

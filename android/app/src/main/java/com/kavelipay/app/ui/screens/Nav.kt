@@ -59,6 +59,8 @@ private object Rota {
     const val HISTORICO = "historico"
     const val PERFIL = "perfil"
     const val LGPD = "lgpd"
+    const val PARCEIROS = "parceiros"
+    const val PARCEIRO = "parceiro"
 }
 
 /**
@@ -113,6 +115,7 @@ fun KpRaiz(
                 aoVerInvestimentos = { nav.navigate(Rota.INVESTIMENTOS) },
                 aoVerNotificacoes = { nav.navigate(Rota.NOTIFICACOES) },
                 aoNovaDespesa = { nav.navigate(Rota.NOVA_DESPESA) },
+                aoVerParceiros = { nav.navigate(Rota.PARCEIROS) },
                 temaEscuro = temaEscuro,
                 aoAlternarTema = aoAlternarTema,
             )
@@ -342,6 +345,26 @@ fun KpRaiz(
                 ativoId = ativoId,
                 aoVoltar = { nav.popBackStack() },
                 aoSalvar = { nav.popBackStack() },
+            )
+        }
+        composable(Rota.PARCEIROS) {
+            KpParceirosScreen(
+                vm = vm,
+                aoVoltar = { nav.popBackStack() },
+                aoAbrir = { oferta -> nav.navigate("${Rota.PARCEIRO}/${oferta.id}") },
+            )
+        }
+        composable(
+            route = "${Rota.PARCEIRO}/{ofertaId}",
+            arguments = listOf(navArgument("ofertaId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            // A oferta é achada pelo id no estado já carregado, em vez de ir a
+            // URL pela rota: URL com `?`, `&` e `#` dentro de rota de navegação
+            // é fonte de bug de encoding — e a lista já está aqui.
+            val ofertaId = backStackEntry.arguments?.getString("ofertaId").orEmpty()
+            KpParceiroWebScreen(
+                oferta = estado.parceiros.firstOrNull { it.id == ofertaId },
+                aoVoltar = { nav.popBackStack() },
             )
         }
     }
