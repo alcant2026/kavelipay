@@ -50,6 +50,7 @@ import com.kavelipay.app.ui.components.KpBotaoPrimario
 import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.components.KpEtiqueta
+import com.kavelipay.app.ui.components.KpEstruturaAba
 import com.kavelipay.app.ui.components.KpLinhaResumo
 import com.kavelipay.app.ui.components.KpQrCode
 import com.kavelipay.app.ui.components.KpVazio
@@ -64,7 +65,7 @@ import com.kavelipay.app.ui.theme.TituloSecao
 @Composable
 fun KpChargesScreen(
     vm: AppViewModel,
-    aoVoltar: () -> Unit,
+    aoMudarAba: (Int) -> Unit = {},
     aoNovaCharge: () -> Unit = {},
     aoAbrirQr: (String) -> Unit = {},
     aoEscanearCobranca: () -> Unit = {},
@@ -75,7 +76,11 @@ fun KpChargesScreen(
         vm.carregarCharges()
     }
 
-    Scaffold(topBar = { CabecalhoComVoltar("Cobranças", aoVoltar) }) { padding ->
+    KpEstruturaAba(
+        abaAtual = 3,
+        aoMudarAba = aoMudarAba,
+        topBar = { CabecalhoAba("Cobranças") },
+    ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(

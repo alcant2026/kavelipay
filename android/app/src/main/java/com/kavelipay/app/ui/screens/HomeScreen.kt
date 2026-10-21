@@ -32,7 +32,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -57,10 +56,10 @@ import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.components.KpMenuRow
 import com.kavelipay.app.ui.components.KpEtiqueta
+import com.kavelipay.app.ui.components.KpEstruturaAba
 import com.kavelipay.app.ui.components.KpFilaAcoes
 import com.kavelipay.app.ui.components.KpHeroCardSaldo
 import com.kavelipay.app.ui.components.KpLinhaResumo
-import com.kavelipay.app.ui.components.KpTabBar
 import com.kavelipay.app.ui.components.KpTopBar
 import com.kavelipay.app.ui.components.KpVazio
 import com.kavelipay.app.ui.components.Money.LinhaLancamento
@@ -124,31 +123,24 @@ fun KpHomeScreen(
     aoVerParceiros: () -> Unit = {},
     temaEscuro: Boolean = false,
     aoAlternarTema: () -> Unit = {},
+    // Quem manda na aba é a raiz: a TabBar aparece nas CINCO abas, então o
+    // índice não pode morrer com a Home na pilha.
+    abaAtual: Int = 0,
+    aoMudarAba: (Int) -> Unit = {},
 ) {
     val estado by vm.estado.collectAsState()
 
     // Estado local da UI
     var ocultarSaldo by remember { mutableStateOf(false) }
-    var abaAtual by remember { mutableStateOf(0) }
 
     // TopBar callbacks. O tema NÃO mora aqui: quem persiste e reaplica a
     // escolha é a raiz (MainActivity) — um `dark` local só trocava o ícone e
     // sumia ao fechar o app.
     val aoToggleTema = { aoAlternarTema() }
 
-    // TabBar navegação
-    val aoClicarAba = { index: Int ->
-        when (index) {
-            0 -> {} // Início - já estamos aqui
-            1 -> aoVerContas()
-            2 -> aoVerHistorico()
-            3 -> aoVerCobrancas()
-            4 -> aoVerPerfil()
-        }
-        abaAtual = index
-    }
-
-    Scaffold(
+    KpEstruturaAba(
+        abaAtual = abaAtual,
+        aoMudarAba = aoMudarAba,
         topBar = {
             KpTopBar(
                 saudacao = "Olá",
@@ -156,12 +148,6 @@ fun KpHomeScreen(
                 aoVerNotificacoes = aoVerNotificacoes,
                 dark = temaEscuro,
                 naoLidas = estado.naoLidas,
-            )
-        },
-        bottomBar = {
-            KpTabBar(
-                abaAtual = abaAtual,
-                aoClicarAba = aoClicarAba,
             )
         },
     ) { padding ->

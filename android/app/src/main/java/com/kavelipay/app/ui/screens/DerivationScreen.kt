@@ -231,3 +231,26 @@ fun CabecalhoComVoltar(titulo: String, aoVoltar: () -> Unit) {
         Text(titulo, style = TituloSecao)
     }
 }
+
+/**
+ * Cabeçalho de ABA: só o título, sem seta de voltar.
+ *
+ * A seta significa "saí da navegação principal" — e numa aba isso é mentira:
+ * a TabBar continua ali embaixo, então não há para onde voltar. Sem a seta o
+ * alinhamento do título também fica à esquerda como no resto do app (a seta
+ * empurrava o texto 48dp para a direita nas abas e não nas telas de detalhe).
+ */
+@Composable
+fun CabecalhoAba(titulo: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .windowInsetsPadding(
+                WindowInsets.statusBars.union(WindowInsets(top = 40.dp)),
+            )
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(titulo, style = TituloSecao)
+    }
+}

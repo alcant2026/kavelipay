@@ -27,7 +27,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +47,7 @@ import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpBotaoPrimario
 import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
+import com.kavelipay.app.ui.components.KpEstruturaAba
 import com.kavelipay.app.ui.components.KpMenuRow
 import com.kavelipay.app.ui.theme.KpTheme
 import com.kavelipay.app.ui.theme.Spacing
@@ -77,7 +77,7 @@ import com.kavelipay.app.ui.theme.TituloSecao
 @Composable
 fun KpPerfilScreen(
     vm: AppViewModel,
-    aoVoltar: () -> Unit,
+    aoMudarAba: (Int) -> Unit = {},
     aoAbrirLgpd: () -> Unit = {},
     aoAbrirSessoes: () -> Unit = {},
     aoSair: () -> Unit = {},
@@ -99,7 +99,11 @@ fun KpPerfilScreen(
     val email = estado.perfil?.email.orEmpty()
     val sessoes = estado.sessoes?.itens.orEmpty()
 
-    Scaffold(topBar = { CabecalhoComVoltar("Perfil", aoVoltar) }) { padding ->
+    KpEstruturaAba(
+        abaAtual = 4,
+        aoMudarAba = aoMudarAba,
+        topBar = { CabecalhoAba("Perfil") },
+    ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(

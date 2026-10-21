@@ -1,5 +1,9 @@
 package com.kavelipay.app.ui.screens
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -100,19 +104,49 @@ fun KpRaiz(
 
     val nav = rememberNavController()
 
-    NavHost(navController = nav, startDestination = Rota.HOME) {
+    // As cinco abas dividem UMA pilha: voltar de qualquer aba leva à Home (e,
+    // na Home, sai do app) em vez de percorrer o histórico de abas — que é o
+    // que acontece quando cada aba é um `navigate` comum. `saveState`/
+    // `restoreState` preservam rolagem e conteúdo de cada aba na troca.
+    val rotasDasAbas = listOf(Rota.HOME, Rota.CONTAS, Rota.HISTORICO, Rota.CHARGES, Rota.PERFIL)
+    val irParaAba: (Int) -> Unit = { indice ->
+        rotasDasAbas.getOrNull(indice)?.let { destino ->
+            nav.navigate(destino) {
+                popUpTo(Rota.HOME) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
+    // Movimento discreto: a tela entra deslizando ~8% da largura com fade. Sem
+    // isso a troca de aba era um corte seco, que é o que mais faz um app
+    // parecer "formulário" em vez de app de banco. Curto de propósito (200ms):
+    // animação longa em uso repetido (trocar de aba dez vezes) cansa.
+    NavHost(
+        navController = nav,
+        startDestination = Rota.HOME,
+        enterTransition = {
+            fadeIn(tween(200)) + slideInHorizontally(tween(200)) { it / 12 }
+        },
+        exitTransition = { fadeOut(tween(140)) },
+        popEnterTransition = {
+            fadeIn(tween(200)) + slideInHorizontally(tween(200)) { -it / 12 }
+        },
+        popExitTransition = { fadeOut(tween(140)) },
+    ) {
         composable(Rota.HOME) {
             KpHomeScreen(
                 vm = vm,
                 aoVerDerivacao = { nav.navigate(Rota.DERIVACAO) },
                 aoNovaTransacao = { nav.navigate(Rota.NOVA) },
-                aoVerContas = { nav.navigate(Rota.CONTAS) },
+                aoVerContas = { irParaAba(1) },
                 aoVerRelatorio = { nav.navigate(Rota.RELATORIO) },
-                aoVerCobrancas = { nav.navigate(Rota.CHARGES) },
+                aoVerCobrancas = { irParaAba(3) },
                 aoVerDivisoes = { nav.navigate(Rota.SPLITS) },
-                aoVerHistorico = { nav.navigate(Rota.HISTORICO) },
+                aoVerHistorico = { irParaAba(2) },
                 aoVerCategorias = { nav.navigate(Rota.CATEGORIAS) },
-                aoVerPerfil = { nav.navigate(Rota.PERFIL) },
+                aoVerPerfil = { irParaAba(4) },
                 aoVerInvestimentos = { nav.navigate(Rota.INVESTIMENTOS) },
                 aoVerNotificacoes = { nav.navigate(Rota.NOTIFICACOES) },
                 aoNovaDespesa = { nav.navigate(Rota.NOVA_DESPESA) },
@@ -121,6 +155,8 @@ fun KpRaiz(
                 aoVerParceiros = { nav.navigate(Rota.PARCEIROS) },
                 temaEscuro = temaEscuro,
                 aoAlternarTema = aoAlternarTema,
+                abaAtual = 0,
+                aoMudarAba = irParaAba,
             )
         }
         composable(Rota.NOTIFICACOES) {
@@ -152,7 +188,7 @@ fun KpRaiz(
         composable(Rota.CONTAS) {
             KpContasScreen(
                 vm = vm,
-                aoVoltar = { nav.popBackStack() },
+                aoMudarAba = irParaAba,
                 aoNovaConta = { nav.navigate(Rota.NOVA_CONTA) },
             )
         }
@@ -230,7 +266,7 @@ fun KpRaiz(
         composable(Rota.CHARGES) {
             KpChargesScreen(
                 vm = vm,
-                aoVoltar = { nav.popBackStack() },
+                aoMudarAba = irParaAba,
                 aoNovaCharge = { nav.navigate(Rota.NOVA_CHARGE) },
                 aoAbrirQr = { id -> nav.navigate("${Rota.CHARGES_QR}/$id") },
                 aoEscanearCobranca = { nav.navigate(Rota.LER_COBRANCA) },
@@ -283,12 +319,12 @@ fun KpRaiz(
             )
         }
         composable(Rota.HISTORICO) {
-            KpHistoricoScreen(vm, aoVoltar = { nav.popBackStack() })
+            KpHistoricoScreen(vm, aoMudarAba = irParaAba)
         }
         composable(Rota.PERFIL) {
             KpPerfilScreen(
                 vm = vm,
-                aoVoltar = { nav.popBackStack() },
+                aoMudarAba = irParaAba,
                 aoAbrirLgpd = { nav.navigate(Rota.LGPD) },
                 aoAbrirSessoes = { nav.navigate(Rota.SESSOES) },
                 aoSair = { vm.sair() },

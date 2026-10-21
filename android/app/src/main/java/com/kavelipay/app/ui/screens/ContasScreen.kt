@@ -41,6 +41,7 @@ import com.kavelipay.app.ui.components.KpBotaoPrimario
 import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.components.KpEtiqueta
+import com.kavelipay.app.ui.components.KpEstruturaAba
 import com.kavelipay.app.ui.components.KpLinhaResumo
 import com.kavelipay.app.ui.components.KpVazio
 import com.kavelipay.app.ui.components.Money.brl
@@ -55,14 +56,18 @@ import kotlin.math.roundToInt
 
 /** Contas a pagar: pendentes, vencidas e o botão de pagar. */
 @Composable
-fun KpContasScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoNovaConta: () -> Unit = {}) {
+fun KpContasScreen(vm: AppViewModel, aoMudarAba: (Int) -> Unit = {}, aoNovaConta: () -> Unit = {}) {
     val estado by vm.estado.collectAsState()
     val sem = KpTheme.semanticas
     val contas = estado.contas?.itens.orEmpty()
     val vencidas = contas.count { it.isOverdue }
     val pendentes = contas.count { it.status == "PENDING" }
 
-    Scaffold(topBar = { CabecalhoComVoltar("Contas a pagar", aoVoltar) }) { padding ->
+    KpEstruturaAba(
+        abaAtual = 1,
+        aoMudarAba = aoMudarAba,
+        topBar = { CabecalhoAba("Contas a pagar") },
+    ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(

@@ -27,7 +27,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +43,7 @@ import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.components.KpEtiqueta
+import com.kavelipay.app.ui.components.KpEstruturaAba
 import com.kavelipay.app.ui.components.KpLinhaResumo
 import com.kavelipay.app.ui.components.KpVazio
 import com.kavelipay.app.ui.components.Money
@@ -55,7 +55,7 @@ import com.kavelipay.app.ui.theme.TituloSecao
 
 /** Histórico unificado (transações + contas + cobranças + divisões). */
 @Composable
-fun KpHistoricoScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
+fun KpHistoricoScreen(vm: AppViewModel, aoMudarAba: (Int) -> Unit = {}) {
     val estado by vm.estado.collectAsState()
     val sem = KpTheme.semanticas
 
@@ -63,7 +63,11 @@ fun KpHistoricoScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
         vm.carregarHistorico()
     }
 
-    Scaffold(topBar = { CabecalhoComVoltar("Histórico", aoVoltar) }) { padding ->
+    KpEstruturaAba(
+        abaAtual = 2,
+        aoMudarAba = aoMudarAba,
+        topBar = { CabecalhoAba("Histórico") },
+    ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(
