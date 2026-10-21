@@ -70,7 +70,7 @@ async fn subir_mock(conteudo: &str) -> (String, Arc<Mutex<Vec<(Option<String>, s
 
 fn token_de_teste() -> String {
     TokenService::new("segredo-de-teste-com-32-bytes-no-minimo!!", 15, 30)
-        .issue(Uuid::new_v4())
+        .issue(Uuid::new_v4(), true)
         .unwrap()
         .0
 }

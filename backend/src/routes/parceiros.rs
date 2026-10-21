@@ -29,6 +29,7 @@ use axum::http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::auth::admin::exigir_admin;
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -293,36 +294,6 @@ pub async fn desativar(
     Ok(StatusCode::NO_CONTENT)
 }
 
-// ── Porta do admin ──────────────────────────────────────────────────────────
-
-/// Token ausente na config = rota desligada (503). Token errado = 401.
-///
-/// A comparação é em tempo constante: comparar com `==` vaza, pelo tempo de
-/// resposta, quantos caracteres do começo estão certos.
-fn exigir_admin(state: &AppState, headers: &HeaderMap) -> AppResult<()> {
-    let esperado = state.admin_token.as_deref().ok_or(AppError::Unavailable)?;
-
-    let recebido = headers
-        .get("x-admin-token")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if !tempo_constante_igual(recebido.as_bytes(), esperado.as_bytes()) {
-        return Err(AppError::Unauthorized);
-    }
-    Ok(())
-}
-
-fn tempo_constante_igual(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter()
-        .zip(b)
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
-}
-
 fn limpar(valor: Option<String>) -> Option<String> {
     valor
         .map(|v| v.trim().to_string())
@@ -515,6 +486,7 @@ fn decodificar_entidades(texto: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::admin::tempo_constante_igual;
 
     #[test]
     fn so_https_tem_host() {

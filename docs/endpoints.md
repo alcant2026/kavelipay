@@ -103,3 +103,44 @@
   `destino_url` também (defesa em profundidade: a WebView recusa
   `http`/`file`/`javascript` em `classificarDestinoWeb`, testado em
   `NavegacaoWebTest`).
+
+## Assinatura premium (billing)
+
+> A assinatura é **receita da empresa**, não dinheiro do usuário: vive em
+> `assinaturas`/`codigos_ativacao`, nunca no ledger da carteira. Registrar a
+> compra como transação do cliente misturaria as contas e sujaria o saldo
+> demonstrativo. O direito é sempre derivado de
+> `status = 'ACTIVE' AND periodo_fim > now()` — não existe coluna `premium` em
+> `users`.
+
+- `GET /billing/plano` — o que o usuário tem hoje e quanto custa. Exige login.
+  Resposta `{premium, plano?, periodo_fim?, recursos_premium, preco_mensal,
+  preco_anual}`; `plano`/`periodo_fim` são `null` sem assinatura vigente. Os
+  preços são **string** (`"9.90"` mensal, `"79.90"` anual): dinheiro nunca é
+  float, nem na resposta. `access_token` **não** vem neste GET — só em `ativar`.
+- `POST /billing/ativar` — troca o código de ativação por período de acesso.
+  Corpo `{codigo}` (8–40 caracteres após normalizar espaços e maiúsculas).
+  Exige login. O código é **uso único**, gerado com validade de 30 dias a
+  partir da emissão, e é travado com `FOR UPDATE` — dois cliques não ativam
+  duas vezes. Renovar com assinatura ainda vigente **soma** ao período restante
+  (quem renova no meio do mês não perde os dias pagos); sem assinatura vigente,
+  a base é `now()`. Resposta é o mesmo `PlanoResponse` do GET, **mais
+  `access_token`**: um token novo com o claim `premium = true`, porque o token
+  antigo ficaria grátis por até 15 minutos e o app reabriria a tela de
+  assinatura logo depois de pagar. Código inválido/expirado ou já usado é `422`
+  com mensagem em pt-BR.
+- `POST /admin/assinaturas/codigos` — emissão de código de uso único pelo dono.
+  Header `X-Admin-Token` (mesmo `ADMIN_TOKEN` da vitrine; mínimo 24 caracteres).
+  Corpo `{plano, dias?}`; `plano` é `mensal` (padrão 30 dias) ou `anual` (365);
+  `dias` entre 1 e 400 serve para cortesia/renovação manual. Resposta
+  `{codigo, plano, dias, expira_em}` — o código cru (`KPL-XXXX-XXXX-XXXX-XXXX`,
+  alfabeto sem `0/O`/`1/I` porque é digitado à mão) aparece **uma vez**; depois
+  só existe o hash SHA-256 no banco. Se perder o código, emita outro.
+- Gating por claim: relatório mensal, `/investments/lookup` (IA) e
+  `/investments/quote` (cotação) chamam `exigir_premium_do_token`, que lê o
+  claim do access token **sem consultar o banco**. Sem direito, é `402 Payment
+  Required` com `codigo = "plano_necessario"` — não `403`: não é falta de
+  permissão nem de login, é falta de plano, e o app abre a tela de assinatura a
+  partir desse código. O núcleo (saldo, extrato, contas, cobranças, dívidas) e
+  a exportação LGPD continuam **grátis**: portabilidade de dados não pode ficar
+  atrás de paywall.

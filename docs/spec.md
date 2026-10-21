@@ -59,6 +59,44 @@ Esta é a regra que mais fácil de violar sem querer, e ela está em código:
 - Backend: PostgreSQL. A spec menciona Rust **apenas** para representação decimal — a spec não decide a linguagem; Rust + axum + sqlx foi escolha do usuário (ver "Decisões").
 - Escopo do MVP (21 objetivos, seção 3 da spec): conta → login → carteira → saldo → entradas/despesas → extrato → contas/boletos → cobranças com QR Code → divisão de despesa → histórico → notificações → perfil/segurança.
 
+## Monetização (freemium)
+
+- **Núcleo grátis, sempre**: cadastro, login, carteira, saldo, entradas/despesas,
+  extrato, contas/boletos, cobranças com QR, divisão de despesa, dívidas,
+  notificações, perfil/segurança e **exportação LGPD**. Portabilidade de dados é
+  direito do titular; não pode ficar atrás de paywall.
+- **Premium pago**: relatório mensal, análise por IA (`/investments/lookup`) e
+  cotação de ativos (brapi/Yahoo). O que é grátis continua grátis — o paywall
+  nunca tira uma função que já existia.
+- **Receita da empresa ≠ dinheiro do usuário.** A assinatura é cobrada do dono
+  da conta pelo KaveliPay e vive em `assinaturas`/`codigos_ativacao`. Nunca
+  entra no ledger da carteira: lançar a compra como transação do cliente
+  misturaria as contas da empresa com as do usuário e sujaria o saldo
+  demonstrativo. Do mesmo jeito, a comissão de afiliado da vitrine é paga pela
+  loja, não pelo usuário.
+- **Como se paga hoje**: código de ativação de uso único (`KPL-XXXX-...`,
+  validade 30 dias, um código por compra/renovação), entregue ao usuário por
+  fora do app (sideload / atendimento). É o caminho que não exige loja de
+  aplicativos nem fornecedor de pagamento. **Play Billing fica para depois**:
+  quando entrar, muda só a origem do código/recibo — a tabela `assinaturas` e o
+  direito derivado continuam iguais.
+- **Direito derivado, não booleano**: `premium` é
+  `status = 'ACTIVE' AND periodo_fim > now()`, calculado de `assinaturas`. Não
+  existe coluna `premium` em `users`: expirar é o tempo passar, não uma rotina
+  que esquece de virar a flag. Renovação soma ao período restante.
+- **Claim no access token, validade de 15 minutos**: o token carrega
+  `premium: bool` no momento da emissão (login/refresh leem `assinaturas`).
+  Rotas pagas leem o claim, sem `SELECT` por requisição. Consequência aceita:
+  cancelar ou expirar o plano pode levar até 15 min para refletir no token em
+  uso. `POST /billing/ativar` devolve um access token novo já premium — sem
+  isso o app reabriria a tela de assinatura logo depois de pagar.
+- **Sem plano = `402 Payment Required`** com `codigo = "plano_necessario"`
+  (não `403`): não é falta de login nem de permissão, é falta de plano. O app
+  abre a tela de assinatura a partir desse código.
+- **O que o backend não faz**: não guarda cartão, não processa pagamento, não
+  finge cobrança. O código de ativação é o comprovante de uma compra feita
+  fora; o backend só troca código por período.
+
 ## Lacunas conhecidas
 
 - Não há upload de comprovante: `comprovante_url` é uma referência externa.

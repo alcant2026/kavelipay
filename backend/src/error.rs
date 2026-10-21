@@ -26,6 +26,13 @@ pub enum AppError {
     #[error("{0}")]
     Conflict(String),
 
+    /// Recurso do plano Premium sem assinatura vigente. 402, não 403: não é
+    /// falta de permissão nem de login, é falta de plano — e o app usa esse
+    /// código para abrir a tela de assinatura em vez de mostrar "acesso
+    /// negado". Mensagem sempre convidativa, nunca acusatória.
+    #[error("{0}")]
+    PaymentRequired(&'static str),
+
     /// Recurso desligado ou fora do ar (ex.: `OPENROUTER_API_KEY` não
     /// configurada). 503, não 500: não é defeito do servidor, é
     /// indisponibilidade — e o cliente deve tratar como "tente depois",
@@ -61,6 +68,7 @@ impl AppError {
             AppError::Forbidden => StatusCode::FORBIDDEN,
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
             AppError::Conflict(_) => StatusCode::CONFLICT,
+            AppError::PaymentRequired(_) => StatusCode::PAYMENT_REQUIRED,
             AppError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
             AppError::UnbalancedTransaction { .. }
             | AppError::InvalidAmount(_)
@@ -84,6 +92,7 @@ impl AppError {
             AppError::Forbidden => "forbidden",
             AppError::NotFound(_) => "not_found",
             AppError::Conflict(_) => "conflict",
+            AppError::PaymentRequired(_) => "plano_necessario",
             AppError::Unavailable => "unavailable",
             AppError::UnbalancedTransaction { .. }
             | AppError::InvalidAmount(_)

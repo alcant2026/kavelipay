@@ -93,6 +93,11 @@ pub async fn monthly(
     auth: crate::auth::AuthUser,
     Query(q): Query<ReportQuery>,
 ) -> AppResult<Json<MonthReport>> {
+    // Relatório é o recurso que gera valor de insight (e custa desenvolvimento
+    // contínuo). O extrato continua grátis; o relatório por categoria é
+    // Premium. 402 faz o app abrir a tela de assinatura.
+    crate::routes::billing::exigir_premium_do_token(&auth)?;
+
     let (wallet_id, currency, is_demonstrative) =
         sqlx::query_as::<_, (Uuid, String, bool)>(
             "SELECT id, currency, is_demonstrative FROM wallets WHERE user_id = $1",

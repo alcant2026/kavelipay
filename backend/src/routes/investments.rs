@@ -635,9 +635,11 @@ pub async fn lookup(
     State(state): State<AppState>,
     // O extractor roda e autentica mesmo com o nome ignorado: aqui o token
     // serve para EXIGIR login, não para saber de quem é a consulta.
-    _auth: crate::auth::AuthUser,
+    auth: crate::auth::AuthUser,
     Json(req): Json<LookupRequest>,
 ) -> AppResult<Json<LookupResponse>> {
+    // Consulta à IA tem custo por chamada; fica no Premium junto com a cotação.
+    crate::routes::billing::exigir_premium_do_token(&auth)?;
     let kind = req
         .kind
         .as_deref()
@@ -714,9 +716,10 @@ pub struct QuoteResponse {
 /// ser a razão de a tela quebrar.
 pub async fn quote(
     State(state): State<AppState>,
-    _auth: crate::auth::AuthUser,
+    auth: crate::auth::AuthUser,
     Json(req): Json<QuoteRequest>,
 ) -> AppResult<Json<QuoteResponse>> {
+    crate::routes::billing::exigir_premium_do_token(&auth)?;
     let kind = req
         .kind
         .as_deref()

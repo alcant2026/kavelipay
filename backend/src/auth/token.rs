@@ -12,14 +12,27 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 
 /// Claims do access token. Deliberadamente mínimo: só o que o servidor precisa
-/// para autorizar. Papel/permissão aqui exigiria reemitir token a cada mudança
-/// de privilégio, e o usuário do MVP é pessoa física sem papéis.
+/// para autorizar.
+///
+/// `premium` é o único privilégio que vive aqui: as rotas pagas (relatório,
+/// IA, cotação) não podem fazer uma consulta ao banco por requisição só para
+/// descobrir se o usuário assina. O direito real continua na tabela
+/// `assinaturas`; este claim é o retrato dele no momento da emissão. Por isso
+/// o access token é curto (15 min): cancelar/expirar só passa a valer no
+/// próximo refresh, e esperar 15 minutos é aceitável — diferente de esperar
+/// 30 dias.
+///
+/// `#[serde(default)]`: tokens emitidos antes do claim existir decodificam
+/// como grátis em vez de virar 401. O usuário premium perde acesso até o
+/// refresh, mas ninguém é deslogado por uma atualização de servidor.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     /// `sub` = user_id. É a ÚNICA fonte de identidade: nunca vem do body.
     pub sub: Uuid,
     pub exp: i64,
     pub iat: i64,
+    #[serde(default)]
+    pub premium: bool,
 }
 
 #[derive(Clone)]
@@ -41,16 +54,10 @@ impl TokenService {
     }
 
     /// Emite o access token JWT e o par (refresh cru, hash do refresh).
-    pub fn issue(&self, user_id: Uuid) -> AppResult<(String, String, String)> {
-        let now = Utc::now();
-        let claims = Claims {
-            sub: user_id,
-            iat: now.timestamp(),
-            exp: (now + self.access_ttl).timestamp(),
-        };
-
-        let access = encode(&Header::new(Algorithm::HS256), &claims, &self.encoding)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("falha ao assinar token: {e}")))?;
+    ///
+    /// `premium` é congelado no token: quem chama já consultou a assinatura.
+    pub fn issue(&self, user_id: Uuid, premium: bool) -> AppResult<(String, String, String)> {
+        let access = self.issue_access(user_id, premium)?;
 
         // Refresh opaco: 32 bytes aleatórios em base64url. Entropia suficiente
         // para não ser adivinhável e curto o bastante para ir no header.
@@ -60,13 +67,29 @@ impl TokenService {
         Ok((access, raw, hash))
     }
 
+    /// Só o access token — usado quando o direito muda sem abrir nova sessão
+    /// (ativação de assinatura devolve um token com `premium = true`).
+    pub fn issue_access(&self, user_id: Uuid, premium: bool) -> AppResult<String> {
+        let now = Utc::now();
+        let claims = Claims {
+            sub: user_id,
+            iat: now.timestamp(),
+            exp: (now + self.access_ttl).timestamp(),
+            premium,
+        };
+
+        encode(&Header::new(Algorithm::HS256), &claims, &self.encoding)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("falha ao assinar token: {e}")))
+    }
+
     pub fn refresh_expiry(&self) -> DateTime<Utc> {
         Utc::now() + self.refresh_ttl
     }
 
-    /// Valida assinatura e expiração. Qualquer falha vira `Unauthorized` — o
-    /// cliente não precisa (e não deve) saber se o token expirou ou foi forjado.
-    pub fn verify_access(&self, token: &str) -> AppResult<Uuid> {
+    /// Valida assinatura e expiração e devolve as claims. Qualquer falha vira
+    /// `Unauthorized` — o cliente não precisa (e não deve) saber se o token
+    /// expirou ou foi forjado.
+    pub fn verify_access(&self, token: &str) -> AppResult<Claims> {
         let mut validation = Validation::new(Algorithm::HS256);
         validation.validate_exp = true;
         // Rejeita token de algoritmo diferente (algoritmo-confusion attack):
@@ -74,7 +97,7 @@ impl TokenService {
         validation.algorithms = vec![Algorithm::HS256];
 
         match decode::<Claims>(token, &self.decoding, &validation) {
-            Ok(data) => Ok(data.claims.sub),
+            Ok(data) => Ok(data.claims),
             Err(_) => Err(AppError::Unauthorized),
         }
     }
@@ -110,16 +133,29 @@ mod tests {
     fn access_token_circulariza_o_user_id() {
         let id = Uuid::new_v4();
         let svc = service();
-        let (token, _, _) = svc.issue(id).unwrap();
+        let (token, _, _) = svc.issue(id, false).unwrap();
 
-        assert_eq!(svc.verify_access(&token).unwrap(), id);
+        let claims = svc.verify_access(&token).unwrap();
+        assert_eq!(claims.sub, id);
+        assert!(!claims.premium);
+    }
+
+    #[test]
+    fn access_token_carrega_o_claim_premium() {
+        let id = Uuid::new_v4();
+        let svc = service();
+        let (token, _, _) = svc.issue(id, true).unwrap();
+
+        let claims = svc.verify_access(&token).unwrap();
+        assert_eq!(claims.sub, id);
+        assert!(claims.premium);
     }
 
     #[test]
     fn refresh_tokens_sao_aleatorios() {
         let svc = service();
-        let (_, a, hash_a) = svc.issue(Uuid::new_v4()).unwrap();
-        let (_, b, hash_b) = svc.issue(Uuid::new_v4()).unwrap();
+        let (_, a, hash_a) = svc.issue(Uuid::new_v4(), false).unwrap();
+        let (_, b, hash_b) = svc.issue(Uuid::new_v4(), false).unwrap();
 
         assert_ne!(a, b, "dois refresh tokens não podem coincidir");
         assert_ne!(hash_a, hash_b);
@@ -129,7 +165,7 @@ mod tests {
     fn token_assinado_com_outro_segredo_e_rejeitado() {
         let id = Uuid::new_v4();
         let (token, _, _) = TokenService::new(&"a".repeat(32), 15, 30)
-            .issue(id)
+            .issue(id, false)
             .unwrap();
 
         assert!(service().verify_access(&token).is_err());
@@ -138,7 +174,7 @@ mod tests {
     #[test]
     fn token_adulterado_e_rejeitado() {
         let svc = service();
-        let (mut token, _, _) = svc.issue(Uuid::new_v4()).unwrap();
+        let (mut token, _, _) = svc.issue(Uuid::new_v4(), false).unwrap();
         token.push('x'); // quebra a assinatura
 
         assert!(svc.verify_access(&token).is_err());

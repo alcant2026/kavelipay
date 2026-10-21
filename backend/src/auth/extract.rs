@@ -6,7 +6,8 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-/// Identidade extraída do access token — o `sub` do JWT.
+/// Identidade extraída do access token — o `sub` do JWT e o direito premium
+/// congelado na emissão.
 ///
 /// Este é o ÚNICO jeito de saber de quem é a requisição. Handlers NUNCA
 /// aceitam `user_id` do body ou da query string: isso permitiria um cliente
@@ -14,11 +15,19 @@ use crate::state::AppState;
 #[derive(Debug, Clone, Copy)]
 pub struct AuthUser {
     pub user_id: Uuid,
+    /// Assinatura vigente no momento em que o token foi emitido. Evita uma
+    /// consulta ao banco em cada requisição paga; o refresh renova o retrato
+    /// a cada 15 minutos.
+    pub premium: bool,
 }
 
 impl AuthUser {
     pub fn user_id(&self) -> Uuid {
         self.user_id
+    }
+
+    pub fn premium(&self) -> bool {
+        self.premium
     }
 }
 
@@ -39,7 +48,10 @@ impl FromRequestParts<AppState> for AuthUser {
             .ok_or(AppError::Unauthorized)?
             .trim();
 
-        let user_id = state.tokens.verify_access(token)?;
-        Ok(AuthUser { user_id })
+        let claims = state.tokens.verify_access(token)?;
+        Ok(AuthUser {
+            user_id: claims.sub,
+            premium: claims.premium,
+        })
     }
 }

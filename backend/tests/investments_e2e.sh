@@ -49,7 +49,17 @@ done
 
 EMAIL="inv-$$@teste.com"
 SENHA="senha-forte-123"
-AUTH="Authorization: Bearer $(curl -s -X POST "$BASE/auth/register" -H 'content-type: application/json' \
+curl -s -o /dev/null -X POST "$BASE/auth/register" -H 'content-type: application/json' \
+    -d "{\"email\":\"$EMAIL\",\"password\":\"$SENHA\"}"
+
+# Relatório é Premium: a assinatura precisa existir ANTES do login, porque o
+# claim `premium` é congelado no access token no momento da emissão.
+PSQL=(psql -v ON_ERROR_STOP=1 -q -X)
+"${PSQL[@]}" -d kavelipay -c "INSERT INTO assinaturas (user_id, provider, provider_sub_id, plano, status, periodo_fim)
+  SELECT id, 'manual', 'e2e-'||id::text, 'mensal', 'ACTIVE', now() + INTERVAL '30 days'
+  FROM users WHERE email = '$EMAIL';" >/dev/null
+
+AUTH="Authorization: Bearer $(curl -s -X POST "$BASE/auth/login" -H 'content-type: application/json' \
     -d "{\"email\":\"$EMAIL\",\"password\":\"$SENHA\"}" | get access_token)"
 
 MES=$(date +%Y-%m)

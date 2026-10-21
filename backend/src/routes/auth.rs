@@ -183,7 +183,13 @@ const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$
 const MAX_SESSOES_ATIVAS: i64 = 5;
 
 async fn emitir(state: AppState, user_id: uuid::Uuid) -> AppResult<Json<TokenResponse>> {
-    let (access, raw_refresh, hash) = state.tokens.issue(user_id)?;
+    // O claim `premium` é congelado agora: o direito real está na tabela
+    // `assinaturas`, e as rotas pagas leem o token em vez de consultar o banco
+    // a cada requisição. Vale por 15 min — o refresh renova o retrato.
+    let premium = crate::routes::billing::assinatura_vigente(&state.db, user_id)
+        .await?
+        .is_some();
+    let (access, raw_refresh, hash) = state.tokens.issue(user_id, premium)?;
 
     sqlx::query(
         "INSERT INTO refresh_tokens (user_id, token_hash, expires_at)

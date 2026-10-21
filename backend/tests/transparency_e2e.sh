@@ -57,6 +57,14 @@ for EMAIL in alice@teste.com bob@teste.com; do
     curl -s -o /dev/null -X POST "$BASE/auth/register" -H 'content-type: application/json' \
         -d "{\"email\":\"$EMAIL\",\"password\":\"senha-forte-123\"}"
 done
+
+# Relatório mensal é Premium. Estes testes nasceram antes do paywall; dá
+# assinatura de teste aos dois para o relatório responder 200 e o teste
+# continuar medindo o que quer medir (categorias, isolamento entre usuários).
+"${PSQL[@]}" -d "$DB" -c "INSERT INTO assinaturas (user_id, provider, provider_sub_id, plano, status, periodo_fim)
+  SELECT id, 'manual', 'e2e-'||id::text, 'mensal', 'ACTIVE', now() + INTERVAL '30 days'
+  FROM users WHERE email IN ('alice@teste.com','bob@teste.com');" >/dev/null
+
 login() { curl -s -X POST "$BASE/auth/login" -H 'content-type: application/json' \
     -d "{\"email\":\"$1\",\"password\":\"senha-forte-123\"}" | get access_token; }
 AUTH="Authorization: Bearer $(login alice@teste.com)"

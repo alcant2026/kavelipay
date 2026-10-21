@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod bills;
+pub mod billing;
 pub mod categories;
 pub mod charges;
 pub mod debts;
@@ -120,6 +121,11 @@ pub fn router(state: AppState) -> Router {
         .route("/parceiros", get(parceiros::list))
         .route("/admin/parceiros", post(parceiros::criar))
         .route("/admin/parceiros/{id}", delete(parceiros::desativar))
+        // assinatura premium: o app paga as próprias contas sem virar banco.
+        // Leitura e ativação são do usuário; emissão de código é do admin.
+        .route("/billing/plano", get(billing::plano))
+        .route("/billing/ativar", post(billing::ativar))
+        .route("/admin/assinaturas/codigos", post(billing::gerar_codigo))
         // LGPD
         .route("/lgpd/export.csv", get(lgpd::export_csv))
         .route("/lgpd/account", delete(lgpd::delete_account))
