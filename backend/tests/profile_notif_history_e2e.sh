@@ -271,3 +271,26 @@ check "histórico do Bob não tem itens da Alice ($HIST_BOB)" \
 echo
 echo "resultado: $pass passaram, $fail falharam"
 [ "$fail" -eq 0 ]
+# ── Teto de sessões ativas ──────────────────────────────────────────────────
+# Cada login abre uma sessão de 30 dias. Sem teto, a tela "Sessões abertas"
+# vira uma parede de linhas quase idênticas (foi a queixa do usuário). O login
+# mantém no máximo 5 ativas, revogando as mais antigas — e o access token da
+# sessão revogada continua valendo até expirar, então dá para conferir com ele.
+# Bob trocou a senha no meio do teste (bloco de segurança), então login() — que
+# usa a senha original — daria 401 aqui.
+login_bob() { curl -s -X POST "$BASE/auth/login" -H 'content-type: application/json' \
+    -d '{"email":"bob@teste.com","password":"bob-nova-senha-789"}' | get access_token; }
+for _ in $(seq 1 7); do login_bob >/dev/null; done
+SESSOES_BOB=$(curl -s "$BASE/profile/sessions" -H "$AUTH_B" | python3 -c \
+    "import sys,json; print(len(json.load(sys.stdin)))")
+check "login acima do teto deixa exatamente 5 sessões ativas ($SESSOES_BOB)" \
+    "$([ "$SESSOES_BOB" = "5" ] && echo true || echo false)"
+
+# A sessão mais nova é a que acabou de nascer: o refresh dela precisa funcionar
+# (prova de que a poda revogou as antigas, não a recém-criada).
+ULTIMO_REFRESH=$(curl -s -X POST "$BASE/auth/login" -H 'content-type: application/json' \
+    -d '{"email":"bob@teste.com","password":"bob-nova-senha-789"}' | get refresh_token)
+C_REFRESH_NOVO=$(code -X POST "$BASE/auth/refresh" -H 'content-type: application/json' \
+    -d "{\"refresh_token\":\"$ULTIMO_REFRESH\"}")
+check "refresh da sessão mais nova funciona depois da poda ($C_REFRESH_NOVO)" \
+    "$([ "$C_REFRESH_NOVO" = "200" ] && echo true || echo false)"

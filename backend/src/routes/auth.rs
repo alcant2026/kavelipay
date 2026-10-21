@@ -170,6 +170,18 @@ pub async fn logout(State(state): State<AppState>, Json(req): Json<RefreshReques
 /// Hash descartável de um usuário inexistente, para igualar o custo do login.
 const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$Yn5pNXNtYWx0c2FsdGJhc2U2NHNvbW";
 
+/// Quantas sessões ativas uma conta mantém ao mesmo tempo.
+///
+/// Cada login abre uma sessão de 30 dias e nada as fechava: quem entrava do
+/// celular, do navegador e de alguns `curl` de teste acumulava dezenas, e a
+/// tela "Sessões abertas" virava uma parede de linhas quase idênticas — foi
+/// exatamente a queixa do usuário ("mostra várias sessões abertas").
+///
+/// Cinco cobre o uso real (celular, tablet, dois navegadores e uma sobra) e
+/// mantém a lista legível. O limite é aplicado no login, então quem já tem 30
+/// se limpa no próximo; não é migração de dados.
+const MAX_SESSOES_ATIVAS: i64 = 5;
+
 async fn emitir(state: AppState, user_id: uuid::Uuid) -> AppResult<Json<TokenResponse>> {
     let (access, raw_refresh, hash) = state.tokens.issue(user_id)?;
 
@@ -180,6 +192,24 @@ async fn emitir(state: AppState, user_id: uuid::Uuid) -> AppResult<Json<TokenRes
     .bind(user_id)
     .bind(&hash)
     .bind(state.tokens.refresh_expiry())
+    .execute(&state.db)
+    .await?;
+
+    // Poda DEPOIS do INSERT: a sessão recém-criada é a mais nova e fica.
+    // Revoga (não apaga): a linha revogada é o que permite detectar reuso de
+    // refresh token roubado, então apagar aqui enfraqueceria a detecção.
+    sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now()
+          WHERE user_id = $1 AND revoked_at IS NULL
+            AND id NOT IN (
+                SELECT id FROM refresh_tokens
+                 WHERE user_id = $1 AND revoked_at IS NULL
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT $2
+            )",
+    )
+    .bind(user_id)
+    .bind(MAX_SESSOES_ATIVAS)
     .execute(&state.db)
     .await?;
 

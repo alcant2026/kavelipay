@@ -34,6 +34,13 @@
   não o `sid`). Por isso o app chama `POST /auth/logout` em seguida e cai para a
   tela de entrada — o texto é "Sair de todos os aparelhos", não "encerrar as
   outras".
+- **Teto de 5 sessões ativas** (`auth::MAX_SESSOES_ATIVAS`): o login, depois de
+  inserir a sessão nova, revoga as que passarem disso, mantendo as 5 mais
+  recentes. Sem teto, cada login deixa uma linha de 30 dias e a tela vira uma
+  parede de datas quase iguais (relato do usuário: "mostra várias sessões
+  abertas"). Revoga — não apaga — porque a linha revogada é o que permite
+  detectar reuso de refresh token roubado. Não há migração: contas antigas se
+  limpam no próximo login.
 - **Exportação da LGPD no app**: grava em Downloads pela `MediaStore`
   (`Exportador.salvar`), com nome carimbado
   (`kavelipay_extrato_2026-10-20_1940.csv`) e `IS_PENDING` enquanto escreve.
