@@ -340,7 +340,12 @@ private fun LeitorPreview(
     val analise = remember {
         ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetResolution(Size(1280, 720))
+            // 640x480, não 1280x720: o código de boleto ocupa a tela inteira e
+            // é lido com folga nessa resolução, enquanto a 720p cada frame
+            // custa 4x mais — a rotação da matriz e o decode do ZXing rodam a
+            // cada quadro, numa thread só, e em aparelho fraco isso esquenta e
+            // trava a prévia.
+            .setTargetResolution(Size(640, 480))
             .build()
             .apply { setAnalyzer(executor, LeitorYuv(pausado, aoDetectar)) }
     }

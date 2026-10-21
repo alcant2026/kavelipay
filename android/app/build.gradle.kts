@@ -1,9 +1,18 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("androidx.baselineprofile")
 }
 
 import java.util.Properties
+
+// Grava o perfil medido em `app/src/main/baseline-prof.txt`, para que o
+// repositório carregue o resultado pronto e o build seguinte não precise de
+// aparelho conectado.
+baselineProfile {
+    saveInSrc = true
+    mergeIntoMain = true
+}
 
 android {
     namespace = "com.kavelipay.app"
@@ -35,7 +44,14 @@ android {
 
     buildTypes {
         release {
+            // Quem mede o Baseline Profile é o módulo :baselineprofile, que só
+            // existe na variante `benchmark`. Sem esta linha o Gradle recusa a
+            // dependência com "No matching variant of project :baselineprofile".
+            matchingFallbacks += listOf("benchmark")
             isMinifyEnabled = true
+            // Sem isto o R8 encolhe o código mas todos os recursos (layouts,
+            // drawables, textos) continuam no APK mesmo sem referência.
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -44,6 +60,19 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"
+        }
+
+        // Variante que o módulo :baselineprofile instala para MEDIR o perfil.
+        // Precisa ser igual ao release (R8 muda o bytecode, e perfil medido em
+        // debug não vale), mas assinada com a chave de debug — o aparelho de
+        // teste não tem a keystore de release. Sem este buildType o plugin não
+        // acha variante compatível: "No matching variant of project
+        // :baselineprofile was found".
+        create("benchmark") {
+            initWith(buildTypes.getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
         }
     }
 
@@ -72,7 +101,13 @@ android {
 }
 
 dependencies {
+    // Quem MEDE o perfil é o módulo :baselineprofile (instrumentação no
+    // aparelho). Sem esta linha o plugin aplicado acima não tem produtor:
+    // `mergeBaselineProfile` falha com "no dependency has been set".
+    baselineProfile(project(":baselineprofile"))
     implementation("androidx.core:core-ktx:1.12.0")
+    // Instala o perfil de arranque no primeiro uso do app (Android 7+).
+    implementation("androidx.profileinstaller:profileinstaller:1.3.0")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")

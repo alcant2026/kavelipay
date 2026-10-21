@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "KaveliPay"
 include(":app")
+include(":baselineprofile")
