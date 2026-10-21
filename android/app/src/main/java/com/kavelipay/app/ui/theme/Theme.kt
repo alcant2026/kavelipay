@@ -2,6 +2,10 @@ package com.kavelipay.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.ripple.LocalRippleTheme
+import androidx.compose.material.ripple.RippleAlpha
+import androidx.compose.material.ripple.RippleTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
@@ -154,6 +158,31 @@ object Spacing {
 @ReadOnlyComposable
 fun temaEscuroApp(): Boolean = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
+/**
+ * Alfa do estado de toque, sem os estados que só existem em computador.
+ *
+ * O Material desenha um véu sobre o componente quando o ponteiro está por
+ * cima (`hoveredAlpha`) e quando ele recebe foco de teclado (`focusedAlpha`).
+ * No celular nada disso acontece — o dedo não "pousa" no botão. Mas aqui o
+ * teste é no Waydroid, que injeta mouse: depois de um toque o ponteiro fica
+ * parado sobre o componente e o véu permanece, parecendo sombra/sujeira.
+ * Zerar os dois mantém só o retorno de toque, que é o do celular.
+ */
+private object RippleSoDeToque : RippleTheme {
+    @Composable
+    @ReadOnlyComposable
+    override fun defaultColor(): Color = LocalContentColor.current
+
+    @Composable
+    @ReadOnlyComposable
+    override fun rippleAlpha(): RippleAlpha = RippleAlpha(
+        pressedAlpha = 0.12f,
+        draggedAlpha = 0.16f,
+        focusedAlpha = 0f,
+        hoveredAlpha = 0f,
+    )
+}
+
 @Composable
 fun KaveliPayTheme(
     escuro: Boolean = isSystemInDarkTheme(),
@@ -161,6 +190,7 @@ fun KaveliPayTheme(
 ) {
     CompositionLocalProvider(
         SemanticasLocal provides if (escuro) SemanticasDark else SemanticasLocal.current,
+        LocalRippleTheme provides RippleSoDeToque,
     ) {
         MaterialTheme(
             colorScheme = if (escuro) Escuro else Claro,
