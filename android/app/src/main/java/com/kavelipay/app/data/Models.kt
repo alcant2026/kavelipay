@@ -221,6 +221,28 @@ data class Sessao(
 
 data class ListaSessoes(val itens: List<Sessao>)
 
+// ── Plano / Assinatura ────────────────────────────────────────────────────────
+/**
+ * Espelha o `PlanoResponse` de `routes/billing.rs`.
+ *
+ * `premium` é derivado no backend (`plano.is_some()`); [plano] é o nome do
+ * plano vigente ("mensal"/"anual") e [periodoFim] é a data de término em ISO
+ * 8601. Os preços chegam como **string** porque são `Money` no Rust — nunca
+ * converter para `Double`.
+ *
+ * [accessToken] só vem no `POST /billing/ativar`: é o token novo com o claim
+ * `premium`. O `GET /billing/plano` devolve o campo ausente.
+ */
+data class Plano(
+    val premium: Boolean,
+    val plano: String?,
+    val periodoFim: String?,
+    val recursosPremium: List<String>,
+    val precoMensal: String,
+    val precoAnual: String,
+    val accessToken: String?,
+)
+
 // ── Investimentos ─────────────────────────────────────────────────────────────
 
 /**
@@ -518,6 +540,29 @@ fun JSONObject.paraSessao() = Sessao(
     createdAt = getString("created_at"),
     expiresAt = getString("expires_at"),
 )
+
+/**
+ * Parser do `PlanoResponse`. Usa `opt*` em tudo para uma resposta parcial não
+ * derrubar a tela: sem plano vira grátis, sem preço vira "0.00" (string, nunca
+ * float). `recursos_premium` é um array de strings, não de objetos — por isso
+ * não usa `paraObjetos`.
+ */
+fun JSONObject.paraPlano(): Plano {
+    val recursos = optJSONArray("recursos_premium")
+    val recursosPremium = if (recursos == null) emptyList() else
+        (0 until recursos.length()).mapNotNull {
+            recursos.optString(it).takeIf { texto -> texto.isNotBlank() }
+        }
+    return Plano(
+        premium = optBoolean("premium", false),
+        plano = anulavel("plano"),
+        periodoFim = anulavel("periodo_fim"),
+        recursosPremium = recursosPremium,
+        precoMensal = optString("preco_mensal", "0.00"),
+        precoAnual = optString("preco_anual", "0.00"),
+        accessToken = anulavel("access_token"),
+    )
+}
 
 // ── Investimentos: conversão ──────────────────────────────────────────────────
 
