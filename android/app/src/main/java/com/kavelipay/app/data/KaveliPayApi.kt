@@ -500,9 +500,6 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
     suspend fun lgpdExportCsv(): String =
         ApiClient.getText("/lgpd/export.csv", token)
 
-    suspend fun lgpdExportJson(): JSONObject =
-        ApiClient.get("/lgpd/export", token)
-
     suspend fun lgpdEliminarConta(senha: String) =
         runCatching {
             ApiClient.delete("/lgpd/account",

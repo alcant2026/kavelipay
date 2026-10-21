@@ -147,20 +147,26 @@ check "resumo diz que não calcula ganho não realizado" \
     "$(echo "$SUM" | grep -q "não realizado" && echo true || echo false)"
 
 echo
-echo "9. ledger continua equilibrado"
-DESBAL=$(curl -s "$BASE/lgpd/export" -H "$AUTH" | python3 -c "
+echo "9. ledger continua equilibrado (soma do extrato = saldo)"
+# Antes este check lia `GET /lgpd/export`, o JSON do banco inteiro. A rota saiu
+# do contrato (decisão do dono: exportar é planilha, não JSON), então a prova
+# passou a ser a identidade que o usuário vê: a soma dos valores do extrato tem
+# de bater com o saldo da carteira. Se uma transação ficasse desequilibrada, o
+# saldo (derivado de USER_AVAILABLE) divergiria da soma das linhas.
+CSV_INV=$(curl -s "$BASE/lgpd/export.csv" -H "$AUTH")
+SOMA_CSV=$(python3 -c "
+import sys, csv, io
+from decimal import Decimal
+linhas = list(csv.reader(io.StringIO(sys.stdin.read().lstrip('\ufeff')), delimiter=';'))
+i_v = linhas[0].index('valor')
+total = sum((Decimal(l[i_v].replace(',', '.')) for l in linhas[1:] if len(l) > i_v), Decimal('0'))
+print(f'{total:.2f}')
+" <<<"$CSV_INV")
+SALDO_INV=$(curl -s "$BASE/wallet" -H "$AUTH" | python3 -c "
 import sys, json
-d = json.load(sys.stdin)
-desbal = 0
-for t in d['data']['transacoes']:
-    # as chaves são em português: 'debito'/'credito', não 'debit'/'credit'
-    s = sum(float(e.get('debito', 0)) - float(e.get('credito', 0)) for e in t['lancamentos'])
-    if abs(s) > 0.0001:
-        desbal += 1
-print(desbal)
-")
-check "nenhuma transação desequilibrada (obtido $DESBAL)" \
-    "$([ "$DESBAL" = "0" ] && echo true || echo false)"
+print(json.load(sys.stdin)['balance'])")
+check "soma do extrato ($SOMA_CSV) bate com o saldo ($SALDO_INV)" \
+    "$([ "$SOMA_CSV" = "$SALDO_INV" ] && echo true || echo false)"
 
 echo
 echo "10. lookup por IA (sem OPENROUTER_API_KEY — feature desligada)"

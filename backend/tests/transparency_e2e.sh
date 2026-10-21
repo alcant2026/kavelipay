@@ -264,55 +264,65 @@ echo "7. export CSV"
 
 CSV=$(curl -s "$BASE/lgpd/export.csv" -H "$AUTH")
 
-check "CSV tem cabeçalho" \
-    "$(contem "$CSV" "data;transacao_id;tipo;categoria;descricao;conta;debito;credito")"
+check "CSV tem cabeçalho de extrato" \
+    "$(contem "$CSV" "data;tipo;categoria;descricao;valor")"
 check "CSV usa ponto e vírgula (Excel pt-BR)" \
     "$(contem "$CSV" ";")"
 check "CSV usa vírgula como decimal (ex.: 50,00)" \
     "$(contem "$CSV" "50,00")"
-check "CSV não usa ponto como decimal em NENHUMA coluna" \
+check "CSV traz o tipo em português, não o nome do domínio" \
+    "$(contem "$CSV" ";Despesa;")"
+# A versão anterior lia `ledger_entries`: cada transação virava DUAS linhas
+# (débito numa conta interna, crédito em outra). O extrato tem uma por
+# transação — "Padaria" aparecendo duas vezes é o bug voltando.
+QTD_PADARIA=$(printf '%s\n' "$CSV" | grep -c "Padaria")
+check "cada transação ocupa UMA linha (Padaria aparece 1x, obtido $QTD_PADARIA)" \
+    "$([ "$QTD_PADARIA" = "1" ] && echo true || echo false)"
+check "CSV não expõe conta interna (USER_AVAILABLE/INCOME)" \
+    "$(printf '%s' "$CSV" | grep -qE "USER_AVAILABLE|INCOME|RECEIVABLE" && echo false || echo true)"
+
+# Valor com sinal: despesa negativa, entrada positiva. Sem isso a planilha não
+# soma o saldo — e a coluna debit/credit antiga obrigava a fazer conta na mão.
+SINAL=$(python3 -c "
+import sys, csv, io
+linhas = list(csv.reader(io.StringIO(sys.stdin.read().lstrip('\ufeff')), delimiter=';'))
+cabec = linhas[0]
+i_v = cabec.index('valor')
+neg = sum(1 for l in linhas[1:] if len(l) > i_v and l[i_v].startswith('-'))
+pos = sum(1 for l in linhas[1:] if len(l) > i_v and l[i_v] and not l[i_v].startswith('-'))
+print('ok' if neg >= 1 and pos >= 1 else f'neg={neg} pos={pos}')
+" <<<"$CSV")
+check "valor vem com sinal (saída negativa, entrada positiva; $SINAL)" \
+    "$([ "$SINAL" = "ok" ] && echo true || echo false)"
+
+check "CSV não usa ponto como decimal em NENHUMA linha" \
     "$(python3 -c "
 import sys, csv, io
-linhas = list(csv.reader(io.StringIO(open('/dev/stdin').read()), delimiter=';'))
+linhas = list(csv.reader(io.StringIO(sys.stdin.read().lstrip('\ufeff')), delimiter=';'))
 cabec = linhas[0]
-i_d, i_c = cabec.index('debito'), cabec.index('credito')
-problemas = []
-for l in linhas[1:]:
-    if len(l) <= max(i_d, i_c):
-        continue
-    for idx, nome in ((i_d, 'debito'), (i_c, 'credito')):
-        v = l[idx]
-        if '.' in v:
-            problemas.append(f'{nome}={v}')
-        if not v or v == '0':
-            problemas.append(f'{nome} vazio/zero cru')
+i_v = cabec.index('valor')
+problemas = [l[i_v] for l in linhas[1:] if len(l) > i_v and '.' in l[i_v]]
 print('false' if problemas else 'true')
 " <<<"$CSV")"
 
-QTD_LINHAS=$(printf '%s\n' "$CSV" | wc -l)
-check "CSV tem linhas de dados + cabeçalho ($QTD_LINHAS)" \
-    "$([ "$QTD_LINHAS" -ge 6 ] && echo true || echo false)"
+# Uma linha de dados para cada transação da carteira: o extrato é o mesmo
+# dinheiro que a API mostra, não um recorte nem uma duplicação.
+QTD_CSV=$(printf '%s\n' "$CSV" | tail -n +2 | grep -c .)
+# /wallet/transactions devolve `items` (sem `total`): a contagem é o tamanho
+# da lista.
+QTD_API=$(curl -s "$BASE/wallet/transactions?limit=200" -H "$AUTH" | python3 -c \
+    "import sys,json; print(len(json.load(sys.stdin)['items']))")
+check "CSV tem uma linha por transação ($QTD_CSV no CSV, $QTD_API na API)" \
+    "$([ "$QTD_CSV" = "$QTD_API" ] && echo true || echo false)"
 
 echo
-echo "8. LGPD: export de dados"
-
-EXPORT=$(curl -s "$BASE/lgpd/export" -H "$AUTH")
-QTD_SECTIONS=$(printf '%s' "$EXPORT" | python3 -c "
-import sys, json
-print(len(json.load(sys.stdin)['data']))")
-check "export traz as 7 seções de dados (obtido $QTD_SECTIONS)" \
-    "$([ "$QTD_SECTIONS" = "7" ] && echo true || echo false)"
-EMAIL_EXP=$(printf '%s' "$EXPORT" | jget "['data']['perfil']['email']")
-check "export contém o e-mail do titular ($EMAIL_EXP)" \
-    "$([ "$EMAIL_EXP" = "alice@teste.com" ] && echo true || echo false)"
-TXNS_EXPORT=$(printf '%s' "$EXPORT" | python3 -c \
-    "import sys,json; print(len(json.load(sys.stdin)['data']['transacoes']))")
-check "export inclui o ledger completo ($TXNS_EXPORT transações)" \
-    "$([ "$TXNS_EXPORT" -ge 5 ] && echo true || echo false)"
-ENTRIES=$(printf '%s' "$EXPORT" | python3 -c \
-    "import sys,json; print(len(json.load(sys.stdin)['data']['transacoes'][0]['lancamentos']))")
-check "cada transação vem com seus 2 lançamentos (obtido $ENTRIES)" \
-    "$([ "$ENTRIES" = "2" ] && echo true || echo false)"
+echo "8. LGPD: JSON de export saiu do contrato"
+# O JSON existia para levar o banco inteiro, mas só era usado por testes e por
+# quem sabe ler JSON. Decisão do dono: ficar só com a planilha. A rota some de
+# verdade (404), não vira 410 silencioso.
+C_EXPORT_JSON=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/lgpd/export" -H "$AUTH")
+check "GET /lgpd/export não existe mais (recebido $C_EXPORT_JSON)" \
+    "$([ "$C_EXPORT_JSON" = "404" ] && echo true || echo false)"
 
 echo
 echo "9. LGPD: eliminação de conta exige senha e confirmação"

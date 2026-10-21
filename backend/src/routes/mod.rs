@@ -121,7 +121,6 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/parceiros", post(parceiros::criar))
         .route("/admin/parceiros/{id}", delete(parceiros::desativar))
         // LGPD
-        .route("/lgpd/export", get(lgpd::export))
         .route("/lgpd/export.csv", get(lgpd::export_csv))
         .route("/lgpd/account", delete(lgpd::delete_account))
         .with_state(state)

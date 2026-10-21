@@ -25,11 +25,16 @@ está accounted for". Tudo nesta seção existe para sustentar isso.
   despesas, `net` (resultado do período, ≠ `balance`) e fatias por categoria com
   `share`. Filtra por `a.kind='USER_AVAILABLE'`: um lançamento tem DUAS entradas
   no ledger e sem esse filtro a despesa aparece dobrada.
-- `GET /lgpd/export.csv` — `;` e vírgula decimal (`50,00`). `Decimal::ZERO`
-  vira `0,00` explícito: `"0"` ao lado de `50,00` quebra a coluna no Excel.
-- `GET /lgpd/export` — JSON com perfil, carteira, categorias, contas, cobranças,
-  dívidas e o ledger completo (cada transação com seus 2 lançamentos, **números como
-  texto** — devolver Decimal por JSON viraria float).
+- `GET /lgpd/export.csv` — **uma linha por transação**, colunas
+  `data;tipo;categoria;descricao;valor`, `;` e vírgula decimal (`50,00`), com BOM
+  UTF-8 (sem ele o Excel pt-BR mostra `DescriÃ§Ã£o`). O valor é
+  `credit - debit` da conta `USER_AVAILABLE` — a escrituração contábil tem duas
+  entradas por transação e expor isso dava duas linhas e contas internas
+  (`INCOME`) para quem só quer o extrato. `Decimal::ZERO` vira `0,00`
+  explícito: `"0"` ao lado de `50,00` quebra a coluna no Excel.
+- Exportar devolve **só a planilha**. O `GET /lgpd/export` (JSON com o banco
+  inteiro) saiu do contrato e responde 404: os dois formatos dobravam a
+  manutenção do mesmo dado para um retorno que ninguém usava.
 - `DELETE /lgpd/account` — **anonimiza, não apaga**. `ledger_entries`
   referencia `ledger_accounts` com `ON DELETE RESTRICT`; apagar em cascata
   quebraria o equilíbrio de transações de anos atrás para remover um e-mail.

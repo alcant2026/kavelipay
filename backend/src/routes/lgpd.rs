@@ -1,13 +1,16 @@
-//! LGPD: exportação de dados e eliminação de conta.
+//! LGPD: exportação do extrato em planilha e eliminação de conta.
 //!
 //! Duas decisões que precisam estar explícitas porque são escolhas, não
 //! detalhes:
 //!
-//! 1. **Exportar devolve dado estruturado, não CSV.** `GET /lgpd/export`
-//!    entrega JSON com tudo que o titular tem direito. O CSV financeiro vem
-//!    separado em `GET /wallet/export.csv` — é outro formato, para outro
-//!    propósito (planilha), e misturar os dois daria um arquivo que ninguém
-//!    consegue usar.
+//! 1. **Exportar devolve UMA planilha, não dois formatos.** Antes existiam
+//!    `GET /lgpd/export` (JSON com o banco inteiro) e `GET /lgpd/export.csv`.
+//!    Nenhum dos dois servia sozinho: JSON é formato de programador — quem
+//!    pede o próprio extrato quer abrir no Excel e ler — e o CSV despejava os
+//!    lançamentos contábeis (duas linhas por transação, contas internas como
+//!    `USER_AVAILABLE`, valores em quatro casas). Ficou só o CSV, agora como
+//!    extrato: uma linha por transação, com o valor que entrou ou saiu da
+//!    carteira.
 //!
 //! 2. **Eliminar é anonimizar, não apagar.** O ledger é registro histórico e
 //!    `ledger_entries` referencia `ledger_accounts` com `ON DELETE RESTRICT`.
@@ -20,175 +23,10 @@ use axum::Json;
 use axum::extract::{Query, State};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::money::Money;
 use crate::state::AppState;
-
-#[derive(Serialize)]
-pub struct ExportResponse {
-    pub exported_at: chrono::DateTime<chrono::Utc>,
-    pub format: &'static str,
-    pub data: serde_json::Value,
-}
-
-/// GET /lgpd/export
-///
-/// Tudo do titular: perfil, categorias, carteira, contas, cobranças, divisões,
-/// dívidas e o ledger completo. É o direito de acesso previsto no art. 18 da LGPD.
-pub async fn export(
-    State(state): State<AppState>,
-    auth: crate::auth::AuthUser,
-) -> AppResult<Json<ExportResponse>> {
-    let user_id = auth.user_id();
-
-    let perfil = sqlx::query_as::<_, (String, Option<String>, chrono::DateTime<chrono::Utc>)>(
-        "SELECT email, display_name, created_at FROM users WHERE id = $1",
-    )
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::Unauthorized)?;
-
-    let categorias = sqlx::query_as::<_, (String, String, Option<String>, bool)>(
-        "SELECT name, kind, color, is_default FROM categories WHERE user_id = $1",
-    )
-    .bind(user_id)
-    .fetch_all(&state.db)
-    .await?;
-
-    let carteira = sqlx::query_as::<_, (Uuid, String, String, bool, chrono::DateTime<chrono::Utc>)>(
-        "SELECT id, currency, status, is_demonstrative, created_at
-           FROM wallets WHERE user_id = $1",
-    )
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound("wallet"))?;
-
-    let contas = sqlx::query_as::<_, (Uuid, String, Option<String>, Decimal, chrono::NaiveDate, String, Option<chrono::DateTime<chrono::Utc>>)>(
-        "SELECT id, description, beneficiario, amount, due_date, status, paid_at
-           FROM bills WHERE wallet_id = $1 ORDER BY due_date",
-    )
-    .bind(carteira.0)
-    .fetch_all(&state.db)
-    .await?;
-
-    let cobrancas = sqlx::query_as::<_, (Uuid, String, Decimal, String, Option<chrono::DateTime<chrono::Utc>>)>(
-        "SELECT id, description, amount, status, received_at
-           FROM charges WHERE wallet_id = $1 ORDER BY created_at",
-    )
-    .bind(carteira.0)
-    .fetch_all(&state.db)
-    .await?;
-
-    // Ledger completo: cada transação com os dois lançamentos. É o dado mais
-    // sensível e mais importante — sem ele o titular não consegue conferir
-    // nada fora do app.
-    //
-    // Os lançamentos vão como JSON cru e os números como TEXTO de propósito:
-    // um `ARRAY(json_build_array(...))` volta como `json[]`, que o sqlx não
-    // decodifica em tupla Rust; e devolver Decimal por JSON voltaria float,
-    // que é exatamente o que a regra de dinheiro proíbe.
-    //
-    // `description` é nullable no ledger (uma entrada pura não tem motivo) —
-    // decodificar como `String` derrubava o export inteiro com 500.
-    let transacoes = sqlx::query_as::<_, (Uuid, String, Decimal, Option<String>, chrono::DateTime<chrono::Utc>, serde_json::Value)>(
-        "SELECT t.id, t.type, t.amount, t.description, t.created_at,
-                COALESCE(
-                    (
-                        SELECT json_agg(
-                                   json_build_object(
-                                       'conta',  la.kind::text,
-                                       'debito',  COALESCE(e.debit, 0)::text,
-                                       'credito', COALESCE(e.credit, 0)::text
-                                   )
-                                   ORDER BY e.created_at, e.id
-                               )
-                          FROM ledger_entries e
-                          JOIN ledger_accounts la ON la.id = e.account_id
-                         WHERE e.transaction_id = t.id
-                    ),
-                    '[]'::json
-                ) AS entries
-           FROM ledger_transactions t
-          WHERE t.wallet_id = $1
-          ORDER BY t.created_at, t.id",
-    )
-    .bind(carteira.0)
-    .fetch_all(&state.db)
-    .await?;
-
-    // Dívidas em QUALQUER status — PENDING, PAID e CONFIRMED. O export é
-    // completo por natureza (art. 18): omitir pendentes ou confirmadas
-    // privaria o titular do dado integral. O valor vira string via `Money`
-    // (2 casas, nunca float), igual às outras seções.
-    let dividas = sqlx::query_as::<_, (Uuid, String, String, Decimal, String, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>, chrono::DateTime<chrono::Utc>)>(
-        "SELECT id, creditor_name, description, amount, status,
-                paid_at, confirmed_at, created_at
-           FROM debts WHERE wallet_id = $1 ORDER BY created_at, id",
-    )
-    .bind(carteira.0)
-    .fetch_all(&state.db)
-    .await?;
-
-    let data = json!({
-        "perfil": {
-            "email": perfil.0,
-            "display_name": perfil.1,
-            "criado_em": perfil.2,
-        },
-        "carteira": {
-            "id": carteira.0,
-            "moeda": carteira.1,
-            "status": carteira.2,
-            "demonstrativa": carteira.3,
-            "criada_em": carteira.4,
-        },
-        "categorias": categorias.iter()
-            .map(|(n, k, c, d)| json!({"nome": n, "tipo": k, "cor": c, "padrao": d}))
-            .collect::<Vec<_>>(),
-        "contas": contas.iter()
-            .map(|(i, d, b, a, v, s, p)| json!({
-                "id": i, "descricao": d, "beneficiario": b,
-                "valor": a.to_string(), "vencimento": v, "status": s, "pago_em": p
-            }))
-            .collect::<Vec<_>>(),
-        "cobrancas": cobrancas.iter()
-            .map(|(i, d, a, s, r)| json!({
-                "id": i, "descricao": d, "valor": a.to_string(),
-                "status": s, "recebido_em": r
-            }))
-            .collect::<Vec<_>>(),
-        "dividas": dividas.iter()
-            .map(|(i, c, d, a, s, p, cf, cr)| json!({
-                "id": i, "credor": c, "descricao": d,
-                "valor": Money::new(*a).to_string(), "status": s,
-                "pago_em": p, "confirmado_em": cf, "criado_em": cr
-            }))
-            .collect::<Vec<_>>(),
-        "transacoes": transacoes.iter()
-            .map(|(i, t, a, d, c, e)| json!({
-                "id": i, "tipo": t, "valor": a.to_string(),
-                "descricao": d, "criada_em": c, "lancamentos": e
-            }))
-            .collect::<Vec<_>>(),
-    });
-
-    // Registra que o titular exerceu o direito; serve de trilha de auditoria.
-    sqlx::query("UPDATE users SET data_export_requested_at = now() WHERE id = $1")
-        .bind(user_id)
-        .execute(&state.db)
-        .await?;
-
-    Ok(Json(ExportResponse {
-        exported_at: chrono::Utc::now(),
-        format: "kavelipay.lgpd.v1",
-        data,
-    }))
-}
 
 #[derive(Deserialize)]
 pub struct DeleteRequest {
@@ -283,10 +121,21 @@ pub async fn delete_account(
 
 /// GET /lgpd/export.csv — o extrato em planilha.
 ///
-/// Separado do export JSON de propósito: é outro uso. `Decimal::to_string()`
-/// escreve ponto como separador, e o Excel pt-BR abre `10.50` como texto, não
-/// número — por isso o valor vai como `10,50`. Nenhum cálculo financeiro é feito
-/// no CSV; ele é para ser lido e conferido, não somado pela planilha.
+/// **Uma linha por transação, não por lançamento.** A versão anterior lia
+/// `ledger_entries` e despejava a escrituração: cada compra virava duas linhas
+/// (débito numa conta, crédito em outra), com nomes internos
+/// (`USER_AVAILABLE`, `INCOME`) e `100,0000` de quatro casas. Para quem só quer
+/// conferir o extrato, aquilo não era extrato — era o razão do banco.
+///
+/// Agora a linha é a transação, e o valor é o que a carteira sentiu:
+/// `credit - debit` da conta `USER_AVAILABLE`, com sinal (entrada positivo,
+/// saída negativo). Transação que não toca a carteira (ex.: troca entre
+/// ativos de investimento) não aparece — ela não mudou nenhum centavo do
+/// saldo, e incluí-la faria a soma da planilha não fechar com o saldo.
+///
+/// Vírgula decimal porque o Excel pt-BR lê `10.50` como texto. Nenhum cálculo
+/// financeiro é feito aqui: o CSV é para ler e conferir, não para ser somado
+/// por fórmula.
 pub async fn export_csv(
     State(state): State<AppState>,
     auth: crate::auth::AuthUser,
@@ -301,20 +150,15 @@ pub async fn export_csv(
     let linhas = sqlx::query_as::<_, (
         chrono::DateTime<chrono::Utc>,
         String,
-        String,
-        Option<Uuid>,
         Option<String>,
         Option<String>,
-        String,
-        Decimal,
         Decimal,
     )>(
-        "SELECT t.created_at, t.id::text, t.type, t.category_id, c.name,
-                COALESCE(t.description, ''), a.kind,
-                e.debit, e.credit
+        "SELECT t.created_at, t.type, c.name, t.description,
+                (e.credit - e.debit) AS valor
            FROM ledger_transactions t
-           JOIN ledger_entries e   ON e.transaction_id = t.id
-           JOIN ledger_accounts a ON a.id = e.account_id
+           JOIN ledger_entries e  ON e.transaction_id = t.id
+           JOIN ledger_accounts a ON a.id = e.account_id AND a.kind = 'USER_AVAILABLE'
            LEFT JOIN categories c ON c.id = t.category_id
           WHERE t.wallet_id = $1
           ORDER BY t.created_at, t.id",
@@ -323,24 +167,43 @@ pub async fn export_csv(
     .fetch_all(&state.db)
     .await?;
 
-    let mut out = String::with_capacity(256 + linhas.len() * 96);
-    out.push_str("data;transacao_id;tipo;categoria;descricao;conta;debito;credito\n");
+    let mut out = String::with_capacity(256 + linhas.len() * 64);
+    // BOM: sem ele o Excel abre `Descrição` como `DescriÃ§Ã£o`. Planilha com
+    // acento quebrado é o primeiro lugar onde o usuário desconfia do arquivo.
+    out.push('\u{FEFF}');
+    out.push_str("data;tipo;categoria;descricao;valor\n");
 
-    for (criado, id, tipo, _cat_id, cat, desc, conta, debito, credito) in linhas {
+    for (criado, tipo, cat, desc, valor) in linhas {
         out.push_str(&format!(
-            "{};{};{};{};{};{};{};{}\n",
+            "{};{};{};{};{}\n",
             criado.format("%Y-%m-%dT%H:%M:%SZ"),
-            id,
-            sanitiza(&tipo),
+            rotulo_do_tipo(&tipo),
             sanitiza(cat.as_deref().unwrap_or("")),
             sanitiza(desc.as_deref().unwrap_or("")),
-            sanitiza(&conta),
-            pt_br(debito),
-            pt_br(credito),
+            pt_br(valor),
         ));
     }
 
     Ok(out)
+}
+
+/// Nome do tipo de transação em português.
+///
+/// `ENTRY`/`EXPENSE` são os nomes do domínio; numa planilha que a pessoa abre
+/// no Excel, "Despesa" diz o que é. Tipo desconhecido volta como veio — melhor
+/// um rótulo feio do que uma linha em branco.
+fn rotulo_do_tipo(tipo: &str) -> &'static str {
+    match tipo {
+        "ENTRY" => "Entrada",
+        "EXPENSE" => "Despesa",
+        "BILL_PAID" => "Conta paga",
+        "SETTLEMENT" => "Divisão recebida",
+        "CHARGE_RECEIVED" => "Cobrança recebida",
+        "INVESTMENT_BUY" => "Investimento (compra)",
+        "INVESTMENT_SELL" => "Investimento (venda)",
+        "INVESTMENT_DIVIDEND" => "Rendimento",
+        _ => "Outro",
+    }
 }
 
 /// CSV com `;` e escape por aspas: o padrão do Excel pt-BR. Um `;` ou quebra de
@@ -357,14 +220,12 @@ fn sanitiza(s: &str) -> String {
     }
 }
 
-/// `10.50` → `10,50`. Vírgula é o separador decimal no pt-BR.
+/// `1050` → `1050,00`; `-10.5` → `-10,50`.
 ///
-/// Zero vira `0,00` explícito: `Decimal::ZERO.to_string()` é `"0"`, e uma
-/// coluna com `0` ao lado de `50,00` quebra a leitura no Excel pt-BR.
-fn pt_br(d: Decimal) -> String {
-    if d.is_zero() {
-        "0,00".to_string()
-    } else {
-        d.to_string().replace('.', ",")
-    }
+/// Duas casas sempre, inclusive no zero e no negativo: `Money` também exibe
+/// duas casas, então planilha e tela mostram o mesmo número. Ponto vira
+/// vírgula porque é o separador decimal do pt-BR — e o Excel pt-BR lê `10.50`
+/// como texto.
+fn pt_br(valor: Decimal) -> String {
+    format!("{:.2}", valor).replace('.', ",")
 }

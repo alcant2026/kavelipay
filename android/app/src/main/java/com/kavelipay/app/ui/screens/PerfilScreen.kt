@@ -93,7 +93,6 @@ fun KpPerfilScreen(
     var senhaAtual by remember { mutableStateOf("") }
     var novaSenha by remember { mutableStateOf("") }
     var confirmarNovaSenha by remember { mutableStateOf("") }
-    var dialogoDados by remember { mutableStateOf(false) }
 
     val nome = estado.perfil?.displayName.orEmpty()
     val email = estado.perfil?.email.orEmpty()
@@ -166,8 +165,8 @@ fun KpPerfilScreen(
                     KpMenuRow(
                         icone = Icons.Default.Download,
                         rotulo = "Baixar meus dados",
-                        subtitulo = "Planilha ou arquivo completo. Grátis, sempre.",
-                        onClick = { dialogoDados = true },
+                        subtitulo = "Seu extrato em planilha. Grátis, sempre.",
+                        onClick = { vm.exportarDadosCsv() },
                     )
                 }
             }
@@ -328,48 +327,6 @@ fun KpPerfilScreen(
         )
     }
 
-    // ── Dialog: escolher formato do download ────────────────────────────────
-    if (dialogoDados) {
-        AlertDialog(
-            onDismissRequest = { dialogoDados = false },
-            title = { Text("Baixar meus dados") },
-            text = {
-                Column {
-                    Text(
-                        "Escolha o formato. É o seu direito pela LGPD — grátis e " +
-                            "sem depender de plano.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(Spacing.md))
-                    OpcaoFormato(
-                        titulo = "Planilha (CSV)",
-                        // "CSV" e "JSON" sozinhos não dizem nada para quem não
-                        // é programador; o que decide a escolha é onde o
-                        // arquivo abre.
-                        descricao = "Abre no Excel ou no Google Sheets.",
-                        onClick = {
-                            dialogoDados = false
-                            vm.exportarDadosCsv()
-                        },
-                    )
-                    Spacer(Modifier.height(Spacing.sm))
-                    OpcaoFormato(
-                        titulo = "Arquivo completo (JSON)",
-                        descricao = "Para guardar ou levar para outro aplicativo.",
-                        onClick = {
-                            dialogoDados = false
-                            vm.exportarDadosJson()
-                        },
-                    )
-                }
-            },
-            confirmButton = {
-                KpBotaoSecundario("Fechar", onClick = { dialogoDados = false })
-            },
-        )
-    }
-
 }
 
 /**
@@ -458,41 +415,6 @@ private fun AvisoExportacao(mensagem: String, falhou: Boolean) {
                 text = mensagem,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-    }
-}
-
-/** Opção de formato dentro do diálogo de download. */
-@Composable
-private fun OpcaoFormato(
-    titulo: String,
-    descricao: String,
-    onClick: () -> Unit,
-) {
-    KpCard(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(Spacing.md),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(titulo, style = MaterialTheme.typography.bodyLarge)
-                Spacer(Modifier.height(Spacing.xs))
-                Text(
-                    descricao,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.width(Spacing.sm))
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.size(14.dp),
             )
         }
     }

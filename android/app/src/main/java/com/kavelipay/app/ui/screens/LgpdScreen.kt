@@ -93,14 +93,7 @@ fun KpLgpdScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                 KpCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(Spacing.md)) {
                         KpBotaoSecundario(
-                            texto = "Exportar tudo (JSON)",
-                            onClick = { vm.exportarDadosJson() },
-                            icone = Icons.Default.Download,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(Spacing.sm))
-                        KpBotaoSecundario(
-                            texto = "Exportar ledger (CSV, pt-BR)",
+                            texto = "Baixar extrato (CSV)",
                             onClick = { vm.exportarDadosCsv() },
                             icone = Icons.Default.TableChart,
                             modifier = Modifier.fillMaxWidth(),
@@ -138,10 +131,10 @@ fun KpLgpdScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                         Text("Seus direitos (LGPD)", style = TituloSecao)
                         Spacer(Modifier.height(Spacing.sm))
                         Text(
-                            "• Acesso: exportar tudo acima\n" +
+                            "• Acesso: baixar o extrato acima\n" +
                             "• Retificação: edite nome no perfil\n" +
                             "• Eliminação: botão acima (anônimo, ledger preservado)\n" +
-                            "• Portabilidade: JSON/CSV são formatos abertos\n" +
+                            "• Portabilidade: a planilha CSV é formato aberto\n" +
                             "• Oposição: não há processamento automatizado de decisões\n" +
                             "• DPO: não se aplica (não é controlador de dados sensíveis)\n\n" +
                             "O KaveliPay NÃO é banco, instituição de pagamento, custodiante, " +

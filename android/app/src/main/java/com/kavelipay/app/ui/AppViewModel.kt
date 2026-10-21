@@ -722,22 +722,6 @@ fun carregarChargeQr(chargeId: String) {
     }
 
     // ── LGPD ──────────────────────────────────────────────────────────────────
-    fun exportarDadosJson() {
-        viewModelScope.launch {
-            runCatching { api.lgpdExportJson() }
-                .onSuccess { dados ->
-                    salvarExportacao(
-                        base = "kavelipay_dados",
-                        extensao = "json",
-                        mime = "application/json",
-                        conteudo = dados.toString(2),
-                        confirmacao = "Arquivo completo salvo",
-                    )
-                }
-                .onFailure { avisoFalha(it) }
-        }
-    }
-
     fun exportarDadosCsv() {
         viewModelScope.launch {
             runCatching { api.lgpdExportCsv() }
