@@ -30,6 +30,11 @@ object ApiClient {
     /**
      * Candidatos de host do backend, testados na ordem por uma sonda TCP.
      *
+     * - `kavelipay-backend.onrender.com` = produção (Render). Vem PRIMEIRO de
+     *   propósito: no aparelho do usuário, `192.168.1.8` pode ser o roteador
+     *   de casa, e o app cairia num host errado. A porta é explícita porque a
+     *   sonda usa `URI.port` — sem ela a porta seria -1 e a conexão falharia.
+     *   Se o Render não liberar esse nome, ajuste a URL aqui e recompile;
      * - `192.168.240.1` = lado host da bridge do Waydroid — o container só tem
      *   rota para `192.168.240.0/24`, então não alcança `192.168.1.8`;
      * - `192.168.1.8` = IP da máquina na rede Wi-Fi (aparelho físico, mesma rede);
@@ -43,6 +48,7 @@ object ApiClient {
      * aparelho físico apontando para a bridge do Waydroid).
      */
     private val CANDIDATOS = listOf(
+        "https://kavelipay-backend.onrender.com:443",
         "http://192.168.240.1:3000",
         "http://192.168.1.8:3000",
         "http://10.0.2.2:3000",
