@@ -189,145 +189,154 @@ fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoAbrirPlano: () -
             // backend responde 402 sem plano) ou "não deu para carregar".
             if (r == null) {
                 item {
+                    // Ainda buscando é estado diferente de falhou: mostrar
+                    // "não foi possível carregar" no meio do carregamento é
+                    // erro na cara de quem fez nada de errado.
+                    if (estado.carregando) {
+                        Column(Modifier.fillMaxWidth()) {
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
+                    } else {
+                        KpCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(Spacing.md)) {
+                                Text(
+                                    text = if (estado.planoNecessario) {
+                                        "O relatório do mês faz parte do plano Premium"
+                                    } else {
+                                        "Não foi possível carregar o relatório"
+                                    },
+                                    style = TituloSecao,
+                                )
+                                Spacer(Modifier.height(Spacing.xs))
+                                Text(
+                                    text = if (estado.planoNecessario) {
+                                        "Ele mostra para onde o dinheiro foi, por categoria. " +
+                                            "Saldo, extrato, contas e cobranças continuam grátis."
+                                    } else {
+                                        "Nada foi perdido — tente de novo em instantes."
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.height(Spacing.md))
+                                if (estado.planoNecessario) {
+                                    KpBotaoPrimario(
+                                        "Conhecer o plano",
+                                        onClick = aoAbrirPlano,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                } else {
+                                    KpBotaoSecundario(
+                                        "Tentar de novo",
+                                        onClick = { vm.carregarTudo() },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                item {
                     KpCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(Spacing.md)) {
                             Text(
-                                text = if (estado.planoNecessario) {
-                                    "O relatório do mês faz parte do plano Premium"
-                                } else {
-                                    "Não foi possível carregar o relatório"
-                                },
-                                style = TituloSecao,
-                            )
-                            Spacer(Modifier.height(Spacing.xs))
-                            Text(
-                                text = if (estado.planoNecessario) {
-                                    "Ele mostra para onde o dinheiro foi, por categoria. " +
-                                        "Saldo, extrato, contas e cobranças continuam grátis."
-                                } else {
-                                    "Nada foi perdido — tente de novo em instantes."
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
+                                r.month?.let { formatarMes(it) } ?: "Resumo",
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Spacer(Modifier.height(Spacing.md))
-                            if (estado.planoNecessario) {
-                                KpBotaoPrimario(
-                                    "Conhecer o plano",
-                                    onClick = aoAbrirPlano,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            } else {
-                                KpBotaoSecundario(
-                                    "Tentar de novo",
-                                    onClick = { vm.carregarTudo() },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            }
+                            Spacer(Modifier.height(Spacing.xs))
+                            KpLinhaResumo(
+                                rotulo = "Entradas",
+                                valor = "R$ ${brl(r.income ?: "0.00")}",
+                                corValor = sem.receita,
+                            )
+                            Spacer(Modifier.height(Spacing.xs))
+                            KpLinhaResumo(
+                                rotulo = "Saídas",
+                                valor = "R$ ${brl(r.expense ?: "0.00")}",
+                            )
+                            Spacer(Modifier.height(Spacing.sm))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                            Spacer(Modifier.height(Spacing.sm))
+                            KpLinhaResumo(
+                                rotulo = "Resultado do mês",
+                                valor = "R$ ${brl(r.net ?: "0.00")}",
+                                negrito = true,
+                                corValor = if ((r.net?.startsWith("-")) == true) sem.despesa else sem.receita,
+                            )
                         }
                     }
                 }
-            } else {
-            item {
-                KpCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(Spacing.md)) {
-                        Text(
-                            r.month?.let { formatarMes(it) } ?: "Resumo",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(Spacing.xs))
-                        KpLinhaResumo(
-                            rotulo = "Entradas",
-                            valor = "R$ ${brl(r.income ?: "0.00")}",
-                            corValor = sem.receita,
-                        )
-                        Spacer(Modifier.height(Spacing.xs))
-                        KpLinhaResumo(
-                            rotulo = "Saídas",
-                            valor = "R$ ${brl(r.expense ?: "0.00")}",
-                        )
-                        Spacer(Modifier.height(Spacing.sm))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                        Spacer(Modifier.height(Spacing.sm))
-                        KpLinhaResumo(
-                            rotulo = "Resultado do mês",
-                            valor = "R$ ${brl(r.net ?: "0.00")}",
-                            negrito = true,
-                            corValor = if ((r.net?.startsWith("-")) == true) sem.despesa else sem.receita,
-                        )
-                    }
-                }
-            }
 
-            val fatias = r.fatiasDespesa.orEmpty()
-            if (fatias.isEmpty()) {
-                item {
-                    KpCard(Modifier.fillMaxWidth()) {
-                        KpVazio(
-                            icone = Icons.Default.PieChart,
-                            titulo = "Sem despesas classificadas",
-                            descricao = "Classifique lançamentos para ver para onde o dinheiro foi.",
-                        )
+                val fatias = r.fatiasDespesa.orEmpty()
+                if (fatias.isEmpty()) {
+                    item {
+                        KpCard(Modifier.fillMaxWidth()) {
+                            KpVazio(
+                                icone = Icons.Default.PieChart,
+                                titulo = "Sem despesas classificadas",
+                                descricao = "Classifique lançamentos para ver para onde o dinheiro foi.",
+                            )
+                        }
                     }
-                }
-            } else {
-                item { Text("Para onde foi", style = TituloSecao) }
-                item {
-                    KpCard(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(Spacing.md)) {
-                            fatias.forEachIndexed { i, fatia ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(fatia.nome, style = MaterialTheme.typography.bodyLarge)
-                                        Spacer(Modifier.height(6.dp))
-                                        // Barra proporcional ao share. Sem eixo:
-                                        // o número exato está do lado, a barra é
-                                        // comparação rápida.
-                                        LinearProgressIndicator(
-                                            progress = { fatia.share.toFloat().coerceIn(0f, 1f) },
-                                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(
-                                                RoundedCornerShape(3.dp),
-                                            ),
-                                        )
+                } else {
+                    item { Text("Para onde foi", style = TituloSecao) }
+                    item {
+                        KpCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(Spacing.md)) {
+                                fatias.forEachIndexed { i, fatia ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(fatia.nome, style = MaterialTheme.typography.bodyLarge)
+                                            Spacer(Modifier.height(6.dp))
+                                            // Barra proporcional ao share. Sem eixo:
+                                            // o número exato está do lado, a barra é
+                                            // comparação rápida.
+                                            LinearProgressIndicator(
+                                                progress = { fatia.share.toFloat().coerceIn(0f, 1f) },
+                                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(
+                                                    RoundedCornerShape(3.dp),
+                                                ),
+                                            )
+                                        }
+                                        Spacer(Modifier.width(Spacing.md))
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(
+                                                "R$ ${brl(fatia.total)}",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                            )
+                                            Text(
+                                                "${(fatia.share * 100).roundToInt()}%",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
                                     }
-                                    Spacer(Modifier.width(Spacing.md))
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        Text(
-                                            "R$ ${brl(fatia.total)}",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                        )
-                                        Text(
-                                            "${(fatia.share * 100).roundToInt()}%",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
+                                    if (i < fatias.lastIndex) {
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                                     }
-                                }
-                                if (i < fatias.lastIndex) {
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // `balance` e `net` são números diferentes: um é o saldo da
-            // carteira, o outro o resultado do período. Exibir os dois lado a
-            // lado sem rótulo seria a forma mais rápida de confundir o usuário.
-            item {
-                Text(
-                    "Resultado do mês não é o saldo da carteira: é a diferença entre " +
-                        "entradas e saídas no período. Saldo agora: R$ ${brl(r.balance ?: "0.00")}.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+                // `balance` e `net` são números diferentes: um é o saldo da
+                // carteira, o outro o resultado do período. Exibir os dois lado a
+                // lado sem rótulo seria a forma mais rápida de confundir o usuário.
+                item {
+                    Text(
+                        "Resultado do mês não é o saldo da carteira: é a diferença entre " +
+                            "entradas e saídas no período. Saldo agora: R$ ${brl(r.balance ?: "0.00")}.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
