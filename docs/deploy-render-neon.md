@@ -77,6 +77,13 @@ e recompile o APK, ou o app fala com um endereço que não existe.
 conexão velha em 30 minutos. Isso evita guardar conexão que o Neon já fechou
 quando o compute suspendeu.
 
+O **acquire timeout é de 30s**, e não 5s, por um motivo medido: do cold start
+do compute do Neon até o banco aceitar a conexão passa ~5s (testado de dentro
+de um container). Com 5s o boot morria com `PoolTimedOut` — o Render marcava o
+deploy como falho e reiniciava em loop, toda vez que o serviço ficava mais de
+5 minutos sem uso. O mesmo estouro atingia o primeiro request depois de uma
+pausa, devolvendo 500 em vez de esperar o banco voltar.
+
 Se o Neon reclamar de limite de conexões, baixe para 5. Se você subir mais de
 uma instância no Render, use a connection string pooled do Neon e teste as
 migrations: duas instâncias rodando `sqlx::migrate!` ao mesmo tempo disputam o
@@ -124,8 +131,8 @@ Teste o fluxo real:
 - **Cold start do Render free:** o serviço dorme e a primeira requisição demora.
   Para app com usuário ativo, use o plano `starter` (já no `render.yaml`).
 - **Cold start do Neon free:** o compute suspende após 5 min. A primeira query
-  depois disso pode falhar enquanto o banco acorda; o pool recicla e a próxima
-  passa. Se incomodar, use o plano pago do Neon ou mantenha um ping espaçado.
+  depois disso espera o banco acordar (uns 5s, dentro do acquire timeout de 30s)
+  e passa. Se a conta for de plano pago, nem suspende.
 - **Migrations:** rode uma instância por vez. Se o deploy falhar no meio de uma
   migration, o Render mantém a versão anterior; corrija o SQL e faça rebuild.
 - **SSL:** sem `sslmode=require`, o Neon recusa a conexão. Não remova.

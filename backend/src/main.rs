@@ -25,9 +25,16 @@ async fn main() -> Result<(), AppError> {
     // que guarda conexão velha por tempo demais falha no primeiro request
     // depois da pausa; timeouts curtos reciclam a conexão e o sqlx reconecta.
     // `sslmode=require` vai na própria DATABASE_URL do Neon.
+    //
+    // O acquire timeout é de 30s porque o cold start do Neon leva ~5s (medido:
+    // conexão de dentro de container até o compute suspenso). Com 5s o boot
+    // morria com PoolTimedOut e o Render marcava o deploy como falho — e o
+    // primeiro request depois de 5 min de inatividade também estourava. Aqui
+    // esperar é o comportamento certo: o banco volta, e quem espera é o
+    // cliente do request, não o boot inteiro.
     let db = PgPoolOptions::new()
         .max_connections(config.db_max_connections)
-        .acquire_timeout(Duration::from_secs(5))
+        .acquire_timeout(Duration::from_secs(30))
         .idle_timeout(Duration::from_secs(300))
         .max_lifetime(Duration::from_secs(1800))
         .connect(&config.database_url)
