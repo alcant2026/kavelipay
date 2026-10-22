@@ -181,6 +181,10 @@ fun KpPlanoScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                                 value = codigo,
                                 onValueChange = { codigo = it.uppercase() },
                                 label = { Text("Código de ativação") },
+                                // O formato na tela: o código é lido do e-mail
+                                // e copiado; sem o exemplo, o padrão de quatro
+                                // blocos parece erro de digitação.
+                                supportingText = { Text("Ex.: KPL-ABCD-EFGH-JKLM-NPQR") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(
                                     capitalization = KeyboardCapitalization.Characters,
