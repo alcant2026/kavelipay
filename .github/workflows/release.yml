@@ -36,10 +36,11 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # `packages` é obrigatório: sem ele a action tenta instalar o pacote
+      # `tools`, que foi removido do repositório do SDK e derruba o job.
       - uses: android-actions/setup-android@v3
-
-      - name: Pacotes do SDK
-        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
       - uses: gradle/actions/setup-gradle@v4
 
