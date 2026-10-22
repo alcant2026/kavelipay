@@ -40,6 +40,28 @@ O arquivo `render.yaml` na raiz define o serviço. Passos:
 4. O health check do Render é `GET /health`. Ele responde `{"status":"ok"}` sem
    tocar no banco.
 
+### Se preferir o formulário manual (New → Web Service)
+
+O Blueprint acima é o atalho. Pelo formulário, preencha:
+
+| Campo | Valor |
+|---|---|
+| Source | repositório privado `alcant2026/kavelipay` (autorizar o GitHub App e marcar **só** este repositório) |
+| Runtime | Docker |
+| Root Directory | `backend` (equivale ao Docker Context `./backend` + Dockerfile `./backend/Dockerfile`) |
+| Region | Ohio — mesma região do Neon (`aws-us-east-2`), senão cada query paga latência |
+| Instance | Starter (US$ 7/mês) |
+| Health Check Path | `/health` — o padrão do Render é `/` e nossa API não tem rota `/`; com o padrão o deploy é marcado como falho |
+| Auto Deploy | Yes |
+
+Depois, em **Environment**, cadastre as quatro variáveis da tabela da seção 3.
+**Não defina `BIND_ADDR`**: no Render a porta vem em `PORT`.
+
+O nome do serviço define a URL. O app Android já aponta para
+`https://kavelipay-backend.onrender.com` — se você escolher outro nome, corrija
+`CANDIDATOS` em `android/app/src/main/java/com/kavelipay/app/data/ApiClient.kt`
+e recompile o APK, ou o app fala com um endereço que não existe.
+
 ### O que o container faz no boot
 
 - Conecta no Neon com `sslmode=require`.
