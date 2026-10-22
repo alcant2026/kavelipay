@@ -144,3 +144,58 @@
   partir desse código. O núcleo (saldo, extrato, contas, cobranças, dívidas) e
   a exportação LGPD continuam **grátis**: portabilidade de dados não pode ficar
   atrás de paywall.
+
+### Como cobrar na prática
+
+O backend **não processa pagamento**. Ele reconhece o direito: grava o período
+em `assinaturas` e emite o claim `premium`. O dinheiro entra por um checkout
+externo (PSP) e o backend só registra o que o PSP confirmou.
+
+**MVP / sideload (o que existe hoje):**
+
+1. O app mostra o plano e abre o link de checkout do dono (Mercado Pago, Asaas,
+   PagBank etc.).
+2. O pagamento é confirmado no PSP.
+3. O dono emite um código em `POST /admin/assinaturas/codigos` e entrega por
+   e-mail/WhatsApp.
+4. O usuário cola o código em `POST /billing/ativar` e recebe um access token
+   com `premium = true`.
+
+Prós: zero integração de cartão, sem PCI, funciona no APK sideload hoje.
+Contras: manual, não renova sozinho e não escala além de algumas dezenas de
+assinantes.
+
+**Produção / recorrente (recomendado):**
+
+1. O app pede para criar a assinatura; o backend cria uma cobrança recorrente no
+   PSP e devolve a URL do checkout.
+2. O usuário paga no checkout hospedado do PSP (Pix ou cartão).
+3. O PSP chama o webhook do backend com um evento assinado.
+4. O backend valida a assinatura do webhook, aplica **idempotência** pelo id do
+   evento e grava/renova `assinaturas` com o `provider` do PSP e o
+   `provider_sub_id`.
+5. O app, ao voltar do checkout, faz `POST /auth/refresh` (ou consulta
+   `GET /billing/plano`) para pegar o token com `premium = true`.
+6. Cancelamento, reembolso ou chargeback viram webhook e marcam `CANCELED`; o
+   acesso cai no fim do período pago ou na hora, conforme a política escolhida.
+
+Prós: renova sozinho, concilia receita e reduz suporte. Contras: integração,
+taxa do PSP e webhook público que precisa ser idempotente e validado.
+
+**Play Store:** se publicar na Play, assinatura digital deve usar **Play
+Billing**. O backend valida o purchase token com a Google Play Developer API e
+grava `provider = 'play'`; a tabela `assinaturas` não muda. O Google retém
+~15%.
+
+**Preço:** R$ 9,90/mês e R$ 79,90/ano (análise em `docs/custos.md`). O mensal é
+a porta de entrada; o anual é retenção. Se o CAC real passar de ~R$ 88 com
+churn de 10%, R$ 9,90 não fecha e o preço precisa subir para R$ 19,90–29,90.
+
+**Meios:** Pix (taxa baixa e confirmação rápida), cartão (recorrência) e boleto
+(evite: compensação lenta e inadimplência). Use checkout hospedado; **nunca**
+armazene cartão no backend.
+
+**Regras de ouro:** nunca ative por redirect do cliente — só por webhook
+assinado ou confirmação server-side. Webhook idempotente por `event_id`. O
+código de ativação atual continua válido para cortesia e venda manual; não o
+remova ao integrar o PSP.
