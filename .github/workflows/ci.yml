@@ -1,0 +1,109 @@
+# CI do KaveliPay: roda a suíte completa antes de qualquer push chegar à main.
+#
+# Dois jobs independentes:
+#  - backend: `cargo test` (testes Rust, sem banco) + os e2e em shell, que sobem
+#    o servidor de verdade contra um Postgres descartável;
+#  - android: testes JUnit + build do APK release (o R8 do release é o que
+#    quebra, não o debug).
+#
+# O backend não precisa de `DATABASE_URL` no compile time: as queries são
+# escritas à mão (`query`/`query_scalar`/`query_as`), nunca com a macro
+# `query!` — que exigiria o banco no build.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Não gasta runner com commit que já perdeu a corrida: o push novo cancela o
+# anterior do mesmo branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Rust + e2e)
+    runs-on: ubuntu-latest
+
+    # Postgres real, não mock: os e2e provam as constraints do ledger, e
+    # constraint falsa não prova nada.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cliente do Postgres
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      # Mesma versão do Dockerfile (rust-version no Cargo.toml): se o CI
+      # compilar com outra, o deploy no Render quebra depois.
+      - uses: dtolnay/rust-toolchain@1.88
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Testes Rust
+        working-directory: backend
+        run: cargo test
+
+      - name: Testes e2e
+        working-directory: backend
+        # Cada script cria o próprio banco descartável e sobe o servidor em
+        # uma porta própria — por isso rodam em sequência, e não em paralelo.
+        # `bash "$t"` porque nem todo script tem bit de execução.
+        run: |
+          cargo build
+          for t in tests/*_e2e.sh tests/schema_test.sh tests/simulacao.sh; do
+            echo "=== $t"
+            bash "$t"
+          done
+
+  android:
+    name: Android (JUnit + APK release)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Pacotes do SDK
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      # Cache do Gradle (wrapper + dependências) e do ~/.gradle/caches.
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Testes e build do APK release
+        working-directory: android
+        # Sem a keystore de release no CI, o APK sai assinado com a chave de
+        # debug — o que interessa aqui é o código e o R8, não a assinatura.
+        run: ./gradlew :app:testDebugUnitTest :app:assembleRelease

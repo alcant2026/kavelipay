@@ -18,17 +18,25 @@ android {
     namespace = "com.kavelipay.app"
     compileSdk = 34
 
-    // Carrega keystore.properties para signing
+    // Carrega keystore.properties para signing.
+    //
+    // O arquivo é OPCIONAL de propósito: ele é segredo e não está no git.
+    // Sem esta guarda o projeto nem configurava fora desta máquina — o Gradle
+    // quebrava ao ler o arquivo ausente, e nenhum build rodava. Quem não tem a
+    // chave compila igual, e o release sai assinado com a chave de debug.
+    val arquivoKeystore = file("../keystore.properties")
     val keystoreProps = Properties().apply {
-        file("../keystore.properties").inputStream().use { load(it) }
+        if (arquivoKeystore.exists()) arquivoKeystore.inputStream().use { load(it) }
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file(keystoreProps["storeFile"] as String)
-            storePassword = keystoreProps["storePassword"] as String
-            keyAlias = keystoreProps["keyAlias"] as String
-            keyPassword = keystoreProps["keyPassword"] as String
+        if (arquivoKeystore.exists()) {
+            create("release") {
+                storeFile = file(keystoreProps["storeFile"] as String)
+                storePassword = keystoreProps["storePassword"] as String
+                keyAlias = keystoreProps["keyAlias"] as String
+                keyPassword = keystoreProps["keyPassword"] as String
+            }
         }
     }
 
@@ -52,7 +60,11 @@ android {
             // Sem isto o R8 encolhe o código mas todos os recursos (layouts,
             // drawables, textos) continuam no APK mesmo sem referência.
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            // Sem a keystore de release (CI, outra máquina), o release sai
+            // assinado com a chave de debug: o APK instala e roda igual, só
+            // não serve para publicar na Play Store.
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

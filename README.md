@@ -46,6 +46,10 @@ O `keystore.properties` e o `.jks` ficam **fora do git** — veja `docs/ambiente
 
 Variáveis obrigatórias no Render: `DATABASE_URL`, `JWT_SECRET` (≥32 chars), `ADMIN_TOKEN` (≥24 chars, opcional). Não defina `BIND_ADDR` — o Render injeta `PORT`.
 
+## CI/CD
+
+Push na `main` → GitHub Actions roda a suíte (Rust + e2e com Postgres real + JUnit + build do APK release). Tag `v*` → APK assinado publicado na release. Detalhes e secrets em **[`docs/ci-cd.md`](docs/ci-cd.md)**.
+
 ## Documentação
 
 | Doc | Assunto |
@@ -55,6 +59,7 @@ Variáveis obrigatórias no Render: `DATABASE_URL`, `JWT_SECRET` (≥32 chars), 
 | [`docs/endpoints.md`](docs/endpoints.md) | Contrato da API (inclui assinatura premium) |
 | [`docs/ambiente-e-build.md`](docs/ambiente-e-build.md) | Docker, Waydroid, adb, e2e, assinatura do APK |
 | [`docs/deploy-render-neon.md`](docs/deploy-render-neon.md) | Deploy do backend |
+| [`docs/ci-cd.md`](docs/ci-cd.md) | CI no GitHub Actions, release do APK, secrets |
 | [`docs/custos.md`](docs/custos.md) | Custos, pró-labore, marketing, CAC e break-even |
 | [`docs/ui-review.md`](docs/ui-review.md) | Gate de review de UI |
 | [`docs/transparencia.md`](docs/transparencia.md) | Derivação, categorias, LGPD, recorrência |

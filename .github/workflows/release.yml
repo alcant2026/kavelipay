@@ -1,0 +1,74 @@
+# Publica o APK quando você marca a versão.
+#
+# A chave de assinatura é segredo: ela NÃO está no git. O workflow a restaura
+# de um secret do GitHub (base64), assina o APK e publica na release do tag.
+#
+# Como usar:
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Secrets necessários (Settings > Secrets and variables > Actions):
+#   KEYSTORE_BASE64  = base64 do .jks
+#   KEYSTORE_PASSWORD
+#   KEY_ALIAS
+#   KEY_PASSWORD
+#
+# Para gerar o base64:
+#   base64 -w0 android/kavelipay-release.jks
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    name: APK assinado
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Pacotes do SDK
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Restaura a chave de assinatura
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > android/kavelipay-release.jks
+          cat > android/keystore.properties <<EOF
+          storeFile=../kavelipay-release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Compila o APK release
+        working-directory: android
+        run: ./gradlew :app:assembleRelease
+
+      - name: Publica na release do GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd android/app/build/outputs/apk/release
+          sha256sum KaveliPay-release.apk > KaveliPay-release.apk.sha256
+          gh release create "$GITHUB_REF_NAME" \
+            KaveliPay-release.apk KaveliPay-release.apk.sha256 \
+            --title "KaveliPay $GITHUB_REF_NAME" \
+            --generate-notes
