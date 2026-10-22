@@ -9,6 +9,14 @@ local.properties
 *.log
 nohup.out
 
+# Segredos (nunca versionar)
+*.jks
+*.keystore
+keystore.properties
+.env
+.env.*
+
+
 # Infra de agente e de ferramenta
 .superpowers/
 .gitnexus/
