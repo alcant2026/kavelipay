@@ -21,3 +21,6 @@ keystore.properties
 .superpowers/
 .gitnexus/
 .opencode/
+.neon
+.agents/
+skills-lock.json
