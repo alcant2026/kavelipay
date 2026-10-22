@@ -107,6 +107,10 @@ Nunca commite `DATABASE_URL`, `JWT_SECRET`, `ADMIN_TOKEN` nem
 `OPENROUTER_API_KEY`. O `render.yaml` só declara as chaves; os valores ficam no
 painel.
 
+**Cole de uma vez:** no painel do serviço, em *Environment* → *Add from .env*,
+cola o conteúdo de `backend/env.render.exemplo` (que é o modelo sem segredo) e
+troque os valores. O Render aceita o formato `CHAVE=valor`, uma por linha.
+
 ## 4. Depois do deploy
 
 ```bash
