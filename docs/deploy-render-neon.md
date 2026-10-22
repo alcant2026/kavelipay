@@ -1,0 +1,141 @@
+# Deploy: Render + Neon
+
+O backend é um binário Rust com Postgres. Não guarda arquivo em disco: tudo que
+importa está no Neon. Render roda o container; Neon guarda o banco.
+
+## 1. Neon (Postgres)
+
+1. Crie um projeto no Neon e um banco `kavelipay`.
+2. Copie a **connection string direta** (host sem `-pooler`) e acrescente
+   `?sslmode=require`. Exemplo:
+   `postgresql://usuario:senha@ep-xxx.us-east-2.aws.neon.tech/kavelipay?sslmode=require`
+3. Guarde essa URL. Ela é o `DATABASE_URL` do Render.
+
+**Direta x pooled:** para uma instância só e pool de 10 conexões, use a conexão
+direta. A pooled (`...-pooler...`) passa por PgBouncer e é útil quando você
+escalar várias instâncias; ela pode exigir teste com prepared statements do
+sqlx. Comece simples: direta.
+
+**Custo:** o free tier do Neon suspende o compute após 5 minutos sem uso. Por
+isso o `/health` do backend **não consulta o banco** — se o Render batesse no
+banco a cada health check, o Neon nunca dormiria e os 100 CU-hours do free
+acabariam. Use `/health/db` só para diagnóstico manual.
+
+## 2. Render (container)
+
+O arquivo `render.yaml` na raiz define o serviço. Passos:
+
+1. No Render, **New → Blueprint** e aponte para o repositório.
+2. Preencha as variáveis marcadas com `sync: false`:
+   - `DATABASE_URL` — a URL do Neon com `sslmode=require`.
+   - `JWT_SECRET` — mínimo 32 caracteres. Gere com
+     `head -c 48 /dev/urandom | base64`.
+   - `ADMIN_TOKEN` — mínimo 24 caracteres. É o token que emite código de
+     assinatura e cadastra parceiro. Gere com
+     `head -c 32 /dev/urandom | base64`.
+   - `OPENROUTER_API_KEY` — opcional. Sem ela, o prefill por IA devolve 503 e o
+     resto do app funciona.
+3. Confirme o deploy. O Render injeta `PORT`; o backend lê `PORT` quando
+   `BIND_ADDR` não existe. Não configure `BIND_ADDR` no painel.
+4. O health check do Render é `GET /health`. Ele responde `{"status":"ok"}` sem
+   tocar no banco.
+
+### O que o container faz no boot
+
+- Conecta no Neon com `sslmode=require`.
+- Roda `sqlx::migrate!` — as migrations estão embutidas no binário. **Se você
+  editar qualquer `.sql`, rebuild é obrigatório**; sem isso o binário antigo
+  sobe com o schema antigo.
+- Sobe em `0.0.0.0:$PORT`.
+- Encerra com SIGTERM (Render manda esse sinal no deploy/restart).
+
+### Pool
+
+`DB_MAX_CONNECTIONS` (padrão 10). O pool recicla conexão ociosa em 5 minutos e
+conexão velha em 30 minutos. Isso evita guardar conexão que o Neon já fechou
+quando o compute suspendeu.
+
+Se o Neon reclamar de limite de conexões, baixe para 5. Se você subir mais de
+uma instância no Render, use a connection string pooled do Neon e teste as
+migrations: duas instâncias rodando `sqlx::migrate!` ao mesmo tempo disputam o
+lock do banco. O sqlx usa advisory lock, mas o deploy fica mais previsível com
+uma instância só.
+
+## 3. Variáveis de ambiente
+
+| Variável | Obrigatória | Uso |
+|---|---|---|
+| `DATABASE_URL` | sim | Postgres do Neon, com `sslmode=require` |
+| `JWT_SECRET` | sim | assina access/refresh tokens; mínimo 32 chars |
+| `ADMIN_TOKEN` | não | liga rotas `/admin/*`; sem ela devolvem 503 |
+| `OPENROUTER_API_KEY` | não | liga IA de prefill; sem ela devolve 503 |
+| `OPENROUTER_MODEL` | não | padrão `mistralai/mistral-nemo` |
+| `DB_MAX_CONNECTIONS` | não | padrão 10 |
+| `RUST_LOG` | não | `info` é um bom começo |
+| `BIND_ADDR` | não | só para rodar fora do Render; no Render use `PORT` |
+
+Nunca commite `DATABASE_URL`, `JWT_SECRET`, `ADMIN_TOKEN` nem
+`OPENROUTER_API_KEY`. O `render.yaml` só declara as chaves; os valores ficam no
+painel.
+
+## 4. Depois do deploy
+
+```bash
+curl https://SEU-SERVICO.onrender.com/health
+# {"status":"ok"}
+
+curl https://SEU-SERVICO.onrender.com/health/db
+# {"status":"ok","db":"ok"}  (acorda o Neon; use com moderação)
+```
+
+Teste o fluxo real:
+
+1. `POST /auth/register` e `POST /auth/login`.
+2. `GET /billing/plano` com o access token.
+3. `POST /admin/assinaturas/codigos` com `X-Admin-Token` para emitir um código.
+4. `POST /billing/ativar` com o código e confirme o `access_token` novo.
+5. `GET /reports/monthly` com o token premium; sem premium deve dar `402` com
+   `codigo = "plano_necessario"`.
+
+## 5. Armadilhas
+
+- **Cold start do Render free:** o serviço dorme e a primeira requisição demora.
+  Para app com usuário ativo, use o plano `starter` (já no `render.yaml`).
+- **Cold start do Neon free:** o compute suspende após 5 min. A primeira query
+  depois disso pode falhar enquanto o banco acorda; o pool recicla e a próxima
+  passa. Se incomodar, use o plano pago do Neon ou mantenha um ping espaçado.
+- **Migrations:** rode uma instância por vez. Se o deploy falhar no meio de uma
+  migration, o Render mantém a versão anterior; corrija o SQL e faça rebuild.
+- **SSL:** sem `sslmode=require`, o Neon recusa a conexão. Não remova.
+- **Senha com caractere especial:** faça URL-encode (`@` vira `%40`, etc.) ou
+  copie a URL pronta do painel do Neon.
+- **CORS:** o backend está com `CorsLayer::permissive()`. O app Android nativo
+  não precisa de CORS; se um dia houver web, restrinja a origem.
+- **Segredos:** se `JWT_SECRET` mudar, todos os tokens atuais são invalidados
+  (todo mundo precisa logar de novo). Troque só em incidente.
+
+## 6. Rollback
+
+O Render guarda deploys anteriores. Se a versão nova quebrar:
+
+1. **Rollback** no painel do Render para o deploy anterior.
+2. Se a migration já rodou, o binário antigo pode não entender o schema novo.
+   Nesse caso, reverta a migration com um SQL de correção antes do rollback —
+   ou restaure o Neon para o ponto anterior (o Neon tem restore por janela de
+   tempo).
+3. Confirme `/health` e `/health/db`.
+
+## 7. Checklist de produção
+
+- [ ] `DATABASE_URL` com `sslmode=require` e conexão direta.
+- [ ] `JWT_SECRET` aleatório com 32+ caracteres.
+- [ ] `ADMIN_TOKEN` aleatório com 24+ caracteres.
+- [ ] `OPENROUTER_API_KEY` configurada (se IA ligada).
+- [ ] `RUST_LOG=info`.
+- [ ] Health check `/health` respondendo.
+- [ ] `/health/db` respondendo.
+- [ ] Migrations aplicadas no boot.
+- [ ] `POST /billing/ativar` devolvendo token premium.
+- [ ] `GET /reports/monthly` bloqueando sem premium com 402.
+- [ ] Backup/restore do Neon testado.
+- [ ] Alertas de erro no Render configurados.

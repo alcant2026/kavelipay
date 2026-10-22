@@ -22,6 +22,9 @@ const MIN_ADMIN_TOKEN_LEN: usize = 24;
 pub struct Config {
     pub database_url: String,
     pub bind_addr: String,
+    /// Teto do pool de conexões. Neon cobra por CU-hour e limita conexões
+    /// simultâneas; 10 é folgado para um processo e não estoura o free tier.
+    pub db_max_connections: u32,
     /// Chave HS256 de assinatura dos access tokens.
     pub jwt_secret: String,
     /// Minutos de validade do access token.
@@ -97,9 +100,28 @@ impl Config {
             }
         }
 
+        // Render injeta a porta em `PORT`; o dev local usa `BIND_ADDR`.
+        // `BIND_ADDR` tem prioridade para não quebrar o ambiente atual.
+        let bind_addr = match env::var("BIND_ADDR") {
+            Ok(valor) if !valor.trim().is_empty() => valor,
+            _ => match env::var("PORT") {
+                Ok(porta) if !porta.trim().is_empty() => format!("0.0.0.0:{porta}"),
+                _ => "0.0.0.0:3000".to_string(),
+            },
+        };
+
+        // Neon free tem limite de conexões; o pool padrão do sqlx é 10.
+        // Deixar configurável evita surpresa ao subir mais de uma instância.
+        let db_max_connections = env::var("DB_MAX_CONNECTIONS")
+            .ok()
+            .and_then(|valor| valor.trim().parse::<u32>().ok())
+            .filter(|n| (1..=100).contains(n))
+            .unwrap_or(10);
+
         Ok(Self {
             database_url,
-            bind_addr: env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string()),
+            bind_addr,
+            db_max_connections,
             jwt_secret,
             access_token_ttl_minutes: ACCESS_TOKEN_TTL_MINUTES,
             refresh_token_ttl_days: REFRESH_TOKEN_TTL_DAYS,

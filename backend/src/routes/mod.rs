@@ -7,6 +7,7 @@ pub mod categories;
 pub mod charges;
 pub mod debts;
 pub mod derivation;
+pub mod health;
 pub mod history;
 pub mod investments;
 pub mod lgpd;
@@ -25,6 +26,9 @@ use crate::state::AppState;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
+        // liveness do Render (sem banco); readiness manual em /health/db
+        .route("/health", get(health::health))
+        .route("/health/db", get(health::health_db))
         // auth
         .route("/auth/register", post(auth::register))
         .route("/auth/login", post(auth::login))

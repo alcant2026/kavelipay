@@ -1,0 +1,31 @@
+# Blueprint do Render para o backend KaveliPay.
+# Neon fica fora deste arquivo: o DATABASE_URL é segredo e é colado no painel.
+#
+# Passos: crie o Postgres no Neon, copie a connection string com
+# `?sslmode=require`, suba este blueprint e preencha as variáveis marcadas
+# com `sync: false`. O Render injeta `PORT`; o backend lê essa variável.
+services:
+  - type: web
+    name: kavelipay-backend
+    runtime: docker
+    plan: starter
+    region: ohio
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: mistralai/mistral-nemo
+      - key: DB_MAX_CONNECTIONS
+        value: "10"
+      - key: RUST_LOG
+        value: info

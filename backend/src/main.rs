@@ -6,6 +6,7 @@ use kavelipay_backend::config::Config;
 use kavelipay_backend::state::AppState;
 use kavelipay_backend::{AppError, auth, routes};
 use sqlx::postgres::PgPoolOptions;
+use std::time::Duration;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -20,8 +21,15 @@ async fn main() -> Result<(), AppError> {
 
     let config = Config::from_env()?;
 
+    // Neon fecha conexões ociosas e suspende o compute no free tier. Um pool
+    // que guarda conexão velha por tempo demais falha no primeiro request
+    // depois da pausa; timeouts curtos reciclam a conexão e o sqlx reconecta.
+    // `sslmode=require` vai na própria DATABASE_URL do Neon.
     let db = PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(config.db_max_connections)
+        .acquire_timeout(Duration::from_secs(5))
+        .idle_timeout(Duration::from_secs(300))
+        .max_lifetime(Duration::from_secs(1800))
         .connect(&config.database_url)
         .await?;
 

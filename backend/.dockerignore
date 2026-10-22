@@ -1,0 +1,7 @@
+target
+tests
+tests_android.sh
+ver_tela.sh
+*.log
+.git
+.gitignore
