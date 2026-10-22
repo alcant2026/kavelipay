@@ -46,10 +46,13 @@ pub const PRECO_ANUAL: &str = "79.90";
 
 /// Recursos que o plano libera. Lista explícita para o app desenhar a tela sem
 /// inventar promessa que o backend não cumpre.
+///
+/// Texto de USUÁRIO: quem lê isto no app não sabe o que é brapi nem Yahoo.
+/// O nome da fonte fica no código (`cotacao.rs`), não na tela.
 pub const RECURSOS_PREMIUM: &[&str] = &[
     "Relatórios mensais por categoria",
     "Análise de ativos por IA",
-    "Cotação de mercado (brapi/Yahoo)",
+    "Cotação de mercado dos seus investimentos",
 ];
 
 const ERRO_PLANO: &str = "este recurso faz parte do plano Premium — conheça o plano";

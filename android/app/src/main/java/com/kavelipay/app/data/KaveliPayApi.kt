@@ -378,6 +378,33 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
     suspend fun revogarTodasSessoes() =
         runCatching { ApiClient.post("/profile/sessions/revoke-all", null, token) }
 
+    // ── Assinatura premium ──────────────────────────────────────────────────────
+
+    /**
+     * `GET /billing/plano` — o que a pessoa tem hoje e quanto custa.
+     *
+     * Grátis e sempre 200: quem pode ver é quem está no token (`user_id`).
+     */
+    suspend fun plano(): Plano = ApiClient.get("/billing/plano", token).paraPlano()
+
+    /**
+     * `POST /billing/ativar` — troca o código de ativação por período.
+     *
+     * O backend devolve um access token NOVO, já com o claim `premium`. Sem
+     * trocar o token guardado, o app continuaria sem direito até o próximo
+     * refresh — e o relatório, que é justamente o que a pessoa pagou para ver,
+     * voltaria a dizer "plano Premium".
+     */
+    suspend fun ativarPlano(codigo: String): Plano {
+        val resposta = ApiClient.post("/billing/ativar", JSONObject().put("codigo", codigo.trim()), token)
+        val plano = resposta.paraPlano()
+        val refresh = sessao.refreshToken
+        if (!plano.accessToken.isNullOrBlank() && refresh != null) {
+            sessao.salvar(plano.accessToken, refresh)
+        }
+        return plano
+    }
+
     // ── Investimentos ─────────────────────────────────────────────────────────
 
     suspend fun investimentos(): CarteiraInvestimentos =

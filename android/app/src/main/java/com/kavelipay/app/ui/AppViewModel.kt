@@ -25,6 +25,7 @@ import com.kavelipay.app.data.Notificacao
 import com.kavelipay.app.data.OfertaParceiro
 import com.kavelipay.app.data.Perfil
 import com.kavelipay.app.data.PesquisaAtivo
+import com.kavelipay.app.data.Plano
 import com.kavelipay.app.data.Relatorio
 import com.kavelipay.app.data.ResumoInvestimentos
 import com.kavelipay.app.data.SessionStore
@@ -75,6 +76,40 @@ data class EstadoApp(
     val historico: Historico? = null,
     val perfil: Perfil? = null,
     val sessoes: ListaSessoes? = null,
+
+    /**
+     * Plano vigente (grátis ou premium). `null` = ainda não foi lido.
+     *
+     * `GET /billing/plano` é grátis e devolve 200 sempre — por isso o estado
+     * existe: a tela de plano e o perfil precisam saber se a pessoa já tem
+     * acesso sem perguntar de novo a cada abertura.
+     */
+    val plano: Plano? = null,
+
+    /**
+     * `true` enquanto o plano está sendo lido. A tela precisa distinguir
+     * "ainda carregando" de "não deu para carregar" — senão a pessoa fica
+     * olhando para um indicador que nunca acaba.
+     */
+    val carregandoPlano: Boolean = false,
+
+    /**
+     * O backend respondeu 402 num recurso pago (relatório mensal).
+     *
+     * A tela de relatório usa isto para mostrar o convite ao plano em vez de
+     * uma tela de zeros — que parece "você não gastou nada" e não "isso é
+     * pago".
+     */
+    val planoNecessario: Boolean = false,
+
+    /**
+     * Retorno da ativação do plano, como o `avisoPerfil` da exportação.
+     *
+     * Separado de `erro` de propósito: "Plano ativado" é sucesso e não pode
+     * sair em vermelho como se fosse falha.
+     */
+    val avisoPlano: String? = null,
+    val avisoPlanoFalhou: Boolean = false,
 
     // Notificações (tela dedicada; o contador `naoLidas` existe desde o início)
     val notificacoes: List<Notificacao>? = null,
@@ -185,7 +220,11 @@ class AppViewModel(
                 val extrato = async { api.extrato(limite = 50) }
                 val derivacao = async { api.derivacao(limite = 100) }
                 val contas = async { api.contas() }
-                val relatorio = async { api.relatorio() }
+                // Relatório é Premium: sem plano, o backend responde 402. Isso
+                // NÃO pode derrubar a Home — carteira, extrato e contas são
+                // grátis. O relatório simplesmente não vem, e a tela dele
+                // mostra o convite ao plano.
+                val relatorio = async { runCatching { api.relatorio() } }
                 // Vitrine: silenciosa de propósito. Se cair, a Home continua
                 // inteira — propaganda indisponível não é erro do usuário.
                 val parceiros = async {
@@ -199,6 +238,8 @@ class AppViewModel(
                 runCatching { api.gerarNotificacoes() }
                 val naoLidas = async { api.notificacoes(somenteNaoLidas = true).size }
 
+                val resultadoRelatorio = relatorio.await()
+
                 _estado.update {
                     it.copy(
                         carregando = false,
@@ -208,7 +249,8 @@ class AppViewModel(
                         extrato = extrato.await(),
                         derivacao = derivacao.await(),
                         contas = contas.await(),
-                        relatorio = relatorio.await(),
+                        relatorio = resultadoRelatorio.getOrNull(),
+                        planoNecessario = ePlanoNecessario(resultadoRelatorio.exceptionOrNull()),
                         naoLidas = naoLidas.await(),
                         parceiros = parceiros.await()?.itens.orEmpty(),
                         parceirosTotal = parceiros.await()?.total ?: 0,
@@ -670,6 +712,9 @@ fun carregarChargeQr(chargeId: String) {
                         .onSuccess { lista -> _estado.update { it.copy(sessoes = lista) } }
                 }
                 .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+            // O plano é lido junto: o Perfil mostra a linha "Plano" e precisa
+            // do status sem a pessoa esperar a tela de plano abrir.
+            carregarPlano()
         }
     }
 
@@ -718,6 +763,61 @@ fun carregarChargeQr(chargeId: String) {
                     sair()
                 }
                 .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+        }
+    }
+
+    // ── Plano premium ──────────────────────────────────────────────────────────
+
+    /**
+     * Lê o plano vigente.
+     *
+     * `GET /billing/plano` é grátis e devolve 200 sempre; falhar aqui é só
+     * "não deu para saber agora" e não pode virar erro de tela — por isso
+     * falha silenciosa, como a vitrine de parceiros.
+     */
+    fun carregarPlano() {
+        viewModelScope.launch {
+            _estado.update { it.copy(carregandoPlano = true) }
+            runCatching { api.plano() }
+                .onSuccess { p -> _estado.update { it.copy(plano = p, carregandoPlano = false) } }
+                .onFailure { _estado.update { it.copy(carregandoPlano = false) } }
+        }
+    }
+
+    /**
+     * Ativa o plano com o código de ativação.
+     *
+     * Sucesso: o backend devolve o access token novo, já com o claim
+     * `premium`, e a API o guardou na sessão — por isso o `carregarTudo` de
+     * seguida já traz o relatório, sem esperar renovação nenhuma.
+     */
+    fun ativarPlano(codigo: String) {
+        viewModelScope.launch {
+            _estado.update {
+                it.copy(enviando = true, avisoPlano = null, avisoPlanoFalhou = false)
+            }
+            runCatching { api.ativarPlano(codigo) }
+                .onSuccess { plano ->
+                    _estado.update {
+                        it.copy(
+                            enviando = false,
+                            plano = plano,
+                            planoNecessario = false,
+                            avisoPlano = "Plano Premium ativado.",
+                            avisoPlanoFalhou = false,
+                        )
+                    }
+                    carregarTudo()
+                }
+                .onFailure { e ->
+                    _estado.update {
+                        it.copy(
+                            enviando = false,
+                            avisoPlano = mensagemDe(e),
+                            avisoPlanoFalhou = true,
+                        )
+                    }
+                }
         }
     }
 
@@ -915,7 +1015,13 @@ fun carregarChargeQr(chargeId: String) {
         viewModelScope.launch {
             runCatching { api.pesquisarAtivo(symbol, kind) }
                 .onSuccess { aoReceber(it) }
-                .onFailure { aoReceber(null) }
+                .onFailure { e ->
+                    // Falha de rede ou IA fora: silêncio, como sempre. Falta de
+                    // plano é outra coisa — a pessoa precisa saber que o
+                    // recurso é pago, senão conclui que o ticker estava errado.
+                    if (ePlanoNecessario(e)) _estado.update { it.copy(erro = mensagemDe(e)) }
+                    aoReceber(null)
+                }
         }
     }
 
@@ -928,7 +1034,11 @@ fun carregarChargeQr(chargeId: String) {
         viewModelScope.launch {
             runCatching { api.sugerirPreco(symbol, kind) }
                 .onSuccess { aoReceber(it) }
-                .onFailure { aoReceber(null) }
+                .onFailure { e ->
+                    // Mesma regra da IA: só a falta de plano merece aviso.
+                    if (ePlanoNecessario(e)) _estado.update { it.copy(erro = mensagemDe(e)) }
+                    aoReceber(null)
+                }
         }
     }
 
@@ -1039,3 +1149,13 @@ fun mensagemDe(e: Throwable): String = when (e) {
         "Não consegui falar com o servidor. Confira se ele está rodando e sua conexão."
     else -> e.message ?: "Algo deu errado."
 }
+
+/**
+ * `true` quando o erro é o "falta plano" do backend (402 `plano_necessario`).
+ *
+ * O código vem do corpo da resposta (`error`), não do status: 402 significa
+ * "pagamento necessário" e o app precisa saber que o recurso — e não a
+ * sessão — é o problema.
+ */
+fun ePlanoNecessario(e: Throwable?): Boolean =
+    (e as? ApiClient.ErroApi)?.codigo == "plano_necessario"

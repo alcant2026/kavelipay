@@ -239,3 +239,24 @@ fun formatarDataHora(iso: String, fuso: ZoneId = ZoneId.systemDefault()): String
         // de sumir com a informação.
         formatarData(iso)
     }
+
+/**
+ * Timestamp ISO-8601 da API → `dd/mm/aaaa`.
+ *
+ * Para data que VENCE — o fim do período do plano premium. `formatarData` não
+ * serve aqui: ele corta no `T` e devolve `dd/mm`, e a pessoa precisa do ano
+ * para saber até quando o acesso vale.
+ */
+fun formatarDataCompleta(iso: String, fuso: ZoneId = ZoneId.systemDefault()): String =
+    runCatching {
+        val local = Instant.parse(iso.trim()).atZone(fuso)
+        val dia = local.dayOfMonth.toString().padStart(2, '0')
+        val mes = local.monthValue.toString().padStart(2, '0')
+        "$dia/$mes/${local.year}"
+    }.getOrElse {
+        // Só data ("2026-11-20") ou formato inesperado: mesmo corte do
+        // `formatarData`, com o ano.
+        val data = iso.substringBefore('T').trim()
+        val p = data.split("-")
+        if (p.size >= 3) "${p[2]}/${p[1]}/${p[0]}" else data
+    }

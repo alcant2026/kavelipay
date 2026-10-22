@@ -64,6 +64,7 @@ private object Rota {
     const val PERFIL = "perfil"
     const val LGPD = "lgpd"
     const val SESSOES = "sessoes"
+    const val PLANO = "plano"
     const val PARCEIROS = "parceiros"
     const val PARCEIRO = "parceiro"
 }
@@ -215,7 +216,11 @@ fun KpRaiz(
             )
         }
         composable(Rota.RELATORIO) {
-            KpRelatorioScreen(vm, aoVoltar = { nav.popBackStack() })
+            KpRelatorioScreen(
+                vm,
+                aoVoltar = { nav.popBackStack() },
+                aoAbrirPlano = { nav.navigate(Rota.PLANO) },
+            )
         }
         composable(Rota.SPLITS) {
             KpSplitsScreen(
@@ -327,8 +332,12 @@ fun KpRaiz(
                 aoMudarAba = irParaAba,
                 aoAbrirLgpd = { nav.navigate(Rota.LGPD) },
                 aoAbrirSessoes = { nav.navigate(Rota.SESSOES) },
+                aoAbrirPlano = { nav.navigate(Rota.PLANO) },
                 aoSair = { vm.sair() },
             )
+        }
+        composable(Rota.PLANO) {
+            KpPlanoScreen(vm, aoVoltar = { nav.popBackStack() })
         }
         composable(Rota.SESSOES) {
             KpSessoesScreen(vm, aoVoltar = { nav.popBackStack() })

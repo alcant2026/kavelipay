@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -49,6 +50,7 @@ import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.components.KpEstruturaAba
 import com.kavelipay.app.ui.components.KpMenuRow
+import com.kavelipay.app.ui.components.formatarDataCompleta
 import com.kavelipay.app.ui.theme.KpTheme
 import com.kavelipay.app.ui.theme.Spacing
 import com.kavelipay.app.ui.theme.TituloSecao
@@ -80,6 +82,7 @@ fun KpPerfilScreen(
     aoMudarAba: (Int) -> Unit = {},
     aoAbrirLgpd: () -> Unit = {},
     aoAbrirSessoes: () -> Unit = {},
+    aoAbrirPlano: () -> Unit = {},
     aoSair: () -> Unit = {},
 ) {
     val estado by vm.estado.collectAsState()
@@ -97,6 +100,10 @@ fun KpPerfilScreen(
     val nome = estado.perfil?.displayName.orEmpty()
     val email = estado.perfil?.email.orEmpty()
     val sessoes = estado.sessoes?.itens.orEmpty()
+    val plano = estado.plano
+    val validade = plano?.periodoFim
+        ?.takeIf { it.isNotBlank() }
+        ?.let { formatarDataCompleta(it) }
 
     KpEstruturaAba(
         abaAtual = 4,
@@ -154,6 +161,28 @@ fun KpPerfilScreen(
                             onClick = aoAbrirSessoes,
                         )
                     }
+                }
+            }
+
+            // ── Plano ────────────────────────────────────────────────────────
+            // Fica entre Segurança e Seus dados: é uma informação da conta,
+            // não um dado e não uma sessão. O subtítulo só aparece quando o
+            // backend respondeu — chute de status seria mentira.
+            item { Text("Plano", style = TituloSecao) }
+
+            item {
+                KpCard(Modifier.fillMaxWidth()) {
+                    KpMenuRow(
+                        icone = Icons.Default.WorkspacePremium,
+                        rotulo = "Plano Premium",
+                        subtitulo = when {
+                            plano == null -> null
+                            plano.premium && validade != null -> "Premium até $validade"
+                            plano.premium -> "Premium ativo"
+                            else -> "Você está no plano grátis"
+                        },
+                        onClick = aoAbrirPlano,
+                    )
                 }
             }
 

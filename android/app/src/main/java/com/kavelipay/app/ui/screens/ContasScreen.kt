@@ -170,7 +170,7 @@ fun KpContasScreen(vm: AppViewModel, aoMudarAba: (Int) -> Unit = {}, aoNovaConta
 
 /** Relatório do mês: receitas, despesas e para onde foi o dinheiro. */
 @Composable
-fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
+fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoAbrirPlano: () -> Unit = {}) {
     val estado by vm.estado.collectAsState()
     val sem = KpTheme.semanticas
     val r = estado.relatorio
@@ -184,39 +184,83 @@ fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
             ),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
+            // Sem relatório, a tela NÃO mostra zeros: "R$ 0,00 de entrada" lê
+            // como "você não gastou nada" quando o Truth é "isso é pago" (o
+            // backend responde 402 sem plano) ou "não deu para carregar".
+            if (r == null) {
+                item {
+                    KpCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(Spacing.md)) {
+                            Text(
+                                text = if (estado.planoNecessario) {
+                                    "O relatório do mês faz parte do plano Premium"
+                                } else {
+                                    "Não foi possível carregar o relatório"
+                                },
+                                style = TituloSecao,
+                            )
+                            Spacer(Modifier.height(Spacing.xs))
+                            Text(
+                                text = if (estado.planoNecessario) {
+                                    "Ele mostra para onde o dinheiro foi, por categoria. " +
+                                        "Saldo, extrato, contas e cobranças continuam grátis."
+                                } else {
+                                    "Nada foi perdido — tente de novo em instantes."
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(Spacing.md))
+                            if (estado.planoNecessario) {
+                                KpBotaoPrimario(
+                                    "Conhecer o plano",
+                                    onClick = aoAbrirPlano,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            } else {
+                                KpBotaoSecundario(
+                                    "Tentar de novo",
+                                    onClick = { vm.carregarTudo() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
             item {
                 KpCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(Spacing.md)) {
                         Text(
-                            r?.month?.let { formatarMes(it) } ?: "Resumo",
+                            r.month?.let { formatarMes(it) } ?: "Resumo",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(Spacing.xs))
                         KpLinhaResumo(
                             rotulo = "Entradas",
-                            valor = "R$ ${brl(r?.income ?: "0.00")}",
+                            valor = "R$ ${brl(r.income ?: "0.00")}",
                             corValor = sem.receita,
                         )
                         Spacer(Modifier.height(Spacing.xs))
                         KpLinhaResumo(
                             rotulo = "Saídas",
-                            valor = "R$ ${brl(r?.expense ?: "0.00")}",
+                            valor = "R$ ${brl(r.expense ?: "0.00")}",
                         )
                         Spacer(Modifier.height(Spacing.sm))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                         Spacer(Modifier.height(Spacing.sm))
                         KpLinhaResumo(
                             rotulo = "Resultado do mês",
-                            valor = "R$ ${brl(r?.net ?: "0.00")}",
+                            valor = "R$ ${brl(r.net ?: "0.00")}",
                             negrito = true,
-                            corValor = if ((r?.net?.startsWith("-")) == true) sem.despesa else sem.receita,
+                            corValor = if ((r.net?.startsWith("-")) == true) sem.despesa else sem.receita,
                         )
                     }
                 }
             }
 
-            val fatias = r?.fatiasDespesa.orEmpty()
+            val fatias = r.fatiasDespesa.orEmpty()
             if (fatias.isEmpty()) {
                 item {
                     KpCard(Modifier.fillMaxWidth()) {
@@ -279,10 +323,11 @@ fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
             item {
                 Text(
                     "Resultado do mês não é o saldo da carteira: é a diferença entre " +
-                        "entradas e saídas no período. Saldo agora: R$ ${brl(r?.balance ?: "0.00")}.",
+                        "entradas e saídas no período. Saldo agora: R$ ${brl(r.balance ?: "0.00")}.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
             }
         }
     }
