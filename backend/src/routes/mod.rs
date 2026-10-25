@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod bills;
 pub mod billing;
+pub mod caixinhas;
 pub mod categories;
 pub mod charges;
 pub mod debts;
@@ -119,6 +120,42 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/investments/{id}/movements",
             get(investments::list_movements),
+        )
+        // caixinhas — empréstimo registrado entre conhecidos, FORA do ledger
+        // (nenhum handler chama ledger::postar*: a carteira não muda).
+        // Ordem importa (como investments): os literais /publicas e /entrar
+        // vêm ANTES de /caixinhas/{id}, senão casariam como UUID (400 de
+        // parse em vez da rota certa).
+        .route("/caixinhas", post(caixinhas::criar))
+        .route("/caixinhas", get(caixinhas::minhas))
+        .route("/caixinhas/publicas", get(caixinhas::publicas))
+        .route("/caixinhas/entrar", post(caixinhas::entrar))
+        .route("/caixinhas/{id}", get(caixinhas::detalhe))
+        .route("/caixinhas/{id}/aportes", post(caixinhas::propor_aporte))
+        .route(
+            "/caixinhas/{id}/rendimentos",
+            post(caixinhas::propor_rendimento),
+        )
+        .route(
+            "/caixinhas/{id}/devolucoes",
+            post(caixinhas::propor_devolucao),
+        )
+        .route(
+            "/caixinhas/{id}/movimentos/{mov_id}/confirmar",
+            post(caixinhas::confirmar_movimento),
+        )
+        .route(
+            "/caixinhas/{id}/movimentos/{mov_id}/recusar",
+            post(caixinhas::recusar_movimento),
+        )
+        .route(
+            "/caixinhas/{id}/movimentos/{mov_id}/cancelar",
+            post(caixinhas::cancelar_movimento),
+        )
+        .route("/caixinhas/{id}/avaliacao", post(caixinhas::avaliar))
+        .route(
+            "/caixinhas/{id}/meu-telefone",
+            patch(caixinhas::meu_telefone),
         )
         // vitrine de lojas parceiras (indicação de afiliado): usuário só lê;
         // cadastro é /admin com X-Admin-Token (503 se ADMIN_TOKEN não existe)

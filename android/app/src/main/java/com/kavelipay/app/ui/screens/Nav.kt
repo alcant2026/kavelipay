@@ -67,6 +67,10 @@ private object Rota {
     const val PLANO = "plano"
     const val PARCEIROS = "parceiros"
     const val PARCEIRO = "parceiro"
+    const val CAIXINHAS = "caixinhas"
+    const val NOVA_CAIXINHA = "nova_caixinha"
+    const val CAIXINHA = "caixinha"
+    const val CAIXINHAS_PUBLICAS = "caixinhas_publicas"
 }
 
 /**
@@ -154,6 +158,7 @@ fun KpRaiz(
                 aoNovaConta = { nav.navigate(Rota.NOVA_CONTA) },
                 aoNovaCharge = { nav.navigate(Rota.NOVA_CHARGE) },
                 aoVerParceiros = { nav.navigate(Rota.PARCEIROS) },
+                aoVerCaixinha = { nav.navigate(Rota.CAIXINHAS) },
                 temaEscuro = temaEscuro,
                 aoAlternarTema = aoAlternarTema,
                 abaAtual = 0,
@@ -397,6 +402,47 @@ fun KpRaiz(
                 ativoId = ativoId,
                 aoVoltar = { nav.popBackStack() },
                 aoSalvar = { nav.popBackStack() },
+            )
+        }
+        // Caixinha: Home aponta para a LISTA (o botão "Caixinha" abre as
+        // minhas), e as rotas de criar/detalhe/vitrine penduram daqui — o
+        // detalhe recebe o id porque papel e números vêm do servidor, não
+        // do estado de quem abriu.
+        composable(Rota.CAIXINHAS) {
+            KpCaixinhasScreen(
+                vm = vm,
+                aoVoltar = { nav.popBackStack() },
+                aoNovaCaixinha = { nav.navigate(Rota.NOVA_CAIXINHA) },
+                aoAbrirDetalhe = { id -> nav.navigate("${Rota.CAIXINHA}/$id") },
+                aoVerPublicas = { nav.navigate(Rota.CAIXINHAS_PUBLICAS) },
+            )
+        }
+        composable(Rota.NOVA_CAIXINHA) {
+            KpNovaCaixinhaScreen(
+                vm = vm,
+                aoVoltar = { nav.popBackStack() },
+                aoSalvar = { id ->
+                    nav.popBackStack()
+                    nav.navigate("${Rota.CAIXINHA}/$id")
+                },
+            )
+        }
+        composable(
+            route = "${Rota.CAIXINHA}/{caixinhaId}",
+            arguments = listOf(navArgument("caixinhaId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val caixinhaId = backStackEntry.arguments?.getString("caixinhaId").orEmpty()
+            KpCaixinhaScreen(
+                vm = vm,
+                caixinhaId = caixinhaId,
+                aoVoltar = { nav.popBackStack() },
+            )
+        }
+        composable(Rota.CAIXINHAS_PUBLICAS) {
+            KpCaixinhasPublicasScreen(
+                vm = vm,
+                aoVoltar = { nav.popBackStack() },
+                aoEntrar = { id -> nav.navigate("${Rota.CAIXINHA}/$id") },
             )
         }
         composable(Rota.PARCEIROS) {

@@ -6,8 +6,11 @@ import com.kavelipay.app.data.ApiClient
 import com.kavelipay.app.data.Ativo
 import com.kavelipay.app.data.CarteiraInvestimentos
 import com.kavelipay.app.data.Carteira
+import com.kavelipay.app.data.CaixinhaPublica
+import com.kavelipay.app.data.CaixinhaResumo
 import com.kavelipay.app.data.Categoria
 import com.kavelipay.app.data.Derivacao
+import com.kavelipay.app.data.DetalheCaixinha
 import com.kavelipay.app.data.Extrato
 import com.kavelipay.app.data.Historico
 import com.kavelipay.app.data.ItemCharge
@@ -36,8 +39,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import org.json.JSONObject
 import java.time.Instant
+import java.time.YearMonth
 
 /**
  * Estado único da tela principal.
@@ -114,6 +119,13 @@ data class EstadoApp(
     // Notificações (tela dedicada; o contador `naoLidas` existe desde o início)
     val notificacoes: List<Notificacao>? = null,
 
+    /**
+     * A geração de lembretes (`POST /notifications/generate`) falhou. Erro
+     * discreto de propósito NÃO entra em `erro`: o resto da carga da Home
+     * funcionou, e o usuário só precisa saber que o aviso pode não vir.
+     */
+    val lembretesIndisponiveis: Boolean = false,
+
     // Investimentos
     val investimentos: CarteiraInvestimentos? = null,
     val resumoInvestimentos: ResumoInvestimentos? = null,
@@ -145,6 +157,35 @@ data class EstadoApp(
      */
     val avisoPerfil: String? = null,
     val avisoPerfilFalhou: Boolean = false,
+
+    // ── Caixinha ──────────────────────────────────────────────────────────────
+    /** `GET /caixinhas` — minhas (de responsável e de membro). `null` = nunca carregou. */
+    val caixinhas: List<CaixinhaResumo>? = null,
+    val carregandoCaixinhas: Boolean = false,
+    /** Erro de LEITURA da lista: a tela mostra com "Tentar de novo". */
+    val erroCaixinhas: String? = null,
+
+    /** `GET /caixinhas/publicas` — vitrine. `null` = nunca carregou. */
+    val caixinhasPublicas: List<CaixinhaPublica>? = null,
+    val carregandoVitrine: Boolean = false,
+    val erroVitrine: String? = null,
+
+    /**
+     * Detalhe da caixinha aberta — vem do `GET /caixinhas/{id}` e de cada
+     * mutação (que devolve o detalhe atualizado; o contrato manda aplicar,
+     * não refazer GET).
+     */
+    val caixinhaDetalhe: DetalheCaixinha? = null,
+    val carregandoDetalheCaixinha: Boolean = false,
+    val erroDetalheCaixinha: String? = null,
+
+    /** Mutação em andamento (botões das telas de caixinha). */
+    val enviandoCaixinha: Boolean = false,
+    /**
+     * Erro da última MUTAÇÃO (criar, entrar, propor, confirmar…). As strings
+     * do contrato já são pt-BR amigáveis — a tela mostra como vieram.
+     */
+    val erroAcaoCaixinha: String? = null,
 
     // formulário de novo lançamento
     val enviando: Boolean = false,
@@ -214,47 +255,54 @@ class AppViewModel(
         _estado.update { it.copy(carregando = true, erro = null) }
         viewModelScope.launch {
             try {
-                // Busca em paralelo: são 5 endpoints independentes e a latência
-                // somada tornaria a primeira pintura lenta.
-                val carteira = async { api.carteira() }
-                val extrato = async { api.extrato(limite = 50) }
-                val derivacao = async { api.derivacao(limite = 100) }
-                val contas = async { api.contas() }
-                // Relatório é Premium: sem plano, o backend responde 402. Isso
-                // NÃO pode derrubar a Home — carteira, extrato e contas são
-                // grátis. O relatório simplesmente não vem, e a tela dele
-                // mostra o convite ao plano.
-                val relatorio = async { runCatching { api.relatorio() } }
-                // Vitrine: silenciosa de propósito. Se cair, a Home continua
-                // inteira — propaganda indisponível não é erro do usuário.
-                val parceiros = async {
-                    // `getOrNull`: falha aqui não derruba a Home, e `null`
-                    // distingue "não carregou" de "não há oferta".
-                    runCatching { api.parceiros() }.getOrNull()
-                }
+                // `supervisorScope`: sem ele, um `async` que falha cancela o
+                // `launch` pai e o erro escapa do `catch` — o app morre com
+                // FATAL EXCEPTION em vez de mostrar a mensagem de rede.
+                supervisorScope {
+                    // Busca em paralelo: são 5 endpoints independentes e a latência
+                    // somada tornaria a primeira pintura lenta.
+                    val carteira = async { api.carteira() }
+                    val extrato = async { api.extrato(limite = 50) }
+                    val derivacao = async { api.derivacao(limite = 100) }
+                    val contas = async { api.contas() }
+                    // Relatório é Premium: sem plano, o backend responde 402. Isso
+                    // NÃO pode derrubar a Home — carteira, extrato e contas são
+                    // grátis. O relatório simplesmente não vem, e a tela dele
+                    // mostra o convite ao plano.
+                    val relatorio = async { runCatching { api.relatorio() } }
+                    // Vitrine: silenciosa de propósito. Se cair, a Home continua
+                    // inteira — propaganda indisponível não é erro do usuário.
+                    val parceiros = async {
+                        // `getOrNull`: falha aqui não derruba a Home, e `null`
+                        // distingue "não carregou" de "não há oferta".
+                        runCatching { api.parceiros() }.getOrNull()
+                    }
 
-                // Gerar lembretes antes de ler: senão a lista vem vazia na
-                // primeira abertura e o usuário acha que não tem aviso nenhum.
-                runCatching { api.gerarNotificacoes() }
-                val naoLidas = async { api.notificacoes(somenteNaoLidas = true).size }
+                    // Gerar lembretes antes de ler: senão a lista vem vazia na
+                    // primeira abertura e o usuário acha que não tem aviso nenhum.
+                    // Falha fica num selo discreto na Home — não derruba a tela.
+                    val lembretes = runCatching { api.gerarNotificacoes() }
+                    val naoLidas = async { api.notificacoes(somenteNaoLidas = true).size }
 
-                val resultadoRelatorio = relatorio.await()
+                    val resultadoRelatorio = relatorio.await()
 
-                _estado.update {
-                    it.copy(
-                        carregando = false,
-                        erro = null,
-                        autenticado = true,
-                        carteira = carteira.await(),
-                        extrato = extrato.await(),
-                        derivacao = derivacao.await(),
-                        contas = contas.await(),
-                        relatorio = resultadoRelatorio.getOrNull(),
-                        planoNecessario = ePlanoNecessario(resultadoRelatorio.exceptionOrNull()),
-                        naoLidas = naoLidas.await(),
-                        parceiros = parceiros.await()?.itens.orEmpty(),
-                        parceirosTotal = parceiros.await()?.total ?: 0,
-                    )
+                    _estado.update {
+                        it.copy(
+                            carregando = false,
+                            erro = null,
+                            autenticado = true,
+                            carteira = carteira.await(),
+                            extrato = extrato.await(),
+                            derivacao = derivacao.await(),
+                            contas = contas.await(),
+                            relatorio = resultadoRelatorio.getOrNull(),
+                            planoNecessario = ePlanoNecessario(resultadoRelatorio.exceptionOrNull()),
+                            lembretesIndisponiveis = lembretes.isFailure,
+                            naoLidas = naoLidas.await(),
+                            parceiros = parceiros.await()?.itens.orEmpty(),
+                            parceirosTotal = parceiros.await()?.total ?: 0,
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 // Token expirado ou rede caída: uma mensagem e o usuário
@@ -685,6 +733,172 @@ fun carregarChargeQr(chargeId: String) {
                 }
                 .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
         }
+    }
+
+    // ── Caixinha ─────────────────────────────────────────────────────────────
+    // Cada fluxo tem seu par carregando/erro: lista, vitrine, detalhe e mutação
+    // não compartilham canal com o `erro` global da Home. Mutação que devolve
+    // detalhe APLICA a resposta no estado — o contrato manda, e economiza o
+    // GET que a tela faria em seguida.
+
+    /** `GET /caixinhas` — as minhas, para as seções "Como responsável"/"Como membro". */
+    fun carregarCaixinhas() {
+        viewModelScope.launch {
+            _estado.update { it.copy(carregandoCaixinhas = true, erroCaixinhas = null) }
+            runCatching { api.caixinhas() }
+                .onSuccess { lista ->
+                    _estado.update { it.copy(carregandoCaixinhas = false, caixinhas = lista) }
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(carregandoCaixinhas = false, erroCaixinhas = mensagemDe(e)) }
+                }
+        }
+    }
+
+    /** `GET /caixinhas/publicas` — vitrine de caixinhas marcadas como públicas. */
+    fun carregarVitrineCaixinhas() {
+        viewModelScope.launch {
+            _estado.update { it.copy(carregandoVitrine = true, erroVitrine = null) }
+            runCatching { api.caixinhasPublicas() }
+                .onSuccess { lista ->
+                    _estado.update { it.copy(carregandoVitrine = false, caixinhasPublicas = lista) }
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(carregandoVitrine = false, erroVitrine = mensagemDe(e)) }
+                }
+        }
+    }
+
+    /** `GET /caixinhas/{id}` — detalhe com o mês local do aparelho. */
+    fun carregarDetalheCaixinha(id: String) {
+        viewModelScope.launch {
+            _estado.update { it.copy(carregandoDetalheCaixinha = true, erroDetalheCaixinha = null) }
+            runCatching { api.caixinha(id) }
+                .onSuccess { detalhe ->
+                    _estado.update {
+                        it.copy(carregandoDetalheCaixinha = false, caixinhaDetalhe = detalhe)
+                    }
+                }
+                .onFailure { e ->
+                    _estado.update {
+                        it.copy(carregandoDetalheCaixinha = false, erroDetalheCaixinha = mensagemDe(e))
+                    }
+                }
+        }
+    }
+
+    /** Erro de mutação é da tela que o mostrou; reabrir um diálogo limpa o anterior. */
+    fun limparErroAcaoCaixinha() {
+        _estado.update { it.copy(erroAcaoCaixinha = null) }
+    }
+
+    /**
+     * `POST /caixinhas` — cria. A resposta já é o detalhe (papel dono, convite
+     * gerado); aplica no estado e entrega o id para a navegação abrir o detalhe.
+     */
+    fun criarCaixinha(
+        nome: String,
+        valorPedido: String,
+        taxaMensal: String,
+        previsaoQuitacao: String?,
+        telefone: String?,
+        publica: Boolean,
+        aoPronto: (String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            _estado.update { it.copy(enviandoCaixinha = true, erroAcaoCaixinha = null) }
+            runCatching {
+                api.criarCaixinha(nome, valorPedido, taxaMensal, previsaoQuitacao, telefone, publica)
+            }
+                .onSuccess { detalhe ->
+                    _estado.update { it.copy(enviandoCaixinha = false, caixinhaDetalhe = detalhe) }
+                    aoPronto(detalhe.id)
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(enviandoCaixinha = false, erroAcaoCaixinha = mensagemDe(e)) }
+                }
+        }
+    }
+
+    /**
+     * `POST /caixinhas/entrar` — a chave como o usuário digitou. Em sucesso o
+     * detalhe (papel membro) é aplicado e [aoEntrar] recebe o id; as listas
+     * de origem recarregam sozinhas quando a tela volta à composição.
+     */
+    fun entrarComChaveCaixinha(chave: String, aoEntrar: (String) -> Unit) {
+        viewModelScope.launch {
+            _estado.update { it.copy(enviandoCaixinha = true, erroAcaoCaixinha = null) }
+            runCatching { api.entrarCaixinha(chave) }
+                .onSuccess { detalhe ->
+                    _estado.update { it.copy(enviandoCaixinha = false, caixinhaDetalhe = detalhe) }
+                    aoEntrar(detalhe.id)
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(enviandoCaixinha = false, erroAcaoCaixinha = mensagemDe(e)) }
+                }
+        }
+    }
+
+    /**
+     * Mutação de caixinha: chama a API e aplica o DETALHE que o servidor
+     * devolve — nunca recalcula nada no cliente. Erro 4xx (string pt-BR do
+     * contrato) vai para `erroAcaoCaixinha` como veio. [aoPronto] roda só em
+     * sucesso (limpar campo, fechar diálogo).
+     */
+    private fun mutarCaixinha(acao: suspend () -> DetalheCaixinha, aoPronto: () -> Unit = {}) {
+        viewModelScope.launch {
+            _estado.update { it.copy(enviandoCaixinha = true, erroAcaoCaixinha = null) }
+            runCatching { acao() }
+                .onSuccess { detalhe ->
+                    _estado.update { it.copy(enviandoCaixinha = false, caixinhaDetalhe = detalhe) }
+                    aoPronto()
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(enviandoCaixinha = false, erroAcaoCaixinha = mensagemDe(e)) }
+                }
+        }
+    }
+
+    /** Membro propõe aporte (`amount` já normalizado em ponto, 2 casas). */
+    fun proporAporteCaixinha(caixinhaId: String, valor: String, aoPronto: () -> Unit = {}) {
+        mutarCaixinha({ api.proporAporte(caixinhaId, valor) }, aoPronto)
+    }
+
+    /**
+     * Responsável propõe o rendimento do mês — sem valor: o servidor calcula
+     * (base × taxa) e recusa com 422 quando não há rendimento em aberto.
+     */
+    fun proporRendimentoCaixinha(caixinhaId: String, membroId: String) {
+        // Forma parentesada: trailing lambda ligaria ao `aoPronto` (último
+        // parâmetro), não à `acao`.
+        mutarCaixinha({ api.proporRendimento(caixinhaId, membroId, YearMonth.now().toString()) })
+    }
+
+    /** Responsável propõe devolução (`amount` já normalizado em ponto, 2 casas). */
+    fun proporDevolucaoCaixinha(caixinhaId: String, membroId: String, valor: String, aoPronto: () -> Unit = {}) {
+        mutarCaixinha({ api.proporDevolucao(caixinhaId, membroId, valor) }, aoPronto)
+    }
+
+    fun confirmarMovimentoCaixinha(caixinhaId: String, movimentoId: String) {
+        mutarCaixinha({ api.confirmarMovimento(caixinhaId, movimentoId) })
+    }
+
+    fun recusarMovimentoCaixinha(caixinhaId: String, movimentoId: String) {
+        mutarCaixinha({ api.recusarMovimento(caixinhaId, movimentoId) })
+    }
+
+    fun cancelarMovimentoCaixinha(caixinhaId: String, movimentoId: String) {
+        mutarCaixinha({ api.cancelarMovimento(caixinhaId, movimentoId) })
+    }
+
+    /** Membro avalia 1–5 estrelas; o detalhe volta com `minha_avaliacao` preenchido. */
+    fun avaliarCaixinha(caixinhaId: String, estrelas: Int) {
+        mutarCaixinha({ api.avaliarCaixinha(caixinhaId, estrelas) })
+    }
+
+    /** Dono grava o telefone da caixinha; membro, o próprio. Só dígitos. */
+    fun salvarTelefoneCaixinha(caixinhaId: String, telefone: String) {
+        mutarCaixinha({ api.salvarTelefoneCaixinha(caixinhaId, telefone) })
     }
 
     // ── Histórico ─────────────────────────────────────────────────────────────

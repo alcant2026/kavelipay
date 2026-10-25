@@ -50,6 +50,61 @@
 - `DELETE /debts/{id}` — só `PENDING` (estado final é 409); pendente nunca
   tocou o ledger, então não estorna nada. Id de outra carteira é 404, nunca 403
 
+## Caixinha (empréstimo registrado entre conhecidos)
+
+> **FORA do ledger** — decisão fechada (`docs/caixinha-api.md` é o contrato):
+> a caixinha registra o que cada pessoa **afirma** (aportou, pagou rendimento,
+> devolveu) e nada posta transação. O `GET /wallet` de todos os envolvidos fica
+> exatamente onde estava — o e2e (`caixinhas_e2e.sh`) prova saldo `0.00` do
+> começo ao fim. Regra central: **quem paga propõe, quem recebe confirma** — só
+> movimento `CONFIRMADO` entra em qualquer número, e todo número é derivado dos
+> movimentos (nada de saldo guardado). Identidade vem do token; quem não é dono
+> nem membro recebe **404** `Caixinha não encontrada.`, nunca 403. Dinheiro é
+> **string** (float é 422); toda resposta de detalhe deriva o mês do
+> `?mes=YYYY-MM` (default: mês atual UTC; o app manda o mês LOCAL dele).
+
+- `POST /caixinhas` — `{nome, valor_pedido, taxa_mensal, previsao_quitacao?,
+  telefone?, publica?}`. Cria a caixinha **e o primeiro convite na mesma
+  transação**; `201` com o `CaixinhaDetalhe` (papel `dono`).
+- `GET /caixinhas` — as minhas (dono OU membro), `criado_em DESC`, com papel,
+  arrecadado, progresso, média de avaliações.
+- `GET /caixinhas/publicas` — vitrine: só `publica = true`, para todo usuário
+  logado, com `dono_nome`, `falta` e `entrou` (sou dono/membro desta).
+- `POST /caixinhas/entrar` — `{chave}`; normaliza `trim().to_uppercase()`.
+  Transação única: trava o convite (`FOR UPDATE`), não o consome em erro,
+  marca `usado_em`, insere o membro e **gera o próximo código** na mesma
+  transação — sempre existe exatamente um convite ativo por caixinha. Chave
+  desconhecida é 404 `Chave inválida.`; já usada, 409; dono da própria,
+  409 `Você é o responsável desta caixinha.`
+- `GET /caixinhas/{id}` — `CaixinhaDetalhe`: dono vê tudo (incluindo
+  `convite` ativo e `total_*_mes`); membro vê só os próprios números,
+  movimentos e `null` no resto. `movimentos` = todos os `PROPOSTO` visíveis ∪
+  últimos 10 resolvidos visíveis, `criado_em DESC`.
+- `POST /caixinhas/{id}/aportes` — membro propõe `{amount}`; validado contra o
+  espaço que falta no pedido (propostas pendentes também reservam espaço).
+- `POST /caixinhas/{id}/rendimentos` — **dono** propõe
+  `{membro_id, competencia}`; **sem valor no body**: o servidor calcula o
+  rendimento devido do mês (base × taxa) e propõe esse valor inteiro.
+- `POST /caixinhas/{id}/devolucoes` — dono propõe `{membro_id, amount}`,
+  validado contra o saldo em aberto menos devoluções propostas.
+- `POST /caixinhas/{id}/movimentos/{mov_id}/confirmar|recusar` — **contraparte**
+  (aporte → dono confirma; rendimento/devolução → membro confirma). Confirmar
+  revalida o estado com as mensagens do contrato; permissão é checada antes do
+  estado (quem nem podia resolver recebe `Só a outra parte...`).
+- `POST /caixinhas/{id}/movimentos/{mov_id}/cancelar` — só quem propôs.
+- `POST /caixinhas/{id}/avaliacao` — membro `{estrelas: 1..5}`, uma vez,
+  imutável; exige aporte confirmado > 0.
+- `PATCH /caixinhas/{id}/meu-telefone` — cada um grava o próprio telefone
+  (dono → `caixinhas.telefone_dono`; membro → a linha dele). Só dígitos,
+  10 ou 11; a formatação é da tela.
+- Erros: 404/409/422 com mensagens **literais em pt-BR** combinadas com o app
+  (tabela completa em `docs/caixinha-api.md`). `NaoEncontrado`/`NaoValido` em
+  `error.rs` são as variantes de mensagem literal (code `not_found` /
+  `invalid_transaction`).
+- Convite: `KAV-` + 6 hex maiúsculo, entropia do UUID v4, `ON CONFLICT DO
+  NOTHING` + retry; usado é histórico que a API **nunca** devolve — a UI do
+  dono mostra só o código atual.
+
 ## Parceiros (vitrine de indicação)
 
 - `GET /parceiros?limit=10&offset=0` — ofertas ativas, **da mais nova para a
