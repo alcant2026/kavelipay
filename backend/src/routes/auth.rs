@@ -82,11 +82,26 @@ pub async fn register(
 }
 
 /// POST /auth/login
+#[axum::debug_handler]
 pub async fn login(
     State(state): State<AppState>,
+    ip_auth: crate::auth::ClientIp,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<TokenResponse>> {
     let email = normalizar_email(&req.email)?;
+
+    // Porteira de brute force. Sem ConnectInfo (request fabricado em teste)
+    // cai no IP 0.0.0.0 — a contagem via igual.
+    let ip = ip_auth.0.unwrap_or(std::net::Ipv4Addr::UNSPECIFIED.into());
+    match state.login_gate.aceita(ip, &email) {
+        Ok(()) => {}
+        Err(espera) => {
+            return Err(AppError::TooManyRequests(format!(
+                "muitas tentativas de login; tente de novo em {}s",
+                espera.as_secs().max(1)
+            )));
+        }
+    }
 
     let row = sqlx::query_as::<_, (uuid::Uuid, String)>(
         "SELECT id, password_hash FROM users WHERE email = $1",
@@ -100,13 +115,16 @@ pub async fn login(
         // de devolver erro, senão o tempo de resposta revelaria quais emails
         // existem (user enumeration).
         let _ = crate::auth::verify(&req.password, DUMMY_HASH);
+        state.login_gate.registrar_falha(ip, &email);
         return Err(AppError::Unauthorized);
     };
 
     if !crate::auth::verify(&req.password, &hash) {
+        state.login_gate.registrar_falha(ip, &email);
         return Err(AppError::Unauthorized);
     }
 
+    state.login_gate.registrar_sucesso(ip, &email);
     emitir(state, user_id).await
 }
 

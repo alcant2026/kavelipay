@@ -9,7 +9,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DB="kavelipay_splits_test_$$"
-BASE="http://127.0.0.1:3314"
+# Porta por execução: dois scripts em paralelo (ou servidor zumbi) não brigam
+# por 3311-3324. BASE_PORT fixa a porta explicitamente quando precisar.
+E2E_PORTA=${BASE_PORT:-}
+while [ -z "$E2E_PORTA" ]; do
+  E2E_PORTA=$(( (RANDOM % 1000) + 4000 ))
+  ss -ltn 2>/dev/null | grep -q ":${E2E_PORTA} " && E2E_PORTA=
+done
+BASE="http://127.0.0.1:${E2E_PORTA}"
 SECRET="$(head -c 48 /dev/urandom | base64 | tr -d '\n')"
 BIN="$ROOT/target/debug/kavelipay-backend"
 
@@ -41,7 +48,7 @@ echo "criando banco: $DB"
 
 echo "subindo servidor"
 DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DB}" \
-JWT_SECRET="$SECRET" BIND_ADDR="127.0.0.1:3314" RUST_LOG=error "$BIN" &
+JWT_SECRET="$SECRET" BIND_ADDR="127.0.0.1:${E2E_PORTA}" RUST_LOG=error "$BIN" &
 SERVER_PID=$!
 for i in $(seq 1 40); do
     curl -s -o /dev/null -X POST "$BASE/auth/login" -H 'content-type: application/json' \

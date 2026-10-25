@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::state::wallet_ativa;
 use crate::state::AppState;
 
 #[derive(Serialize)]
@@ -197,22 +198,6 @@ fn ultimo_dia_do_mes(ano: i32, mes: u32) -> u32 {
         .and_then(|d| d.pred_opt())
         .map(|d| d.day())
         .unwrap_or(28)
-}
-
-async fn wallet_ativa(state: &AppState, user_id: Uuid) -> AppResult<Uuid> {
-    let row = sqlx::query_as::<_, (Uuid, String)>("SELECT id, status FROM wallets WHERE user_id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound("wallet"))?;
-
-    if row.1 != "ACTIVE" {
-        return Err(AppError::Conflict(format!(
-            "carteira {}: não aceita operações",
-            row.1
-        )));
-    }
-    Ok(row.0)
 }
 
 /// Reexporta a validação de data, compartilhada com a criação de boleto.

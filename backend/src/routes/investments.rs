@@ -32,6 +32,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::ledger::{self, TransactionType};
 use crate::money::Money;
+use crate::state::wallet_ativa;
 use crate::state::AppState;
 
 // ── requests ──────────────────────────────────────────────────────────────────
@@ -477,8 +478,14 @@ pub async fn create_movement(
         amount + fees
     };
 
-    let transaction_id = ledger::postar(
-        &state.db,
+    // Ledger e registro do movimento na MESMA transação: o trigger deferrable
+    // de venda a descoberto passa a abortar os dois lados juntos. Sem isso,
+    // dois SELL concorrentes creditavam a carteira 2× e o segundo INSERT
+    // morria no trigger — crédito no ledger sem movimento registrado.
+    let mut tx = state.db.begin().await?;
+
+    let transaction_id = ledger::postar_em_com_categoria(
+        &mut tx,
         wallet,
         tipo_enum,
         Money::new(valor_lancamento),
@@ -488,6 +495,8 @@ pub async fn create_movement(
             "symbol": ativo.0,
             "movement": tipo,
         })),
+        None,
+        Some(auth.user_id()),
     )
     .await?;
 
@@ -508,8 +517,10 @@ pub async fn create_movement(
     .bind(fees)
     .bind(traded_at)
     .bind(req.note.as_deref().map(str::trim).filter(|s| !s.is_empty()))
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok((
         StatusCode::CREATED,
@@ -966,22 +977,6 @@ async fn quantidade_atual(state: &AppState, id: Uuid) -> AppResult<Decimal> {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-
-async fn wallet_ativa(state: &AppState, user_id: Uuid) -> AppResult<Uuid> {
-    let row = sqlx::query_as::<_, (Uuid, String)>("SELECT id, status FROM wallets WHERE user_id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound("wallet"))?;
-
-    if row.1 != "ACTIVE" {
-        return Err(AppError::Conflict(format!(
-            "carteira {}: não aceita operações",
-            row.1
-        )));
-    }
-    Ok(row.0)
-}
 
 async fn garantir_dono(state: &AppState, id: Uuid, wallet: Uuid) -> AppResult<()> {
     let existe: bool = sqlx::query_scalar(

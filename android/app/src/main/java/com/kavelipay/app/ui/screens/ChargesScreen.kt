@@ -330,10 +330,3 @@ private fun copiarParaAreaTransferencia(contexto: Context, texto: String) {
     val clipboard = contexto.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("KaveliPay", texto))
 }
-
-/** Formulário de nova cobrança — ver `NovaChargeScreen.kt`. */
-@Deprecated("Substituída por NovaChargeScreen.kt", ReplaceWith("KpNovaChargeScreen"))
-@Composable
-fun KpNovaChargeScreenPlaceholder() {
-    KpVazio(icone = Icons.Default.Add, titulo = "Em construção", descricao = "Tela de nova cobrança")
-}

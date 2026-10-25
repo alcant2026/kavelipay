@@ -14,6 +14,22 @@ pub enum AppError {
     #[error("{0} não encontrado")]
     NotFound(&'static str),
 
+    /// 404 com mensagem literal. "Caixinha não encontrada." e "Chave inválida."
+    /// não casam no molde "{0} não encontrado" de `NotFound` (que recebe o
+    /// substantivo do recurso). Mesmo status e `code` — só o texto muda,
+    /// e o texto é combinado com o app (o contrato o define caractere a
+    /// caractere).
+    #[error("{0}")]
+    NaoEncontrado(String),
+
+    /// 422 com mensagem LITERAL — o par de `NaoEncontrado` para o 404. A
+    /// caixinha combina mensagens caractere a caractere com o app
+    /// (`docs/caixinha-api.md`) e a tela mostra `message` como vier: o
+    /// prefixo "dados inválidos: " de `Validation` viraria jargão na cara
+    /// do usuário ("dados inválidos: Digite um telefone com DDD.").
+    #[error("{0}")]
+    NaoValido(String),
+
     #[error("transação não equilibrada: débitos {debits} != créditos {credits}")]
     UnbalancedTransaction { debits: String, credits: String },
 
@@ -25,6 +41,11 @@ pub enum AppError {
 
     #[error("{0}")]
     Conflict(String),
+
+    /// 429: brute force travado na porteira do login. 429, não 403/401: é
+    /// "espere e tente de novo", não "acesso negado".
+    #[error("{0}")]
+    TooManyRequests(String),
 
     /// Recurso do plano Premium sem assinatura vigente. 402, não 403: não é
     /// falta de permissão nem de login, é falta de plano — e o app usa esse
@@ -66,13 +87,15 @@ impl AppError {
         match self {
             AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::Forbidden => StatusCode::FORBIDDEN,
-            AppError::NotFound(_) => StatusCode::NOT_FOUND,
+            AppError::NotFound(_) | AppError::NaoEncontrado(_) => StatusCode::NOT_FOUND,
             AppError::Conflict(_) => StatusCode::CONFLICT,
+            AppError::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             AppError::PaymentRequired(_) => StatusCode::PAYMENT_REQUIRED,
             AppError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
             AppError::UnbalancedTransaction { .. }
             | AppError::InvalidAmount(_)
-            | AppError::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            | AppError::Validation(_)
+            | AppError::NaoValido(_) => StatusCode::UNPROCESSABLE_ENTITY,
             AppError::Database(_) | AppError::Token(_) | AppError::Internal(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
@@ -90,13 +113,15 @@ impl AppError {
         match self {
             AppError::Unauthorized => "unauthorized",
             AppError::Forbidden => "forbidden",
-            AppError::NotFound(_) => "not_found",
+            AppError::NotFound(_) | AppError::NaoEncontrado(_) => "not_found",
             AppError::Conflict(_) => "conflict",
+            AppError::TooManyRequests(_) => "too_many_requests",
             AppError::PaymentRequired(_) => "plano_necessario",
             AppError::Unavailable => "unavailable",
             AppError::UnbalancedTransaction { .. }
             | AppError::InvalidAmount(_)
-            | AppError::Validation(_) => "invalid_transaction",
+            | AppError::Validation(_)
+            | AppError::NaoValido(_) => "invalid_transaction",
             AppError::Database(_)
             | AppError::Token(_)
             | AppError::Internal(_)

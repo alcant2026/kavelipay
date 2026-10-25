@@ -18,6 +18,8 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::ledger::{self, TransactionType};
 use crate::money::Money;
+use rust_decimal::Decimal;
+use crate::state::wallet_ativa;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -242,9 +244,10 @@ pub struct MarkPaidRequest {
 /// correspondente. Não há pagamento real, não há confirmação externa, e o
 /// recurso não simula sucesso de boleto.
 ///
-/// Idempotente por construção: o UPDATE é condicional a `status = 'PENDING'`, e
-/// a transação do ledger só é criada se ele afetar uma linha. Pagar duas vezes
-/// a segunda devolve 409 sem debitar a carteira de novo.
+/// Idempotente por construção: o boleto é lido com `FOR UPDATE` dentro da
+/// mesma transação que posta no ledger e marca PAID. Pagar duas vezes: o
+/// segundo request espera o COMMIT do primeiro, enxerga PAID e devolve 409
+/// sem debitar a carteira de novo e sem transação órfã.
 pub async fn mark_paid(
     State(state): State<AppState>,
     auth: crate::auth::AuthUser,
@@ -253,24 +256,44 @@ pub async fn mark_paid(
 ) -> AppResult<Json<BillResponse>> {
     let wallet = wallet_ativa(&state, auth.user_id()).await?;
 
-    let atual = buscar(&state, id, wallet).await?;
-    if atual.status != "PENDING" {
+    let mut tx = state.db.begin().await?;
+
+    // Filtra por id E wallet_id: boleto de outra carteira não existe (404).
+    // FOR UPDATE serializa dois pagamentos concorrentes — o segundo espera o
+    // COMMIT do primeiro e é recusado antes de postar no ledger.
+    let pendente = sqlx::query_as::<_, (String, Decimal, String)>(
+        "SELECT status, amount, description
+           FROM bills
+          WHERE id = $1 AND wallet_id = $2
+          FOR UPDATE",
+    )
+    .bind(id)
+    .bind(wallet)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("boleto"))?;
+
+    let (status, amount, description) = pendente;
+    if status != "PENDING" {
         return Err(AppError::Conflict(format!(
             "boleto já está {}; só PENDING pode ser pago",
-            atual.status
+            status
         )));
     }
 
     // Transação primeiro: se o ledger recusar (desequilíbrio, wallet inválida),
     // o boleto continua PENDING. O inverso deixaria o boleto marcado como pago
-    // sem dinheiro correspondente no ledger.
-    let transaction_id = ledger::postar(
-        &state.db,
+    // sem dinheiro correspondente no ledger — e o rollback do tx desfaz os dois
+    // lados juntos em qualquer falha depois daqui.
+    let transaction_id = ledger::postar_em_com_categoria(
+        &mut tx,
         wallet,
         TransactionType::BillPaid,
-        atual.amount,
-        Some(&format!("Pagamento: {}", atual.description)),
+        Money::new(amount),
+        Some(&format!("Pagamento: {}", description)),
         Some(serde_json::json!({ "bill_id": id })),
+        None,
+        Some(auth.user_id()),
     )
     .await?;
 
@@ -287,16 +310,19 @@ pub async fn mark_paid(
     .bind(wallet)
     .bind(transaction_id)
     .bind(req.comprovante_url.as_deref())
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
 
     if rows.rows_affected() == 0 {
-        // Corrida: outro request pagou entre a leitura e o UPDATE. O money já
-        // saiu, então não dá para simplesmente reverter a transação aqui —
-        // o registro pago fica e a segunda tentativa é recusada.
-        tracing::warn!(bill_id = %id, "boleto pago concorrente; segunda tentativa recusada");
+        // Corrida defensiva: com o FOR UPDATE acima não deveria acontecer, mas
+        // se acontecer, desfaz TUDO — o ledger não pode ficar com débito
+        // órfão de um boleto não marcado como pago.
+        tracing::warn!(bill_id = %id, "boleto pago concorrente; transação desfeita");
+        tx.rollback().await?;
         return Err(AppError::Conflict("boleto já foi pago".into()));
     }
+
+    tx.commit().await?;
 
     buscar(&state, id, wallet).await.map(Json)
 }
@@ -333,25 +359,6 @@ pub async fn cancel_bill(
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-/// Wallet do usuário, exigindo ACTIVE: boleto de wallet bloqueada não se move.
-async fn wallet_ativa(state: &AppState, user_id: Uuid) -> AppResult<Uuid> {
-    let row = sqlx::query_as::<_, (Uuid, String)>(
-        "SELECT id, status FROM wallets WHERE user_id = $1",
-    )
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound("wallet"))?;
-
-    if row.1 != "ACTIVE" {
-        return Err(AppError::Conflict(format!(
-            "carteira {}: não aceita operações",
-            row.1
-        )));
-    }
-    Ok(row.0)
-}
 
 /// Busca por id **e** wallet. O filtro por wallet_id é a fronteira de
 /// autorização: um id de boleto de outra pessoa devolve NotFound, não os dados.

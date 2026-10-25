@@ -7,7 +7,6 @@ use kavelipay_backend::state::AppState;
 use kavelipay_backend::{AppError, auth, routes};
 use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
-use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 #[tokio::main]
@@ -82,17 +81,20 @@ async fn main() -> Result<(), AppError> {
         ai,
         cotacao,
         admin_token: config.admin_token.clone(),
+        login_gate: kavelipay_backend::rate_limit::LoginGate::default(),
     };
 
     let app = routes::router(state)
-        .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive());
+        .layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "KaveliPay backend no ar");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
         .await?;
 
     Ok(())

@@ -12,7 +12,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DB="kavelipay_auth_test_$$"
-BASE="http://127.0.0.1:3311"
+# Porta por execução: dois scripts em paralelo (ou servidor zumbi) não brigam
+# por 3311-3324. BASE_PORT fixa a porta explicitamente quando precisar.
+E2E_PORTA=${BASE_PORT:-}
+while [ -z "$E2E_PORTA" ]; do
+  E2E_PORTA=$(( (RANDOM % 1000) + 4000 ))
+  ss -ltn 2>/dev/null | grep -q ":${E2E_PORTA} " && E2E_PORTA=
+done
+BASE="http://127.0.0.1:${E2E_PORTA}"
 SECRET="$(head -c 48 /dev/urandom | base64 | tr -d '\n')"
 
 PSQL=(psql -v ON_ERROR_STOP=1 -q -X)
@@ -58,7 +65,7 @@ echo "criando banco: $DB"
 echo "subindo servidor"
 DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DB}" \
 JWT_SECRET="$SECRET" \
-BIND_ADDR="127.0.0.1:3311" \
+BIND_ADDR="127.0.0.1:${E2E_PORTA}" \
 RUST_LOG=warn \
 "$BIN" &
 SERVER_PID=$!

@@ -2,23 +2,53 @@ package com.kavelipay.app.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 
 /**
- * Guarda access e refresh token.
+ * Guarda access e refresh token em `EncryptedSharedPreferences`
+ * (`androidx.security:security-crypto`): as chaves e os valores ficam
+ * cifrados por chave da Android Keystore. Necessário num app que lida com
+ * dado financeiro — prefs em texto plano eram legíveis em rooted device.
  *
- * LACUNA CONHECIDA DE PRODUÇÃO: isso é `SharedPreferences` em texto plano.
- * `androidx.security` (EncryptedSharedPreferences) não estava disponível no
- * ambiente; sem ele, o token fica legível em rooted device ou backup. Num app
- * que lida com dado financeiro isso não é aceitável para produção — trocar por
- * EncryptedSharedPreferences ou uma chave no Android Keystore é bloqueante de
- * release.
- *
- * `allowBackup=false` no manifesto já reduz uma superfície disso.
+ * Migração do prefs legado: na inicialização, se os prefs encriptados ainda
+ * estiverem vazios e o prefs plano (`kavelipay.session`) tiver dados, os
+ * valores são copiados, e o arquivo legado é limpo e apagado. O arquivo legado
+ * nunca volta a ser usado para escrita.
  */
 class SessionStore(context: Context) {
 
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences("kavelipay.session", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = run {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        val encriptado = EncryptedSharedPreferences.create(
+            context,
+            "kavelipay.session.secure",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+        migrar(context, encriptado)
+        encriptado
+    }
+
+    /** Migra o prefs plano para o encriptado (uma vez; depois só apaga resto). */
+    private fun migrar(context: Context, encriptado: SharedPreferences) {
+        val legado = context.getSharedPreferences("kavelipay.session", Context.MODE_PRIVATE)
+        val temLegado = TODAS_AS_CHAVES.any { legado.contains(it) }
+        if (!temLegado) return
+
+        if (TODAS_AS_CHAVES.none { encriptado.contains(it) }) {
+            encriptado.edit().apply {
+                TODAS_AS_CHAVES.forEach { key ->
+                    legado.getString(key, null)?.let { putString(key, it) }
+                }
+            }.apply()
+        }
+        legado.edit().clear().apply()
+        context.deleteSharedPreferences("kavelipay.session")
+    }
 
     var accessToken: String?
         get() = prefs.getString(KEY_ACCESS, null)
@@ -71,5 +101,6 @@ class SessionStore(context: Context) {
         const val KEY_REFRESH = "refresh_token"
         const val KEY_USER_ID = "user_id"
         const val KEY_NOME = "display_name"
+        val TODAS_AS_CHAVES = listOf(KEY_ACCESS, KEY_REFRESH, KEY_USER_ID, KEY_NOME)
     }
 }

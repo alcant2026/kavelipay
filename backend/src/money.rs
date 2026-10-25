@@ -61,9 +61,18 @@ impl<'de> Deserialize<'de> for Money {
             }
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Money, E> {
-                Decimal::from_str(v)
-                    .map(Money)
-                    .map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
+                let d = Decimal::from_str(v)
+                    .map_err(|_| E::invalid_value(Unexpected::Str(v), &self))?;
+                // O banco é NUMERIC(19,4): mais de 4 casas é ARREDONDADO no
+                // INSERT, e o arredondamento quebra a soma validada por
+                // trigger do split (500 no commit em vez de erro claro aqui).
+                if d.scale() > 4 {
+                    return Err(E::invalid_value(
+                        Unexpected::Str(v),
+                        &"string decimal com no máximo 4 casas decimais, ex: \"10.50\"",
+                    ));
+                }
+                Ok(Money(d))
             }
 
             // Inteiro é seguro converter: não há perda de precisão.
@@ -105,6 +114,18 @@ mod tests {
         let m: Money = json_de("\"10.50\"").unwrap();
         assert_eq!(m.amount(), Decimal::new(1050, 2));
         assert!(m.is_positive());
+    }
+
+    #[test]
+    fn quatro_casas_e_aceito() {
+        let m: Money = json_de("\"0.0001\"").unwrap();
+        assert_eq!(m.amount(), Decimal::new(1, 4));
+    }
+
+    #[test]
+    fn mais_de_quatro_casas_e_recusado() {
+        assert!(json_de::<Money>("\"0.00005\"").is_err());
+        assert!(json_de::<Money>("\"10.12345\"").is_err());
     }
 
     #[test]

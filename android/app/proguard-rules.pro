@@ -25,3 +25,7 @@
 
 # Keep our app classes
 -keep class com.kavelipay.app.** { *; }
+
+# Keep Tink (security-crypto / EncryptedSharedPreferences): só annotations de
+# build-time ausentes no classpath — `-dontwarn` é o que o próprio R8 sugere.
+-dontwarn com.google.errorprone.annotations.**

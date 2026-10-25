@@ -4,7 +4,7 @@ App Android de organização financeira e pagamentos para **pessoa física**, co
 
 ## Estado atual
 
-Backend Rust (`backend/`) completo: **476 testes passando** (142 Rust + 334 shell e2e) + 75 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
+Backend Rust (`backend/`) completo: **732 testes passando** (178 Rust + 554 shell e2e) + 103 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
 
 ## Comandos essenciais
 
@@ -12,7 +12,7 @@ Backend Rust (`backend/`) completo: **476 testes passando** (142 Rust + 334 shel
 # Postgres dev: Docker porta 55432, user/senha/db = kavelipay (docs/ambiente-e-build.md)
 # O dev usa VOLUME NOMEADO kavelipay-pgdata — sem ele, um docker rm apaga o banco (já aconteceu).
 cd backend
-cargo build && cargo test                        # 142 Rust, sem banco
+cargo build && cargo test                        # 178 Rust, sem banco
 PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/<nome>_e2e.sh
 DATABASE_URL=postgres://kavelipay:kavelipay@localhost:55432/kavelipay \
 JWT_SECRET=$(head -c 48 /dev/urandom | base64) BIND_ADDR=0.0.0.0:3000 \
@@ -20,12 +20,12 @@ nohup ./target/debug/kavelipay-backend > /tmp/kavelipay-backend.log 2>&1 &
 
 cd android
 ./gradlew :app:assembleRelease                  # APK assinado em app/build/outputs/apk/release/
-./gradlew :app:testDebugUnitTest                # 65 JUnit, sem emulador
+./gradlew :app:testDebugUnitTest                # 103 JUnit, sem emulador
 ```
 
 - **Depois de editar qualquer `.sql`, `cargo build` é obrigatório** — `sqlx::migrate!` embute as migrations no binário; sem rebuild o servidor sobe com a versão antiga e o teste falha parecendo bug de lógica.
 - `cargo clippy` e `cargo fmt` **não existem** neste Fedora. Não documente como se existissem.
-- Treze scripts e2e (ports, cobertura, `simulacao.sh`), Waydroid + adb (receita, IP muda por boot) e assinatura do APK: `docs/ambiente-e-build.md`.
+- Catorze scripts + `schema_test.sh` + `simulacao.sh` (ports, cobertura, jornada completa), Waydroid + adb (receita, IP muda por boot) e assinatura do APK: `docs/ambiente-e-build.md`.
 
 ## Regras inegociáveis (texto completo em `docs/spec.md`)
 

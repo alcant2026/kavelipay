@@ -11,7 +11,14 @@
 
 set -euo pipefail
 
-BASE="http://127.0.0.1:3323"
+# Porta por execução: dois scripts em paralelo (ou servidor zumbi) não brigam
+# por 3311-3324. BASE_PORT fixa a porta explicitamente quando precisar.
+E2E_PORTA=${BASE_PORT:-}
+while [ -z "$E2E_PORTA" ]; do
+  E2E_PORTA=$(( (RANDOM % 1000) + 4000 ))
+  ss -ltn 2>/dev/null | grep -q ":${E2E_PORTA} " && E2E_PORTA=
+done
+BASE="http://127.0.0.1:${E2E_PORTA}"
 SECRET="$(head -c 48 /dev/urandom | base64 | tr -d '\n')"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/target/debug/kavelipay-backend"
@@ -37,7 +44,7 @@ echo "subindo servidor em $BASE"
 # determinístico é "provedor fora → 200 vazio". Depender da rede (brapi de
 # verdade) tornaria este teste não-determinístico e lento.
 DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/kavelipay" \
-JWT_SECRET="$SECRET" BIND_ADDR="127.0.0.1:3323" RUST_LOG=error \
+JWT_SECRET="$SECRET" BIND_ADDR="127.0.0.1:${E2E_PORTA}" RUST_LOG=error \
 BRAPI_BASE_URL="http://127.0.0.1:1" YAHOO_BASE_URL="http://127.0.0.1:1" \
     STATUSINVEST_BASE_URL="http://127.0.0.1:1" "$BIN" &
 SERVER_PID=$!

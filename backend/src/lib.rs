@@ -5,6 +5,7 @@
 
 pub mod ai;
 pub mod auth;
+pub mod caixinha_modelo;
 pub mod categories;
 pub mod cotacao;
 pub mod config;
@@ -13,6 +14,7 @@ pub mod http_cru;
 pub mod ledger;
 pub mod money;
 pub mod payment;
+pub mod rate_limit;
 pub mod routes;
 pub mod state;
 

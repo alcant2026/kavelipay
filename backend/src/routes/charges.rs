@@ -19,7 +19,9 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::ledger::{self, TransactionType};
 use crate::money::Money;
+use rust_decimal::Decimal;
 use crate::payment::{DemoPaymentProvider, PaymentPayload, PaymentProvider};
+use crate::state::wallet_ativa;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -265,22 +267,40 @@ pub async fn receive_charge(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ChargeResponse>> {
     let wallet = wallet_ativa(&state, auth.user_id()).await?;
-    let atual = buscar(&state, id, wallet).await?;
 
-    if atual.status != "PENDING" {
+    let mut tx = state.db.begin().await?;
+
+    // FOR UPDATE serializa dois recebimentos concorrentes — o segundo espera
+    // o COMMIT do primeiro, enxerga RECEIVED e é recusado antes de postar.
+    let pendente = sqlx::query_as::<_, (String, Decimal, String)>(
+        "SELECT status, amount, description
+           FROM charges
+          WHERE id = $1 AND wallet_id = $2
+          FOR UPDATE",
+    )
+    .bind(id)
+    .bind(wallet)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("cobrança"))?;
+
+    let (status, amount, description) = pendente;
+    if status != "PENDING" {
         return Err(AppError::Conflict(format!(
             "cobrança já está {}; só PENDING pode ser recebida",
-            atual.status
+            status
         )));
     }
 
-    let transaction_id = ledger::postar(
-        &state.db,
+    let transaction_id = ledger::postar_em_com_categoria(
+        &mut tx,
         wallet,
         TransactionType::ChargeReceived,
-        atual.amount,
-        Some(&format!("Recebimento: {}", atual.description)),
+        Money::new(amount),
+        Some(&format!("Recebimento: {}", description)),
         Some(serde_json::json!({ "charge_id": id })),
+        None,
+        Some(auth.user_id()),
     )
     .await?;
 
@@ -293,13 +313,18 @@ pub async fn receive_charge(
     .bind(id)
     .bind(wallet)
     .bind(transaction_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
 
     if rows.rows_affected() == 0 {
-        tracing::warn!(charge_id = %id, "recebimento concorrente; segunda tentativa recusada");
+        // Corrida defensiva: desfaz TUDO — o ledger não pode ficar com crédito
+        // órfão de uma cobrança não marcada como recebida.
+        tracing::warn!(charge_id = %id, "recebimento concorrente; transação desfeita");
+        tx.rollback().await?;
         return Err(AppError::Conflict("cobrança já foi recebida".into()));
     }
+
+    tx.commit().await?;
 
     buscar(&state, id, wallet).await.map(Json)
 }
@@ -329,22 +354,6 @@ pub async fn cancel_charge(
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-async fn wallet_ativa(state: &AppState, user_id: Uuid) -> AppResult<Uuid> {
-    let row = sqlx::query_as::<_, (Uuid, String)>("SELECT id, status FROM wallets WHERE user_id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound("wallet"))?;
-
-    if row.1 != "ACTIVE" {
-        return Err(AppError::Conflict(format!(
-            "carteira {}: não aceita operações",
-            row.1
-        )));
-    }
-    Ok(row.0)
-}
 
 type ChargeRow = (
     Uuid,

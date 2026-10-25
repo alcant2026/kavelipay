@@ -18,6 +18,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::ledger::{self, TransactionType};
 use crate::money::Money;
+use crate::state::wallet_ativa;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -170,18 +171,22 @@ pub async fn settle_part(
 ) -> AppResult<Json<SplitResponse>> {
     let wallet = wallet_ativa(&state, auth.user_id()).await?;
 
+    let mut tx = state.db.begin().await?;
+
     // Filtra por split_id E wallet_id: um part_id de outra divisão (ou de
-    // outro usuário) simplesmente não existe para quem pergunta.
-    let parte = sqlx::query_as::<_, (Decimal, String, bool, Option<chrono::DateTime<chrono::Utc>>)>(
-        "SELECT p.owed_amount, p.participant_name, p.settled_at IS NOT NULL, p.settled_at
+    // outro usuário) simplesmente não existe para quem pergunta. FOR UPDATE
+    // serializa duas quitações concorrentes.
+    let parte = sqlx::query_as::<_, (Decimal, String, bool)>(
+        "SELECT p.owed_amount, p.participant_name, p.settled_at IS NOT NULL
            FROM expense_split_parts p
            JOIN expense_splits s ON s.id = p.split_id
-          WHERE p.id = $1 AND p.split_id = $2 AND s.wallet_id = $3",
+          WHERE p.id = $1 AND p.split_id = $2 AND s.wallet_id = $3
+          FOR UPDATE OF p",
     )
     .bind(part_id)
     .bind(split_id)
     .bind(wallet)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::NotFound("participante"))?;
 
@@ -192,14 +197,17 @@ pub async fn settle_part(
     let valor = Money::new(parte.0);
     let nome = parte.1.clone();
 
-    // Transação primeiro: se o ledger recusar, a parte continua pendente.
-    let transaction_id = ledger::postar(
-        &state.db,
+    // Transação primeiro: se o ledger recusar, a parte continua pendente —
+    // e qualquer falha depois daqui desfaz os dois lados juntos.
+    let transaction_id = ledger::postar_em_com_categoria(
+        &mut tx,
         wallet,
         TransactionType::Settlement,
         valor,
         Some(&format!("Quitação de {nome}")),
         Some(serde_json::json!({ "split_id": split_id, "part_id": part_id })),
+        None,
+        Some(auth.user_id()),
     )
     .await?;
 
@@ -211,13 +219,18 @@ pub async fn settle_part(
     .bind(part_id)
     .bind(split_id)
     .bind(transaction_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
 
     if rows.rows_affected() == 0 {
-        tracing::warn!(%split_id, %part_id, "quitação concorrente; segunda tentativa recusada");
+        // Corrida defensiva: desfaz TUDO — o ledger não pode ficar com
+        // crédito órfão de uma parte não quitada.
+        tracing::warn!(%split_id, %part_id, "quitação concorrente; transação desfeita");
+        tx.rollback().await?;
         return Err(AppError::Conflict("parte já quitada".into()));
     }
+
+    tx.commit().await?;
 
     buscar(&state, split_id, wallet).await.map(Json)
 }
@@ -281,22 +294,6 @@ pub async fn list_splits(
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-async fn wallet_ativa(state: &AppState, user_id: Uuid) -> AppResult<Uuid> {
-    let row = sqlx::query_as::<_, (Uuid, String)>("SELECT id, status FROM wallets WHERE user_id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound("wallet"))?;
-
-    if row.1 != "ACTIVE" {
-        return Err(AppError::Conflict(format!(
-            "carteira {}: não aceita operações",
-            row.1
-        )));
-    }
-    Ok(row.0)
-}
 
 async fn buscar(state: &AppState, id: Uuid, wallet: Uuid) -> AppResult<SplitResponse> {
     let row = sqlx::query_as::<_, (String, Decimal, String, chrono::DateTime<chrono::Utc>)>(

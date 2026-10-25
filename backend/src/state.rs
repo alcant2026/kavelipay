@@ -1,10 +1,13 @@
 //! Estado compartilhado da aplicação, passado ao axum.
 
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::ai::AiClient;
 use crate::auth::TokenService;
 use crate::cotacao::CotacaoClient;
+use crate::error::{AppError, AppResult};
+use crate::rate_limit::LoginGate;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -23,4 +26,27 @@ pub struct AppState {
     /// o processo morrer no boot se o token for fraco — e para os testes
     /// conseguirem ligar a rota sem mexer no ambiente do processo.
     pub admin_token: Option<String>,
+    /// Trava de tentativas de login (brute force). Em memória: MVP de uma
+    /// instância só; se um dia houver mais de um processo, migra para tabela.
+    pub login_gate: LoginGate,
+}
+
+/// Wallet do usuário, exigindo ACTIVE: wallet bloqueada não se move. Ponto
+/// único da fronteira — sete módulos idênticos viraram este.
+pub async fn wallet_ativa(state: &AppState, user_id: Uuid) -> AppResult<Uuid> {
+    let row = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id, status FROM wallets WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("wallet"))?;
+
+    if row.1 != "ACTIVE" {
+        return Err(AppError::Conflict(format!(
+            "carteira {}: não aceita operações",
+            row.1
+        )));
+    }
+    Ok(row.0)
 }

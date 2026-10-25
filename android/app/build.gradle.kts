@@ -138,6 +138,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
 
+    // Tokens cifrados (SessionStore): EncryptedSharedPreferences + MasterKey.
+    // 1.1.0-alpha06 é a versão mais recente da lib (não há estável ainda).
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // QR Code. Só o núcleo de codificação (`core`) — o app não decodifica QR,
     // então `javase` (que puxa ImageIO e swing) seria peso morto.
     // Não usar biblioteca de PIX/BR Code aqui: o payload do KaveliPay é um

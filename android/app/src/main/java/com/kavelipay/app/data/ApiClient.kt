@@ -13,9 +13,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.net.URI
 import java.util.concurrent.TimeUnit
 
 /**
@@ -28,17 +25,17 @@ import java.util.concurrent.TimeUnit
 object ApiClient {
 
     /**
-     * Candidatos de host do backend, testados na ordem por uma sonda TCP.
+     * Candidatos de host do backend, testados na ordem por uma sonda HTTP
+     * (`GET /health`).
      *
-     * - `kavelipay-backend.onrender.com` = produção (Render). Vem PRIMEIRO de
-     *   propósito: no aparelho do usuário, `192.168.1.8` pode ser o roteador
-     *   de casa, e o app cairia num host errado. A porta é explícita porque a
-     *   sonda usa `URI.port` — sem ela a porta seria -1 e a conexão falharia.
-     *   Se o Render não liberar esse nome, ajuste a URL aqui e recompile;
      * - `192.168.240.1` = lado host da bridge do Waydroid — o container só tem
      *   rota para `192.168.240.0/24`, então não alcança `192.168.1.8`;
      * - `192.168.1.8` = IP da máquina na rede Wi-Fi (aparelho físico, mesma rede);
      * - `10.0.2.2` = loopback do host no emulador AVD.
+     *
+     * O Render saiu da lista: respondia TCP com `x-render-routing: no-server`
+     * (serviço morto) e a sonda só vê porta aberta — o app escolhia o host
+     * errado e quebrava no startup. Volta quando houver deploy de novo.
      *
      * O MESMO APK serve os três ambientes: antes da primeira requisição o
      * [BASE_URL] é resolvido sondando cada candidato, e o host que respondeu é
@@ -48,7 +45,9 @@ object ApiClient {
      * aparelho físico apontando para a bridge do Waydroid).
      */
     private val CANDIDATOS = listOf(
-        "https://kavelipay-backend.onrender.com:443",
+        // O Render respondia TCP mas devolvia 404 em tudo (`x-render-routing:
+        // no-server`), e a sonda só vê porta aberta — o app escolhia o host
+        // morto e quebrava no startup. Volta quando houver deploy de novo.
         "http://192.168.240.1:3000",
         "http://192.168.1.8:3000",
         "http://10.0.2.2:3000",
@@ -62,8 +61,8 @@ object ApiClient {
     var BASE_URL: String = CANDIDATOS.first()
         private set
 
-    /** Tempo da sonda TCP por candidato: curto de propósito, é blocking em IO. */
-    private const val SONDA_MS = 800
+    /** Tempo da sonda HTTP por candidato (conexão): curto de propósito, é blocking em IO. */
+    private const val SONDA_MS = 800L
 
     private const val KEY_HOST = "host"
 
@@ -91,24 +90,38 @@ object ApiClient {
         prefsServidor = context.getSharedPreferences("kavelipay.servidor", Context.MODE_PRIVATE)
         // Host que já funcionou entra direto como candidato inicial: a sonda
         // nem precisa rodar quando ele estiver no ar.
-        prefsServidor?.getString(KEY_HOST, null)?.takeIf { it.isNotBlank() }?.let { BASE_URL = it }
+        prefsServidor?.getString(KEY_HOST, null)
+            ?.takeIf { it in CANDIDATOS }
+            ?.let { BASE_URL = it }
     }
 
     /** Candidatos: o host salvo primeiro (o que já respondeu), depois os fixos. */
-    private fun candidatos(): List<String> =
-        (listOfNotNull(prefsServidor?.getString(KEY_HOST, null)) + CANDIDATOS).distinct()
+    private fun candidatos(): List<String> {
+        // Host salvo só vale se ainda está na lista: um endereço removido
+        // (Render morto) não pode continuar sendo tentado primeiro.
+        val salvo = prefsServidor?.getString(KEY_HOST, null)?.takeIf { it in CANDIDATOS }
+        return (listOfNotNull(salvo) + CANDIDATOS).distinct()
+    }
 
     /**
-     * Sonda TCP: `true` se algo aceita conexão na porta do [url].
-     *
-     * É só conexão, nunca uma chamada de API: sonda não autentica e não toca
-     * dado nenhum. Endereço malformado ou porta inválida vira `false` em vez
-     * de estourar exceção no meio da resolução.
+     * Sonda HTTP: `GET /health` respondendo 200 com algo contendo "ok" no
+     * corpo (`{"status":"ok"}` do backend). Só porta TCP aberta não bastava:
+     * o Render respondia conexão com `x-render-routing: no-server` e virava
+     * BASE_URL gravado. Não é chamada autenticada nem toca dado nenhum.
+     * Endereço malformado vira `false` em vez de estourar na resolução.
      */
+    private val sondaClient = OkHttpClient.Builder()
+        .connectTimeout(SONDA_MS, TimeUnit.MILLISECONDS)
+        .readTimeout(2000L, TimeUnit.MILLISECONDS)
+        .build()
+
     private fun alcancavel(url: String): Boolean = try {
-        val uri = URI(url)
-        Socket().use { it.connect(InetSocketAddress(uri.host, uri.port), SONDA_MS) }
-        true
+        sondaClient.newCall(Request.Builder().url(url + "/health").build())
+            .execute()
+            .use { resposta ->
+                resposta.isSuccessful &&
+                    resposta.body?.string()?.contains("ok", ignoreCase = true) == true
+            }
     } catch (_: Exception) {
         false
     }
@@ -317,11 +330,11 @@ object ApiClient {
         val erroPrimeira = primeira.exceptionOrNull()
         if (erroPrimeira == null) return@withContext primeira.getOrThrow()
 
-        // Trocar de host só quando o ATUAL não aceita mais conexão: se o
-        // servidor recebeu a requisição e a falha foi depois (read timeout),
-        // repetir em outro host poderia duplicar um POST que o backend já
-        // gravou. Com o TCP morto a requisição original não chegou a ser
-        // entregue, então o retry é seguro.
+        // Trocar de host só quando o ATUAL está fora: se a sonda `/health`
+        // responde, é seguro assumir que a requisição chegou — repetir em
+        // outro host poderia duplicar um POST que o backend já gravou. Com o
+        // servidor nem respondendo health, a requisição original não chegou a
+        // ser entregue, então o retry é seguro.
         val alternativo = (erroPrimeira as? IOException)
             ?.takeUnless { alcancavel(url) }
             ?.let { trocarServidor(atual = url) }

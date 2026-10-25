@@ -76,6 +76,21 @@ pub async fn create_transaction(
         ))
     })?;
 
+    // Só os tipos de lancamento manual. Os internos (SETTLEMENT,
+    // CHARGE_RECEIVED, INVESTMENT_*) nascem de pagamentos, recebimentos e
+    // movimentos de investimento reais — aceitá-los aqui creditaria/debitaria
+    // a carteira sem o recurso de origem existir (o extrato e o relatório
+    // contariam dinheiro que nunca teve por trás um bill/charge/split).
+    let tipo = match tipo {
+        TransactionType::Entry | TransactionType::Expense | TransactionType::BillPaid => tipo,
+        _ => {
+            return Err(AppError::Validation(format!(
+                "type '{}' não é lançamento manual. Use ENTRY, EXPENSE ou BILL_PAID.",
+                req.r#type
+            )));
+        }
+    };
+
     let (wallet_id, _, status, _) = wallet_do_usuario(&state, auth.user_id()).await?;
 
     // Wallet bloqueada ou fechada não movimenta dinheiro.

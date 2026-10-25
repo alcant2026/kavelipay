@@ -342,12 +342,12 @@ fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoAbrirPlano: () -
     }
 }
 
-private fun somar(valores: List<String>): Double = valores.sumOf { it.toDoubleOrNull() ?: 0.0 }
-
-private fun somarComoString(valores: List<String>): String {
-    val soma = valores.sumOf { it.toDoubleOrNull() ?: 0.0 }
-    return String.format("%.2f", soma)
-}
+// Soma de dinheiro em BigDecimal: Double soma 0.1+0.2 = 0.30000000000000004
+// e viria arredondamento errado no total. Nunca Double em dinheiro.
+private fun somarComoString(valores: List<String>): String =
+    valores.fold(java.math.BigDecimal.ZERO) { acc, v ->
+        acc + (v.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO)
+    }.toPlainString()
 
 private fun formatarMes(ym: String): String {
     val meses = listOf(

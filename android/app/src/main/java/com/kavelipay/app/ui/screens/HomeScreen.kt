@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -121,6 +123,7 @@ fun KpHomeScreen(
     // Vitrine de parceiros. Default vazio para a Home não quebrar em preview
     // ou em chamador antigo; quem alimenta é a raiz.
     aoVerParceiros: () -> Unit = {},
+    aoVerCaixinha: () -> Unit = {},
     temaEscuro: Boolean = false,
     aoAlternarTema: () -> Unit = {},
     // Quem manda na aba é a raiz: a TabBar aparece nas CINCO abas, então o
@@ -168,14 +171,39 @@ fun KpHomeScreen(
         ) {
             // 1. Saldo herói
             item {
-                KpHeroCardSaldo(
-                    saldo = estado.carteira?.saldo ?: "0.00",
-                    moeda = estado.carteira?.moeda ?: "BRL",
-                    demonstrativa = estado.carteira?.demonstrativa ?: true,
-                    aoVerDerivacao = aoVerDerivacao,
-                    aoToggleOcultar = { ocultarSaldo = !ocultarSaldo },
-                    oculto = ocultarSaldo,
-                )
+                // Locais: `estado` vem de `by`, e o compilador não permite
+                // smart cast direto nas propriedades dele.
+                val erro = estado.erro
+                val carteira = estado.carteira
+                when {
+                    // Falha: mensagem reutilizável, NUNCA "R$ 0,00" — zero
+                    // parece "você não tem saldo" e é mentira.
+                    erro != null -> KpMensagemErro(erro)
+                    // Ainda_carregando: spinner no lugar do valor, nunca
+                    // "R$ 0,00" provisório.
+                    carteira == null -> Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                    else -> KpHeroCardSaldo(
+                        saldo = carteira.saldo,
+                        moeda = carteira.moeda,
+                        demonstrativa = carteira.demonstrativa,
+                        aoVerDerivacao = aoVerDerivacao,
+                        aoToggleOcultar = { ocultarSaldo = !ocultarSaldo },
+                        oculto = ocultarSaldo,
+                    )
+                }
+            }
+
+            // 1b. Lembretes fora do ar: selo discreto, não derruba a Home
+            //     nem entra no `erro` global (o resto da carga funcionou).
+            if (estado.lembretesIndisponiveis) {
+                item {
+                    KpBadgeNeutra("Lembretes de conta indisponíveis agora")
+                }
             }
 
             // O aviso de saldo demonstrativo saiu daqui: virou uma linha
@@ -197,6 +225,7 @@ fun KpHomeScreen(
                         // indicações de lojas de terceiros — e o rótulo tem
                         // que dizer isso antes do clique, não depois.
                         { KpAcaoItem(Icons.Default.Storefront, "Parceiro", aoVerParceiros) },
+                        { KpAcaoItem(Icons.Default.Inventory2, "Caixinha", aoVerCaixinha) },
                     )
                 )
             }

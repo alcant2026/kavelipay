@@ -24,6 +24,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::ledger::{self, TransactionType};
 use crate::money::Money;
+use crate::state::wallet_ativa;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -426,22 +427,6 @@ fn validar_campos(
         return Err(AppError::Validation("valor deve ser maior que zero".into()));
     }
     Ok(())
-}
-
-async fn wallet_ativa(state: &AppState, user_id: Uuid) -> AppResult<Uuid> {
-    let row = sqlx::query_as::<_, (Uuid, String)>("SELECT id, status FROM wallets WHERE user_id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound("wallet"))?;
-
-    if row.1 != "ACTIVE" {
-        return Err(AppError::Conflict(format!(
-            "carteira {}: não aceita operações",
-            row.1
-        )));
-    }
-    Ok(row.0)
 }
 
 async fn buscar(state: &AppState, id: Uuid, wallet: Uuid) -> AppResult<DebtResponse> {

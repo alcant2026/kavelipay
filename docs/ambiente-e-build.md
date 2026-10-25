@@ -186,6 +186,7 @@ PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/i
 PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/transparency_e2e.sh
 PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/refresh_e2e.sh
 PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/debts_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/caixinhas_e2e.sh
 bash tests/simulacao.sh
 ```
 
@@ -193,14 +194,19 @@ Senha `kavelipay` = container `kavelipay-pg` (o de volume nomeado, dono de
 55432 agora); o recipe `kp_pgtest` mais acima usa `test`. Com a porta ocupada
 por um, o outro não sobe.
 
-Treze scripts. `simulacao.sh` é a **jornada completa** de um usuário (cadastro →
+Catorze scripts. `caixinhas_e2e.sh` (porta dinâmica — antes fixa em 3324) é a jornada da Caixinha
+(criação → convite de uso único com rotação → fronteira 404 → aporte /
+rendimento / devolução sob "quem paga propõe, quem recebe confirma" →
+avaliação → telefone → vitrine → derivações do mês) e prova a decisão
+central: `GET /wallet` dos quatro envolvidos fica `0.00` do começo ao fim —
+a caixinha é FORA do ledger. `simulacao.sh` é a **jornada completa** de um usuário (cadastro →
 entradas → contas → pagar → despesas → divisão → cobrança + QR → lembretes →
 histórico → segurança → isolamento entre contas → conferência contábil) e
 imprime o dinheiro entrando e saindo a cada passo. Rode para ver o produto
 funcionar, não só para passar: `bash tests/simulacao.sh`.
 
 Os onze outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
-binário real (`:3311` auth, `:3312` ledger, `:3313` bills, `:3314` splits,
+binário real (porta dinâmica por execução: `BASE_PORT` fixa explicitamente; antes fixas em :3311 auth, :3312 ledger, :3313 bills, :3314 splits,
 `:3315` charges, `:3316` perfil/notif/histórico, `:3317` dívidas, `:3321`
 transparência, `:3319` parceiros, `:3322` refresh, `:3323` investimentos).
 Exigem `cargo build` antes. Não

@@ -31,6 +31,28 @@ impl AuthUser {
     }
 }
 
+/// IP do cliente, quando existir. Com `into_make_service_with_connect_info` o
+/// axum injeta o endereço; requests fabricados (testes) ficam com `None`. Este
+/// extractor NUNCA falha — por isso não é `Option<ConnectInfo>`, que não é
+/// extractor válido no axum 0.8.
+pub struct ClientIp(pub Option<std::net::IpAddr>);
+
+impl FromRequestParts<AppState> for ClientIp {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(ClientIp(
+            parts
+                .extensions
+                .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                .map(|c| c.0.ip()),
+        ))
+    }
+}
+
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 
