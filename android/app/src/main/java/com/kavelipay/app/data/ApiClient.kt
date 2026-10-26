@@ -33,9 +33,10 @@ object ApiClient {
      * - `192.168.1.8` = IP da máquina na rede Wi-Fi (aparelho físico, mesma rede);
      * - `10.0.2.2` = loopback do host no emulador AVD.
      *
-     * O Render saiu da lista: respondia TCP com `x-render-routing: no-server`
-     * (serviço morto) e a sonda só vê porta aberta — o app escolhia o host
-     * errado e quebrava no startup. Volta quando houver deploy de novo.
+     * O Render voltou: agora há deploy (`kavelipay-backend.onrender.com`) e a
+     * sonda valida `GET /health` real (200 + corpo `ok`), não só porta aberta.
+     * No plano free ele dorme após ~15 min sem tráfego — o cold start passa do
+     * timeout da sonda e o app cai pro candidato local da vez.
      *
      * O MESMO APK serve os três ambientes: antes da primeira requisição o
      * [BASE_URL] é resolvido sondando cada candidato, e o host que respondeu é
@@ -45,9 +46,7 @@ object ApiClient {
      * aparelho físico apontando para a bridge do Waydroid).
      */
     private val CANDIDATOS = listOf(
-        // O Render respondia TCP mas devolvia 404 em tudo (`x-render-routing:
-        // no-server`), e a sonda só vê porta aberta — o app escolhia o host
-        // morto e quebrava no startup. Volta quando houver deploy de novo.
+        "https://kavelipay-backend.onrender.com",
         "http://192.168.240.1:3000",
         "http://192.168.1.8:3000",
         "http://10.0.2.2:3000",
