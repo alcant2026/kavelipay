@@ -87,19 +87,25 @@ object ApiClient {
      */
     fun configurar(context: Context) {
         prefsServidor = context.getSharedPreferences("kavelipay.servidor", Context.MODE_PRIVATE)
-        // Host que já funcionou entra direto como candidato inicial: a sonda
-        // nem precisa rodar quando ele estiver no ar.
+        // Host salvo vale como BASE inicial; a sonda revalida antes do uso e a
+        // ordem de tentativa é a da lista (Render primeiro) — ver [candidatos].
         prefsServidor?.getString(KEY_HOST, null)
             ?.takeIf { it in CANDIDATOS }
             ?.let { BASE_URL = it }
     }
 
-    /** Candidatos: o host salvo primeiro (o que já respondeu), depois os fixos. */
+    /**
+     * Candidatos: a ordem FIXA da lista (Render primeiro), depois o salvo.
+     * Salvo primeiro era um trampo: numa sessão de cold start do Render o app
+     * caía pro local e GRAVAVA o local — e a partir daí o Render (sempre
+     * depois do salvo) nunca mais era testado. Com a ordem fixa, o Render
+     * volta sozinho pra [BASE_URL] assim que responde, sem intervenção.
+     */
     private fun candidatos(): List<String> {
         // Host salvo só vale se ainda está na lista: um endereço removido
         // (Render morto) não pode continuar sendo tentado primeiro.
         val salvo = prefsServidor?.getString(KEY_HOST, null)?.takeIf { it in CANDIDATOS }
-        return (listOfNotNull(salvo) + CANDIDATOS).distinct()
+        return (CANDIDATOS + listOfNotNull(salvo)).distinct()
     }
 
     /**
