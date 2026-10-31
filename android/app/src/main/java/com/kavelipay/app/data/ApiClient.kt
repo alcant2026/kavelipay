@@ -2,6 +2,7 @@ package com.kavelipay.app.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.pm.ApplicationInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,32 +26,34 @@ import java.util.concurrent.TimeUnit
 object ApiClient {
 
     /**
-     * Candidatos de host do backend, testados na ordem por uma sonda HTTP
-     * (`GET /health`).
+     * Hosts de backend local, só usados em build depurável.
      *
      * - `192.168.240.1` = lado host da bridge do Waydroid — o container só tem
      *   rota para `192.168.240.0/24`, então não alcança `192.168.1.8`;
      * - `192.168.1.8` = IP da máquina na rede Wi-Fi (aparelho físico, mesma rede);
      * - `10.0.2.2` = loopback do host no emulador AVD.
      *
-     * O Render voltou: agora há deploy (`kavelipay-backend.onrender.com`) e a
-     * sonda valida `GET /health` real (200 + corpo `ok`), não só porta aberta.
-     * No plano free ele dorme após ~15 min sem tráfego — o cold start passa do
-     * timeout da sonda e o app cai pro candidato local da vez.
-     *
-     * O MESMO APK serve os três ambientes: antes da primeira requisição o
-     * [BASE_URL] é resolvido sondando cada candidato, e o host que respondeu é
-     * persistido (`SharedPreferences` `kavelipay.servidor`) para virar o
-     * primeiro da lista da próxima execução. Sem a sonda, o candidato errado
-     * custaria 15s de connect timeout por requisição (foi o que travava o
-     * aparelho físico apontando para a bridge do Waydroid).
+     * A sonda (`GET /health`, 200 + corpo `ok`) e a persistência do host em
+     * `SharedPreferences` `kavelipay.servidor` continuam valendo: sem a sonda, o
+     * candidato errado custaria 15s de connect timeout por requisição (foi o que
+     * travava o aparelho físico apontando para a bridge do Waydroid).
      */
-    private val CANDIDATOS = listOf(
-        "https://kavelipay-backend.onrender.com",
+    private val CAMINHOS_LOCAIS = listOf(
         "http://192.168.240.1:3000",
         "http://192.168.1.8:3000",
         "http://10.0.2.2:3000",
     )
+
+    /**
+     * `false` no APK de release: cada backend tem o SEU banco, então trocar de
+     * host no meio do caminho fazia a conta nascer num banco e o login cair no
+     * outro — `401` com a senha certa. Só libera os hosts locais em build
+     * depurável (`configurar`), onde o dev sabe contra qual banco está falando.
+     */
+    private var permiteLocal = false
+
+    private val CANDIDATOS: List<String>
+        get() = listOf("https://kavelipay-backend.onrender.com") + if (permiteLocal) CAMINHOS_LOCAIS else emptyList()
 
     /**
      * Base URL do backend em uso. Só muda pela sonda ([resolverServidor] /
@@ -86,6 +89,7 @@ object ApiClient {
      * zero a cada abertura do app.
      */
     fun configurar(context: Context) {
+        permiteLocal = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         prefsServidor = context.getSharedPreferences("kavelipay.servidor", Context.MODE_PRIVATE)
         // Host salvo vale como BASE inicial; a sonda revalida antes do uso e a
         // ordem de tentativa é a da lista (Render primeiro) — ver [candidatos].
