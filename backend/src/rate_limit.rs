@@ -92,12 +92,59 @@ impl LoginGate {
     }
 }
 
+/// Freio de pedidos de redefinição de senha, por IP.
+///
+/// Sem isso o endpoint vira remetente de spam: cada POST com um e-mail
+/// diferente dispara um envio real, e o custo (reputação do domínio) é seu.
+/// Cinco por hora cobre quem errou o próprio e-mail e não serve a um atacante.
+#[derive(Default, Clone)]
+pub struct Cooldown {
+    janelas: Arc<Mutex<HashMap<IpAddr, (Instant, u32)>>>,
+}
+
+impl Cooldown {
+    pub const MAX: u32 = 5;
+    pub const JANELA: Duration = Duration::from_secs(60 * 60);
+
+    /// `true` se o pedido pode seguir — e já conta como um.
+    pub fn permite(&self, ip: IpAddr) -> bool {
+        let mut mapa = self.lock();
+        let agora = Instant::now();
+        // Sem poda, um mês de IPs distintos vira um mapa que nunca encolhe.
+        if mapa.len() > 10_000 {
+            mapa.retain(|_, (inicio, _)| agora.duration_since(*inicio) <= Self::JANELA);
+        }
+        let entrada = mapa.entry(ip).or_insert((agora, 0));
+        if agora.duration_since(entrada.0) > Self::JANELA {
+            *entrada = (agora, 0);
+        }
+        entrada.1 += 1;
+        entrada.1 <= Self::MAX
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<IpAddr, (Instant, u32)>> {
+        self.janelas
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn ip() -> IpAddr {
         "10.0.0.1".parse().unwrap()
+    }
+
+    #[test]
+    fn cooldown_corta_no_limite_e_nao_afeta_outro_ip() {
+        let cooldown = Cooldown::default();
+        for _ in 0..Cooldown::MAX {
+            assert!(cooldown.permite(ip()));
+        }
+        assert!(!cooldown.permite(ip()));
+        assert!(cooldown.permite("10.0.0.2".parse().unwrap()));
     }
 
     #[test]

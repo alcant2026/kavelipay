@@ -510,6 +510,10 @@ fun KpHeroCardSaldo(
 @Composable
 fun KpTopBar(
     saudacao: String = "Olá",
+    // Nome do usuário logado (`GET /auth/me` → `display_name`). Nulo ou vazio
+    // cai no nome do app: conta demo/falha de rede não podem deixar o topo
+    // sem título.
+    nomeUsuario: String? = null,
     aoToggleTema: () -> Unit = {},
     aoVerNotificacoes: () -> Unit = {},
     dark: Boolean = false, // passado de fora, não usa isSystemInDarkTheme() aqui
@@ -538,9 +542,13 @@ fun KpTopBar(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "KaveliPay",
+                // O topo cumprimenta a pessoa, não a marca: o nome vem do
+                // perfil. Nome não definido = volta a mostrar o app.
+                nomeUsuario?.takeIf { it.isNotBlank() } ?: "KaveliPay",
                 style = TituloTela,
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
 

@@ -100,6 +100,10 @@ uma instância só.
 | `OPENROUTER_API_KEY` | não | liga IA de prefill; sem ela devolve 503 |
 | `OPENROUTER_MODEL` | não | padrão `mistralai/mistral-nemo` |
 | `DB_MAX_CONNECTIONS` | não | padrão 10 |
+| `SMTP_HOST` | não | liga a recuperação de senha; sem ela `/auth/forgot-password` devolve 503 |
+| `SMTP_PORT` | não | padrão 465 (TLS implícito; não há STARTTLS/587) |
+| `SMTP_USER` / `SMTP_PASS` | não | autenticação; defina as duas juntas (Gmail: senha de app) |
+| `SMTP_FROM` | só com `SMTP_HOST` | endereço remetente verificado no provedor |
 | `RUST_LOG` | não | `info` é um bom começo |
 | `BIND_ADDR` | não | só para rodar fora do Render; no Render use `PORT` |
 

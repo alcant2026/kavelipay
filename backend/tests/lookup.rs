@@ -94,7 +94,7 @@ async fn subir_app(ai: AiClient) -> String {
     )
     .unwrap();
 
-    let app = kavelipay_backend::routes::router(AppState { db, tokens, ai, cotacao, admin_token: None, login_gate: Default::default() });
+    let app = kavelipay_backend::routes::router(AppState { db, tokens, ai, cotacao, admin_token: None, login_gate: Default::default(), mailer: None, reset_gate: Default::default() });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {

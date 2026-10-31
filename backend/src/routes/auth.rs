@@ -183,6 +183,200 @@ pub async fn logout(State(state): State<AppState>, Json(req): Json<RefreshReques
     Ok(())
 }
 
+#[derive(Deserialize)]
+pub struct ForgotPasswordRequest {
+    pub email: String,
+}
+
+/// Resposta de um passo que NÃO pode confirmar existência de conta.
+#[derive(Serialize)]
+pub struct MensagemResponse {
+    pub mensagem: &'static str,
+}
+
+/// Texto único do "esqueci a senha". Igual com conta e sem conta — a diferença
+/// entregaria uma lista de e-mails cadastrados.
+const RESPOSTA_GENERICA: &str =
+    "Se este e-mail estiver cadastrado, enviamos um código de redefinição.";
+
+/// POST /auth/forgot-password
+///
+/// Três cuidados que não são opcionais:
+/// 1. a resposta é sempre a mesma (sem enumeração de contas);
+/// 2. o envio roda em background — o tempo de resposta também denunciaria
+///    quem tem conta, e SMTP lento não pode segurar o request;
+/// 3. um freio por IP, senão o endpoint vira remetente de spam usando o seu
+///    domínio.
+pub async fn forgot_password(
+    State(state): State<AppState>,
+    ip_auth: crate::auth::ClientIp,
+    Json(req): Json<ForgotPasswordRequest>,
+) -> AppResult<Json<MensagemResponse>> {
+    // Sem SMTP configurado é 503: melhor a tela dizer "indisponível" do que
+    // fingir que mandou um e-mail que nunca sai.
+    let mailer = state.mailer.clone().ok_or(AppError::Unavailable)?;
+
+    let ip = ip_auth
+        .0
+        .unwrap_or(std::net::Ipv4Addr::UNSPECIFIED.into());
+    if !state.reset_gate.permite(ip) {
+        return Err(AppError::TooManyRequests(
+            "muitos pedidos de redefinição; tente de novo em 1 hora".into(),
+        ));
+    }
+
+    let email = normalizar_email(&req.email)?;
+
+    let conta = sqlx::query_as::<_, (uuid::Uuid, String)>(
+        "SELECT id, email FROM users WHERE email = $1",
+    )
+    .bind(&email)
+    .fetch_optional(&state.db)
+    .await?;
+
+    if let Some((user_id, email)) = conta {
+        // Cooldown por conta: dois toques no botão não viram dois e-mails.
+        // Conta o PEDIDO, não o envio — a linha nasce antes do SMTP.
+        let pedido_recente = sqlx::query_scalar::<_, i32>(
+            "SELECT 1 FROM password_resets
+              WHERE user_id = $1 AND criado_em > now() - INTERVAL '60 seconds'",
+        )
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await?
+        .is_some();
+
+        if !pedido_recente {
+            let codigo = crate::routes::billing::gerar_codigo_legivel();
+            // Mesmo SHA-256 dos refresh tokens: o banco guarda só o hash, então
+            // quem lê a tabela não redefine a senha de ninguém.
+            let hash = crate::auth::hash_refresh(&codigo);
+
+            // Pedido novo apaga os pendentes: dois códigos vivos ao mesmo tempo
+            // só aumentam a superfície de ataque.
+            sqlx::query("DELETE FROM password_resets WHERE user_id = $1")
+                .bind(user_id)
+                .execute(&state.db)
+                .await?;
+            sqlx::query(
+                "INSERT INTO password_resets (user_id, token_hash, expira_em)
+                 VALUES ($1, $2, now() + make_interval(mins => $3))",
+            )
+            .bind(user_id)
+            .bind(&hash)
+            .bind(crate::mail::VALIDADE_RESET_MINUTOS as i32)
+            .execute(&state.db)
+            .await?;
+
+            let corpo = corpo_reset(&codigo);
+            tokio::spawn(async move {
+                if let Err(erro) = mailer
+                    .enviar(&email, "Redefinir sua senha KaveliPay", &corpo)
+                    .await
+                {
+                    tracing::error!(email = %email, "envio do código de redefinição falhou: {erro}");
+                }
+            });
+        }
+    }
+
+    Ok(Json(MensagemResponse {
+        mensagem: RESPOSTA_GENERICA,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct ResetPasswordRequest {
+    pub token: String,
+    pub new_password: String,
+}
+
+#[derive(Serialize)]
+pub struct PasswordResetOk {
+    pub sessions_revoked: u64,
+}
+
+/// POST /auth/reset-password
+///
+/// O código é de uso único e tem prazo. Consumo e troca de senha acontecem na
+/// MESMA transação: se o UPDATE da senha falhasse depois de queimar o código, o
+/// usuário ficaria sem o código antigo e sem a senha nova.
+pub async fn reset_password(
+    State(state): State<AppState>,
+    Json(req): Json<ResetPasswordRequest>,
+) -> AppResult<Json<PasswordResetOk>> {
+    validar_senha(&req.new_password)?;
+
+    let hash_do_codigo = crate::auth::hash_refresh(req.token.trim());
+    let novo_hash = crate::auth::hash(&req.new_password)?;
+
+    let mut tx = state.db.begin().await?;
+
+    // Um único UPDATE condicional resolve "existe, não venceu, não foi usado" e
+    // já marca o uso. Dois requests simultâneos com o mesmo código: o segundo
+    // não encontra a linha (o predicado é reavaliado depois do lock).
+    let consumo = sqlx::query_as::<_, (uuid::Uuid,)>(
+        "UPDATE password_resets
+            SET usado_em = now()
+          WHERE token_hash = $1
+            AND usado_em IS NULL
+            AND expira_em > now()
+        RETURNING user_id",
+    )
+    .bind(&hash_do_codigo)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some((user_id,)) = consumo else {
+        return Err(AppError::NaoValido(
+            "código inválido ou expirado; peça um novo".into(),
+        ));
+    };
+
+    sqlx::query("UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1")
+        .bind(user_id)
+        .bind(&novo_hash)
+        .execute(&mut *tx)
+        .await?;
+
+    // Senha nova derruba toda sessão aberta: quem estava logado com a senha
+    // antiga pode ser justamente quem a perdeu.
+    let revogadas = sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now()
+          WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    tx.commit().await?;
+
+    tracing::info!(user_id = %user_id, revogadas, "senha redefinida por código; sessões revogadas");
+
+    Ok(Json(PasswordResetOk {
+        sessions_revoked: revogadas,
+    }))
+}
+
+/// Corpo do e-mail. Diz o que fazer e o que acontece se não foi o dono — sem
+/// jargão e sem link: o código é digitado/colado no app.
+fn corpo_reset(codigo: &str) -> String {
+    format!(
+        "Alguém pediu para redefinir a senha da sua conta KaveliPay.\n\
+         \n\
+         Seu código (vale por {} minutos e só uma vez):\n\
+         \n\
+         {codigo}\n\
+         \n\
+         Abra o app, toque em \"Esqueci minha senha\", cole o código e escolha a \
+         senha nova.\n\
+         \n\
+         Se não foi você, ignore esta mensagem: sua senha continua a mesma.\n",
+        crate::mail::VALIDADE_RESET_MINUTOS
+    )
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /// Hash descartável de um usuário inexistente, para igualar o custo do login.

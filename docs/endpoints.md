@@ -8,6 +8,14 @@
   mesma transação
 - `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`
 - `GET /auth/me` — rota protegida de referência; o `user_id` vem do token
+- `POST /auth/forgot-password` — `{email}`. A resposta é **sempre a mesma**,
+  com conta ou sem (senão o endpoint entrega a lista de e-mails cadastrados), e
+  o envio roda em background para o tempo de resposta não denunciar nada. Manda
+  um código `KPL-…` por e-mail; um pedido novo invalida o anterior. 429 por IP
+  (5/hora), 503 quando o SMTP não está configurado.
+- `POST /auth/reset-password` — `{token, new_password}`. Código de uso único,
+  vale 30 min, e a troca derruba **todas** as sessões (`sessions_revoked`).
+  Código inválido/expirado/reusado é 422 com texto próprio.
 - `GET /wallet` — saldo derivado, moeda, status
 - `POST /wallet/transactions` — `{type, amount, description?}`; `amount` é
   **string** (`"10.50"`). Float é 422.

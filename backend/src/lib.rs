@@ -12,6 +12,7 @@ pub mod config;
 pub mod error;
 pub mod http_cru;
 pub mod ledger;
+pub mod mail;
 pub mod money;
 pub mod payment;
 pub mod rate_limit;

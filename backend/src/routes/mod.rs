@@ -36,6 +36,11 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/refresh", post(auth::refresh))
         .route("/auth/logout", post(auth::logout))
         .route("/auth/me", get(auth::me))
+        // recuperação de senha: as duas rotas são PÚBLICAS por definição —
+        // quem esqueceu a senha não tem sessão. O segredo é o código enviado
+        // por e-mail, não o login.
+        .route("/auth/forgot-password", post(auth::forgot_password))
+        .route("/auth/reset-password", post(auth::reset_password))
         // perfil e segurança
         .route("/profile", patch(profile::update))
         .route("/profile/password", post(profile::change_password))

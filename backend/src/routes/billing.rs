@@ -300,7 +300,10 @@ pub async fn gerar_codigo(
 
 /// `KPL-XXXX-XXXX-XXXX-XXXX`, alfabeto sem `0/O` e `1/I` — o código é lido de
 /// e-mail e digitado à mão; caractere ambíguo é suporte garantido.
-fn gerar_codigo_legivel() -> String {
+///
+/// Usado pelo código de ativação e pelo de redefinição de senha: os dois saem
+/// de e-mail e voltam digitados, então a regra de legibilidade é a mesma.
+pub(crate) fn gerar_codigo_legivel() -> String {
     const ALFABETO: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let bytes: [u8; 16] = rand::random();
     let mut out = String::with_capacity(23);

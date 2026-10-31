@@ -33,6 +33,25 @@ class KaveliPayApi(private val sessao: SessionStore) {
         return guardar(r)
     }
 
+    /**
+     * `POST /auth/forgot-password`.
+     *
+     * A resposta é sempre a mesma, com conta ou sem: o app não pode dizer "e-mail
+     * não cadastrado" — isso entregaria a lista de usuários para quem tentasse.
+     */
+    suspend fun esquecerSenha(email: String) {
+        ApiClient.post("/auth/forgot-password", JSONObject().put("email", email), null)
+    }
+
+    /** `POST /auth/reset-password` — troca a senha com o código que chegou por e-mail. */
+    suspend fun redefinirSenha(codigo: String, novaSenha: String) {
+        ApiClient.post(
+            "/auth/reset-password",
+            JSONObject().put("token", codigo.trim()).put("new_password", novaSenha),
+            null,
+        )
+    }
+
     suspend fun logout() {
         val refresh = sessao.refreshToken
         if (refresh != null) {

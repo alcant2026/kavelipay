@@ -29,6 +29,13 @@ pub struct AppState {
     /// Trava de tentativas de login (brute force). Em memória: MVP de uma
     /// instância só; se um dia houver mais de um processo, migra para tabela.
     pub login_gate: LoginGate,
+    /// Envio de e-mail. `None` = SMTP não configurado — recuperação de senha
+    /// responde 503 (o resto do app não depende de e-mail).
+    pub mailer: Option<crate::mail::Mailer>,
+    /// Freio de pedidos de redefinição de senha. Separado do `login_gate`
+    /// porque a semântica é outra: aqui não existe "login deu certo", só
+    /// quantos envios o IP já pediu na última hora.
+    pub reset_gate: crate::rate_limit::Cooldown,
 }
 
 /// Wallet do usuário, exigindo ACTIVE: wallet bloqueada não se move. Ponto

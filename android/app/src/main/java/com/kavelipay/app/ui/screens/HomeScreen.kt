@@ -147,6 +147,8 @@ fun KpHomeScreen(
         topBar = {
             KpTopBar(
                 saudacao = "Olá",
+                // O topo cumprimenta quem está logado, não a marca.
+                nomeUsuario = estado.perfil?.displayName,
                 aoToggleTema = aoToggleTema,
                 aoVerNotificacoes = aoVerNotificacoes,
                 dark = temaEscuro,

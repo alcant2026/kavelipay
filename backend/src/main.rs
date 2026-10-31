@@ -65,6 +65,13 @@ async fn main() -> Result<(), AppError> {
         );
     }
 
+    if config.mailer.is_none() {
+        tracing::warn!(
+            "SMTP_HOST não definida: recuperação de senha desligada \
+             (POST /auth/forgot-password devolve 503)"
+        );
+    }
+
     let cotacao = kavelipay_backend::cotacao::CotacaoClient::new(
         config.brapi_base_url.clone(),
         config.yahoo_base_url.clone(),
@@ -82,6 +89,8 @@ async fn main() -> Result<(), AppError> {
         cotacao,
         admin_token: config.admin_token.clone(),
         login_gate: kavelipay_backend::rate_limit::LoginGate::default(),
+        mailer: config.mailer.clone(),
+        reset_gate: Default::default(),
     };
 
     let app = routes::router(state)

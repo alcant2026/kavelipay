@@ -75,6 +75,23 @@ fun KpLoginScreen(vm: AppViewModel, aoEntrar: () -> Unit) {
     var nome by rememberSaveable { mutableStateOf("") }
     var mostrarSenha by rememberSaveable { mutableStateOf(false) }
 
+    // Recuperação de senha: pede o e-mail, depois o código que chegou nele.
+    var recuperando by rememberSaveable { mutableStateOf(false) }
+    var codigoEnviado by rememberSaveable { mutableStateOf(false) }
+    var codigo by rememberSaveable { mutableStateOf("") }
+    var novaSenha by rememberSaveable { mutableStateOf("") }
+    var aviso by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val mascaraSenha = if (mostrarSenha) VisualTransformation.None else PasswordVisualTransformation()
+    val botaoOlho: @Composable () -> Unit = {
+        IconButton(onClick = { mostrarSenha = !mostrarSenha }) {
+            Icon(
+                if (mostrarSenha) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                contentDescription = if (mostrarSenha) "Ocultar senha" else "Mostrar senha",
+            )
+        }
+    }
+
     val estado by vm.estado.collectAsState()
 
     LaunchedEffect(estado.autenticado) {
@@ -110,79 +127,170 @@ fun KpLoginScreen(vm: AppViewModel, aoEntrar: () -> Unit) {
 
             KpCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(Spacing.md)) {
-                    if (criando) {
-                        KpCampo(
-                            valor = nome,
-                            aoMudar = { nome = it },
-                            rotulo = "Nome",
-                            imeAction = ImeAction.Next,
-                        )
-                        Spacer(Modifier.height(Spacing.sm))
-                    }
-
-                    KpCampo(
-                        valor = email,
-                        aoMudar = { email = it },
-                        rotulo = "E-mail",
-                        teclado = KeyboardType.Email,
-                        imeAction = ImeAction.Next,
-                    )
-                    Spacer(Modifier.height(Spacing.sm))
-
-                    KpCampo(
-                        valor = senha,
-                        aoMudar = { senha = it },
-                        rotulo = "Senha",
-                        teclado = KeyboardType.Password,
-                        imeAction = ImeAction.Done,
-                        mascara = if (mostrarSenha) {
-                            VisualTransformation.None
-                        } else {
-                            PasswordVisualTransformation()
-                        },
-                        sufixo = {
-                            IconButton(onClick = { mostrarSenha = !mostrarSenha }) {
-                                Icon(
-                                    if (mostrarSenha) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (mostrarSenha) "Ocultar senha" else "Mostrar senha",
-                                )
-                            }
-                        },
-                    )
-
-                    AnimatedVisibility(estado.erro != null) {
-                        Column {
+                    when {
+                        // "Esqueci minha senha": primeiro o e-mail, para saber
+                        // quem recebe o código.
+                        recuperando && !codigoEnviado -> {
+                            KpCampo(
+                                valor = email,
+                                aoMudar = { email = it },
+                                rotulo = "E-mail da conta",
+                                teclado = KeyboardType.Email,
+                                imeAction = ImeAction.Done,
+                            )
+                            ErroLogin(estado.erro)
                             Spacer(Modifier.height(Spacing.md))
-                            KpMensagemErro(estado.erro.orEmpty())
+                            KpBotaoPrimario(
+                                texto = "Enviar código",
+                                onClick = {
+                                    aviso = null
+                                    vm.esquecerSenha(email) { codigoEnviado = true }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                habilitado = email.isNotBlank(),
+                                carregando = estado.carregando,
+                            )
+                        }
+
+                        // …e depois o código que chegou, com a senha nova.
+                        recuperando -> {
+                            Text(
+                                "Enviamos um código para $email. Ele vale por 30 minutos.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(Spacing.sm))
+                            KpCampo(
+                                valor = codigo,
+                                aoMudar = { codigo = it },
+                                rotulo = "Código do e-mail",
+                                imeAction = ImeAction.Next,
+                            )
+                            Spacer(Modifier.height(Spacing.sm))
+                            KpCampo(
+                                valor = novaSenha,
+                                aoMudar = { novaSenha = it },
+                                rotulo = "Senha nova",
+                                teclado = KeyboardType.Password,
+                                imeAction = ImeAction.Done,
+                                mascara = mascaraSenha,
+                                sufixo = botaoOlho,
+                            )
+                            ErroLogin(estado.erro)
+                            Spacer(Modifier.height(Spacing.md))
+                            KpBotaoPrimario(
+                                texto = "Salvar senha nova",
+                                onClick = {
+                                    vm.redefinirSenha(codigo, novaSenha) {
+                                        recuperando = false
+                                        codigoEnviado = false
+                                        codigo = ""
+                                        novaSenha = ""
+                                        senha = ""
+                                        aviso = "Senha alterada. Entre com a senha nova."
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                // 8 é a mesma regra do backend: recusar aqui
+                                // evita uma ida ao servidor para ouvir "senha curta".
+                                habilitado = codigo.isNotBlank() && novaSenha.length >= 8,
+                                carregando = estado.carregando,
+                            )
+                        }
+
+                        else -> {
+                            if (criando) {
+                                KpCampo(
+                                    valor = nome,
+                                    aoMudar = { nome = it },
+                                    rotulo = "Nome",
+                                    imeAction = ImeAction.Next,
+                                )
+                                Spacer(Modifier.height(Spacing.sm))
+                            }
+
+                            KpCampo(
+                                valor = email,
+                                aoMudar = { email = it },
+                                rotulo = "E-mail",
+                                teclado = KeyboardType.Email,
+                                imeAction = ImeAction.Next,
+                            )
+                            Spacer(Modifier.height(Spacing.sm))
+
+                            KpCampo(
+                                valor = senha,
+                                aoMudar = { senha = it },
+                                rotulo = "Senha",
+                                teclado = KeyboardType.Password,
+                                imeAction = ImeAction.Done,
+                                mascara = mascaraSenha,
+                                sufixo = botaoOlho,
+                            )
+
+                            ErroLogin(estado.erro)
+
+                            Spacer(Modifier.height(Spacing.md))
+
+                            KpBotaoPrimario(
+                                texto = if (criando) "Criar conta" else "Entrar",
+                                onClick = {
+                                    aviso = null
+                                    if (criando) vm.registrar(email, senha, nome) else vm.entrar(email, senha)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                // Desabilitar com email vazio evita um 400 inútil.
+                                habilitado = email.isNotBlank() && senha.isNotBlank(),
+                                carregando = estado.carregando,
+                            )
                         }
                     }
-
-                    Spacer(Modifier.height(Spacing.md))
-
-                    KpBotaoPrimario(
-                        texto = if (criando) "Criar conta" else "Entrar",
-                        onClick = {
-                            if (criando) vm.registrar(email, senha, nome) else vm.entrar(email, senha)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        // Desabilitar com email vazio evita um 400 inútil.
-                        habilitado = email.isNotBlank() && senha.isNotBlank(),
-                        carregando = estado.carregando,
-                    )
                 }
+            }
+
+            aviso?.let {
+                Spacer(Modifier.height(Spacing.sm))
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
 
             Spacer(Modifier.height(Spacing.md))
 
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                TextButton(onClick = {
-                    criando = !criando
-                    vm.limparErro()
-                }) {
-                    Text(
-                        if (criando) "Já tenho conta" else "Quero criar conta",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (recuperando) {
+                    TextButton(onClick = {
+                        recuperando = false
+                        codigoEnviado = false
+                        vm.limparErro()
+                    }) {
+                        Text("Voltar para o login", style = MaterialTheme.typography.bodyMedium)
+                    }
+                } else {
+                    TextButton(onClick = {
+                        criando = !criando
+                        vm.limparErro()
+                    }) {
+                        Text(
+                            if (criando) "Já tenho conta" else "Quero criar conta",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    if (!criando) {
+                        TextButton(onClick = {
+                            recuperando = true
+                            aviso = null
+                            vm.limparErro()
+                        }) {
+                            Text("Esqueci minha senha", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
                 }
             }
 
@@ -197,6 +305,17 @@ fun KpLoginScreen(vm: AppViewModel, aoEntrar: () -> Unit) {
             )
 
             Spacer(Modifier.height(Spacing.xl))
+        }
+    }
+}
+
+/** Erro da entrada, sempre no mesmo lugar nos três modos (entrar, criar, recuperar). */
+@Composable
+private fun ErroLogin(erro: String?) {
+    AnimatedVisibility(erro != null) {
+        Column {
+            Spacer(Modifier.height(Spacing.md))
+            KpMensagemErro(erro.orEmpty())
         }
     }
 }

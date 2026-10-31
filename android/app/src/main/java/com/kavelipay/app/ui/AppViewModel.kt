@@ -226,6 +226,39 @@ class AppViewModel(
     fun registrar(email: String, senha: String, nome: String) =
         autenticar { api.registrar(email.trim(), senha, nome.trim()) }
 
+    /**
+     * Pede o código de redefinição. Não entra na sessão: quem esqueceu a senha
+     * está justamente fora dela. Erro vai para `estado.erro` como os demais.
+     */
+    fun esquecerSenha(email: String, onOk: () -> Unit) {
+        _estado.update { it.copy(carregando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.esquecerSenha(email.trim()) }
+                .onSuccess {
+                    _estado.update { it.copy(carregando = false, erro = null) }
+                    onOk()
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(carregando = false, erro = mensagemDe(e)) }
+                }
+        }
+    }
+
+    /** Troca a senha com o código do e-mail. As sessões antigas morrem no servidor. */
+    fun redefinirSenha(codigo: String, novaSenha: String, onOk: () -> Unit) {
+        _estado.update { it.copy(carregando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.redefinirSenha(codigo, novaSenha) }
+                .onSuccess {
+                    _estado.update { it.copy(carregando = false, erro = null) }
+                    onOk()
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(carregando = false, erro = mensagemDe(e)) }
+                }
+        }
+    }
+
     private fun autenticar(acao: suspend () -> String) {
         _estado.update { it.copy(carregando = true, erro = null) }
         viewModelScope.launch {
@@ -263,6 +296,10 @@ class AppViewModel(
                     // somada tornaria a primeira pintura lenta.
                     val carteira = async { api.carteira() }
                     val extrato = async { api.extrato(limite = 50) }
+                    // Nome do usuário para a saudação da Home. Silencioso de
+                    // propósito: perfil que não carregou deixa o topo com o
+                    // nome do app — não é erro de tela.
+                    val perfil = async { runCatching { api.perfil() }.getOrNull() }
                     val derivacao = async { api.derivacao(limite = 100) }
                     val contas = async { api.contas() }
                     // Relatório é Premium: sem plano, o backend responde 402. Isso
@@ -295,6 +332,7 @@ class AppViewModel(
                             extrato = extrato.await(),
                             derivacao = derivacao.await(),
                             contas = contas.await(),
+                            perfil = perfil.await(),
                             relatorio = resultadoRelatorio.getOrNull(),
                             planoNecessario = ePlanoNecessario(resultadoRelatorio.exceptionOrNull()),
                             lembretesIndisponiveis = lembretes.isFailure,

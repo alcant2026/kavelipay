@@ -59,6 +59,10 @@ pub struct Config {
     /// propaganda no app de todo mundo. Igual à OpenRouter, é segredo de
     /// operação, não configuração de infraestrutura.
     pub admin_token: Option<String>,
+    /// Envio de e-mail (recuperação de senha). `None` = SMTP não configurado:
+    /// o backend sobe, e `POST /auth/forgot-password` devolve 503 em vez de
+    /// fingir que mandou.
+    pub mailer: Option<crate::mail::Mailer>,
 }
 
 impl Config {
@@ -137,6 +141,7 @@ impl Config {
             statusinvest_base_url: env::var("STATUSINVEST_BASE_URL")
                 .unwrap_or_else(|_| crate::cotacao::STATUSINVEST_BASE_PADRAO.to_string()),
             admin_token,
+            mailer: crate::mail::Mailer::from_env()?,
         })
     }
 }

@@ -194,7 +194,9 @@ Senha `kavelipay` = container `kavelipay-pg` (o de volume nomeado, dono de
 55432 agora); o recipe `kp_pgtest` mais acima usa `test`. Com a porta ocupada
 por um, o outro não sobe.
 
-Catorze scripts. `caixinhas_e2e.sh` (porta dinâmica — antes fixa em 3324) é a jornada da Caixinha
+Quinze scripts. `password_reset_e2e.sh` sobe um SMTP falso (`tests/smtp_mock.py`)
+em `127.0.0.1` e lê o código do e-mail entregue — o fluxo inteiro de "esqueci a
+senha" roda sem internet e sem provedor. `caixinhas_e2e.sh` (porta dinâmica — antes fixa em 3324) é a jornada da Caixinha
 (criação → convite de uso único com rotação → fronteira 404 → aporte /
 rendimento / devolução sob "quem paga propõe, quem recebe confirma" →
 avaliação → telefone → vitrine → derivações do mês) e prova a decisão
@@ -205,7 +207,7 @@ histórico → segurança → isolamento entre contas → conferência contábil
 imprime o dinheiro entrando e saindo a cada passo. Rode para ver o produto
 funcionar, não só para passar: `bash tests/simulacao.sh`.
 
-Os onze outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
+Os doze outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
 binário real (porta dinâmica por execução: `BASE_PORT` fixa explicitamente; antes fixas em :3311 auth, :3312 ledger, :3313 bills, :3314 splits,
 `:3315` charges, `:3316` perfil/notif/histórico, `:3317` dívidas, `:3321`
 transparência, `:3319` parceiros, `:3322` refresh, `:3323` investimentos).
