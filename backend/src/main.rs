@@ -67,7 +67,7 @@ async fn main() -> Result<(), AppError> {
 
     if config.mailer.is_none() {
         tracing::warn!(
-            "SMTP_HOST não definida: recuperação de senha desligada \
+            "BREVO_API_KEY e SMTP_HOST não definidas: recuperação de senha desligada \
              (POST /auth/forgot-password devolve 503)"
         );
     }

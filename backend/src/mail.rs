@@ -1,5 +1,11 @@
-//! E-mail transacional por SMTP — só o necessário para o link de redefinição
-//! de senha.
+//! E-mail transacional — só o necessário para o código de redefinição de
+//! senha.
+//!
+//! **Dois modos, escolhidos pelo ambiente:** `BREVO_API_KEY` presente manda
+//! pela API HTTPS da Brevo (porta 443); senão, `SMTP_HOST` manda por SMTP.
+//! O motivo de existir o modo HTTP: o plano free do Render bloqueia saída nas
+//! portas 25/465/587 desde 2025-09-26, então Gmail/SMTP ali só funciona em
+//! instância paga. HTTPS passa em qualquer plano.
 //!
 //! **Por que na mão, e não `lettre`:** o `lettre` puxa o rustls com o provider
 //! `aws-lc-rs`, e este binário já fixou `ring` (ver `Cargo.toml`). Com dois
@@ -11,46 +17,84 @@
 //! e falha só no log: o usuário nunca deve descobrir, pelo tempo de resposta,
 //! se o endereço existe.
 //!
-//! shortcut: TLS implícito (porta 465) apenas. Provedor que só ofereça
-//! STARTTLS (587) precisa de subida de TLS no meio da conversa.
+//! shortcut: TLS implícito (porta 465) apenas no modo SMTP. Provedor que só
+//! ofereça STARTTLS (587) precisa de subida de TLS no meio da conversa.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 use crate::error::{AppError, AppResult};
 
-/// Tempo máximo da conversa inteira. SMTP fora do ar não pode segurar uma
-/// task para sempre.
+/// Tempo máximo da conversa inteira. Servidor de e-mail fora do ar não pode
+/// segurar uma task para sempre.
 const PRAZO: Duration = Duration::from_secs(20);
+
+/// Teto do corpo lido na resposta HTTP. A Brevo devolve um JSON curto; isto só
+/// evita que uma resposta errada coma memória.
+const LIMITE_CORPO: usize = 64 * 1024;
+
+/// API de e-mail transacional da Brevo. HTTPS, então passa no plano free do
+/// Render (que bloqueia SMTP).
+pub const URL_BREVO: &str = "https://api.brevo.com/v3/smtp/email";
 
 /// Validade do link enviado ao usuário. Curto de propósito: é o tempo que um
 /// e-mail vazado continua valendo.
 pub const VALIDADE_RESET_MINUTOS: i64 = 30;
 
 /// Remetente padrão exibido na caixa de entrada. O endereço vem de
-/// `SMTP_FROM`; este nome é só o que aparece antes dele.
+/// `SMTP_FROM` (ou `MAIL_FROM`); este nome é só o que aparece antes dele.
 const NOME_REMETENTE: &str = "KaveliPay";
 
 #[derive(Clone)]
+enum Modo {
+    Smtp {
+        host: String,
+        porta: u16,
+        /// `false` só em teste (mock em loopback). `from_env` recusa desligar
+        /// TLS para host que não seja a própria máquina.
+        tls: bool,
+        usuario: Option<String>,
+        senha: Option<String>,
+    },
+    Brevo {
+        chave: String,
+        /// `URL_BREVO`, salvo override em teste (`BREVO_URL`).
+        url: String,
+    },
+}
+
+#[derive(Clone)]
 pub struct Mailer {
-    host: String,
-    porta: u16,
-    /// `false` só em teste (mock em loopback). `from_env` recusa desligar
-    /// TLS para host que não seja a própria máquina.
-    tls: bool,
-    usuario: Option<String>,
-    senha: Option<String>,
+    modo: Modo,
     remetente: String,
 }
 
 impl Mailer {
-    /// Monta o mailer a partir do ambiente. `SMTP_HOST` ausente = e-mail
-    /// desligado (`None`), e o backend sobe igual: a recuperação de senha é
-    /// a única coisa que depende disso.
+    /// Monta o mailer a partir do ambiente. Sem `BREVO_API_KEY` e sem
+    /// `SMTP_HOST`, o e-mail fica desligado (`None`) e o backend sobe igual: a
+    /// recuperação de senha é a única coisa que depende disso.
     pub fn from_env() -> AppResult<Option<Self>> {
+        let remetente = env_nao_vazio("MAIL_FROM").or_else(|| env_nao_vazio("SMTP_FROM"));
+
+        if let Some(chave) = env_nao_vazio("BREVO_API_KEY") {
+            let remetente = remetente.ok_or_else(|| {
+                AppError::Config(
+                    "MAIL_FROM não definida (endereço verificado na Brevo que aparece como remetente)"
+                        .into(),
+                )
+            })?;
+            return Ok(Some(Self {
+                modo: Modo::Brevo {
+                    chave,
+                    url: env_nao_vazio("BREVO_URL").unwrap_or_else(|| URL_BREVO.to_string()),
+                },
+                remetente,
+            }));
+        }
+
         let Some(host) = env_nao_vazio("SMTP_HOST") else {
             return Ok(None);
         };
@@ -81,16 +125,18 @@ impl Mailer {
             ));
         }
 
-        let remetente = env_nao_vazio("SMTP_FROM").ok_or_else(|| {
+        let remetente = remetente.ok_or_else(|| {
             AppError::Config("SMTP_FROM não definida (endereço que aparece como remetente)".into())
         })?;
 
         Ok(Some(Self {
-            host,
-            porta,
-            tls,
-            usuario,
-            senha,
+            modo: Modo::Smtp {
+                host,
+                porta,
+                tls,
+                usuario,
+                senha,
+            },
             remetente,
         }))
     }
@@ -98,28 +144,84 @@ impl Mailer {
     /// Envia um e-mail de texto puro. Erro volta como texto porque quem chama
     /// é uma task de log, não um handler.
     pub async fn enviar(&self, para: &str, assunto: &str, corpo: &str) -> Result<(), String> {
-        let mensagem = montar_mensagem(&self.remetente, para, assunto, corpo);
-        match tokio::time::timeout(PRAZO, self.enviar_interno(para, &mensagem)).await {
+        let envio = async {
+            match &self.modo {
+                Modo::Smtp {
+                    host,
+                    porta,
+                    tls,
+                    usuario,
+                    senha,
+                } => {
+                    let mensagem = montar_mensagem(&self.remetente, para, assunto, corpo);
+                    self.enviar_smtp(
+                        host,
+                        *porta,
+                        *tls,
+                        usuario.as_deref(),
+                        senha.as_deref(),
+                        para,
+                        &mensagem,
+                    )
+                    .await
+                }
+                Modo::Brevo { chave, url } => self.enviar_brevo(url, chave, para, assunto, corpo).await,
+            }
+        };
+        match tokio::time::timeout(PRAZO, envio).await {
             Ok(resultado) => resultado,
             Err(_) => Err(format!("prazo de {PRAZO:?} estourado")),
         }
     }
 
-    async fn enviar_interno(&self, para: &str, mensagem: &str) -> Result<(), String> {
-        let tcp = tokio::net::TcpStream::connect((self.host.as_str(), self.porta))
+    async fn enviar_smtp(
+        &self,
+        host: &str,
+        porta: u16,
+        tls: bool,
+        usuario: Option<&str>,
+        senha: Option<&str>,
+        para: &str,
+        mensagem: &str,
+    ) -> Result<(), String> {
+        let tcp = tokio::net::TcpStream::connect((host, porta))
             .await
-            .map_err(|e| format!("conexão com {}:{} falhou: {e}", self.host, self.porta))?;
+            .map_err(|e| format!("conexão com {host}:{porta} falhou: {e}"))?;
 
-        let credenciais = self
-            .usuario
-            .as_deref()
-            .zip(self.senha.as_deref());
+        let credenciais = usuario.zip(senha);
 
-        if self.tls {
-            let fluxo = conectar_tls(tcp, &self.host).await?;
+        if tls {
+            let fluxo = conectar_tls(tcp, host).await?;
             dialogo(fluxo, credenciais, &self.remetente, para, mensagem).await
         } else {
             dialogo(tcp, credenciais, &self.remetente, para, mensagem).await
+        }
+    }
+
+    /// `POST` na API da Brevo. O corpo é JSON montado pelo `serde_json` (o
+    /// texto do e-mail tem acento, aspas e quebra de linha).
+    async fn enviar_brevo(
+        &self,
+        url: &str,
+        chave: &str,
+        para: &str,
+        assunto: &str,
+        corpo: &str,
+    ) -> Result<(), String> {
+        let corpo_json = serde_json::json!({
+            "sender": { "name": NOME_REMETENTE, "email": self.remetente },
+            "to": [{ "email": para }],
+            "subject": assunto,
+            "textContent": corpo,
+        })
+        .to_string();
+
+        let (status, texto) = post_json(url, chave, &corpo_json).await?;
+        if (200..300).contains(&status) {
+            Ok(())
+        } else {
+            let resumo: String = texto.trim().chars().take(300).collect();
+            Err(format!("Brevo respondeu {status}: {resumo}"))
         }
     }
 }
@@ -129,6 +231,88 @@ fn env_nao_vazio(chave: &str) -> Option<String> {
         .ok()
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
+}
+
+/// `POST` JSON e devolve (status, corpo). O status volta cru de propósito: a
+/// Brevo diz no corpo o que recusou (remetente não verificado, chave errada),
+/// e é esse texto que vai para o log.
+async fn post_json(url: &str, chave: &str, corpo: &str) -> Result<(u16, String), String> {
+    let alvo = url::Url::parse(url).map_err(|e| format!("BREVO_URL inválida: {e}"))?;
+    let host = alvo.host_str().ok_or("BREVO_URL sem host")?.to_string();
+    let porta = alvo.port_or_known_default().ok_or("BREVO_URL sem porta")?;
+    let caminho = match alvo.query() {
+        Some(query) => format!("{}?{query}", alvo.path()),
+        None => alvo.path().to_string(),
+    };
+
+    let pedido = format!(
+        "POST {caminho} HTTP/1.1\r\n\
+         Host: {host}\r\n\
+         api-key: {chave}\r\n\
+         Content-Type: application/json\r\n\
+         Accept: application/json\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n\
+         {corpo}",
+        corpo.len()
+    );
+
+    let tcp = tokio::net::TcpStream::connect((host.as_str(), porta))
+        .await
+        .map_err(|e| format!("conexão com {host}:{porta} falhou: {e}"))?;
+
+    let bruto = match alvo.scheme() {
+        "https" => enviar_e_ler(conectar_tls(tcp, &host).await?, pedido).await?,
+        // Só o mock do teste usa http://.
+        "http" => enviar_e_ler(tcp, pedido).await?,
+        outro => return Err(format!("BREVO_URL com esquema não suportado: {outro}")),
+    };
+
+    separar_status(&bruto)
+}
+
+async fn enviar_e_ler<S>(mut fluxo: S, pedido: String) -> Result<Vec<u8>, String>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    fluxo
+        .write_all(pedido.as_bytes())
+        .await
+        .map_err(|e| format!("envio HTTP falhou: {e}"))?;
+    fluxo
+        .flush()
+        .await
+        .map_err(|e| format!("flush HTTP falhou: {e}"))?;
+
+    let mut bruto = Vec::new();
+    let mut bloco = [0u8; 8192];
+    loop {
+        match fluxo.read(&mut bloco).await {
+            Ok(0) => return Ok(bruto),
+            Ok(lidos) => {
+                bruto.extend_from_slice(&bloco[..lidos]);
+                if bruto.len() > LIMITE_CORPO {
+                    return Err("resposta HTTP acima do limite".into());
+                }
+            }
+            Err(e) => return Err(format!("leitura HTTP falhou: {e}")),
+        }
+    }
+}
+
+fn separar_status(bruto: &[u8]) -> Result<(u16, String), String> {
+    let texto = String::from_utf8_lossy(bruto);
+    let (cabecalho, corpo) = texto
+        .split_once("\r\n\r\n")
+        .ok_or("resposta HTTP sem cabeçalho completo")?;
+    let status: u16 = cabecalho
+        .lines()
+        .next()
+        .and_then(|linha| linha.split_whitespace().nth(1))
+        .and_then(|codigo| codigo.parse().ok())
+        .ok_or("resposta HTTP sem status")?;
+    Ok((status, corpo.to_string()))
 }
 
 async fn conectar_tls(
@@ -364,13 +548,106 @@ mod tests {
 
     fn mailer(porta: u16) -> Mailer {
         Mailer {
-            host: "127.0.0.1".into(),
-            porta,
-            tls: false,
-            usuario: Some("usuario".into()),
-            senha: Some("segredo".into()),
+            modo: Modo::Smtp {
+                host: "127.0.0.1".into(),
+                porta,
+                tls: false,
+                usuario: Some("usuario".into()),
+                senha: Some("segredo".into()),
+            },
             remetente: "no-reply@kavelipay.test".into(),
         }
+    }
+
+    /// Mock da API da Brevo: lê o pedido inteiro (cabeçalho + corpo pelo
+    /// `Content-Length`) e devolve `resposta`.
+    async fn subir_mock_brevo(resposta: &'static str) -> (Mailer, tokio::task::JoinHandle<String>) {
+        let ouvinte = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let porta = ouvinte.local_addr().unwrap().port();
+
+        let tarefa = tokio::spawn(async move {
+            let (mut fluxo, _) = ouvinte.accept().await.unwrap();
+            let mut pedido = Vec::new();
+            let mut bloco = [0u8; 4096];
+            let mut total: Option<usize> = None;
+            loop {
+                let lidos = fluxo.read(&mut bloco).await.unwrap();
+                if lidos == 0 {
+                    break;
+                }
+                pedido.extend_from_slice(&bloco[..lidos]);
+                if total.is_none() {
+                    if let Some(fim) = pedido.windows(4).position(|janela| janela == b"\r\n\r\n") {
+                        let cabecalho = String::from_utf8_lossy(&pedido[..fim]).to_lowercase();
+                        let tamanho = cabecalho
+                            .lines()
+                            .find_map(|linha| linha.strip_prefix("content-length:"))
+                            .and_then(|valor| valor.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        total = Some(fim + 4 + tamanho);
+                    }
+                }
+                if let Some(total) = total {
+                    if pedido.len() >= total {
+                        break;
+                    }
+                }
+            }
+
+            fluxo.write_all(resposta.as_bytes()).await.unwrap();
+            fluxo.flush().await.unwrap();
+            String::from_utf8_lossy(&pedido).to_string()
+        });
+
+        let mailer = Mailer {
+            modo: Modo::Brevo {
+                chave: "chave-de-teste".into(),
+                url: format!("http://127.0.0.1:{porta}/v3/smtp/email"),
+            },
+            remetente: "no-reply@kavelipay.test".into(),
+        };
+        (mailer, tarefa)
+    }
+
+    #[tokio::test]
+    async fn brevo_posta_json_com_a_chave_no_cabecalho() {
+        let (mailer, tarefa) = subir_mock_brevo(
+            "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        mailer
+            .enviar("pessoa@exemplo.com", "Redefinir senha", "Código: KPL-1234")
+            .await
+            .unwrap();
+
+        let pedido = tarefa.await.unwrap();
+        assert!(pedido.starts_with("POST /v3/smtp/email HTTP/1.1"));
+        assert!(pedido.contains("api-key: chave-de-teste"));
+
+        let corpo = pedido.split_once("\r\n\r\n").unwrap().1;
+        let json: serde_json::Value = serde_json::from_str(corpo).unwrap();
+        assert_eq!(json["sender"]["email"], "no-reply@kavelipay.test");
+        assert_eq!(json["to"][0]["email"], "pessoa@exemplo.com");
+        assert_eq!(json["subject"], "Redefinir senha");
+        assert_eq!(json["textContent"], "Código: KPL-1234");
+    }
+
+    #[tokio::test]
+    async fn brevo_recusa_vira_erro_com_o_motivo_do_provedor() {
+        let (mailer, tarefa) = subir_mock_brevo(
+            "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n\
+             {\"code\":\"invalid_parameter\",\"message\":\"sender not verified\"}",
+        )
+        .await;
+
+        let erro = mailer
+            .enviar("pessoa@exemplo.com", "Redefinir senha", "oi")
+            .await
+            .unwrap_err();
+
+        assert!(erro.contains("400"), "erro devolvido: {erro}");
+        assert!(erro.contains("sender not verified"), "erro devolvido: {erro}");
+        let _ = tarefa.await;
     }
 
     #[tokio::test]

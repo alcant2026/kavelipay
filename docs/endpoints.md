@@ -12,7 +12,8 @@
   com conta ou sem (senão o endpoint entrega a lista de e-mails cadastrados), e
   o envio roda em background para o tempo de resposta não denunciar nada. Manda
   um código `KPL-…` por e-mail; um pedido novo invalida o anterior. 429 por IP
-  (5/hora), 503 quando o SMTP não está configurado.
+  (5/hora), 503 quando nenhum provedor de e-mail está configurado (`BREVO_API_KEY`
+  ou `SMTP_HOST`).
 - `POST /auth/reset-password` — `{token, new_password}`. Código de uso único,
   vale 30 min, e a troca derruba **todas** as sessões (`sessions_revoked`).
   Código inválido/expirado/reusado é 422 com texto próprio.
