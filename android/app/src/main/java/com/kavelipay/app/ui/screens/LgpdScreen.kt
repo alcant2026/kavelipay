@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kavelipay.app.ui.AppViewModel
+import com.kavelipay.app.ui.Fornecedor
 import com.kavelipay.app.ui.components.KpBotaoPrimario
 import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
@@ -136,10 +137,25 @@ fun KpLgpdScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                             "• Eliminação: botão acima (anônimo, ledger preservado)\n" +
                             "• Portabilidade: a planilha CSV é formato aberto\n" +
                             "• Oposição: não há processamento automatizado de decisões\n" +
-                            "• DPO: não se aplica (não é controlador de dados sensíveis)\n\n" +
+                            "• Canal de privacidade: ${Fornecedor.EMAIL}\n\n" +
                             "O KaveliPay NÃO é banco, instituição de pagamento, custodiante, " +
                             "emissor de moeda eletrônica ou provedor de PIX. O saldo é " +
                             "sempre derivado dos SEUS lançamentos — você pode conferir.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            item {
+                KpCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(Spacing.md)) {
+                        Text("Quem responde pelo app", style = TituloSecao)
+                        Spacer(Modifier.height(Spacing.sm))
+                        Text(
+                            "${Fornecedor.NOME} · ${Fornecedor.REFERENCIA}\n" +
+                                "Atendimento, reembolso e pedidos de privacidade: " +
+                                Fornecedor.EMAIL,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -461,6 +461,14 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
             token,
         ).paraDetalheCaixinha()
 
+    /** `PATCH /caixinhas/{id}/publica` — só o dono; o servidor devolve 403 para membro. */
+    suspend fun definirCaixinhaPublica(caixinhaId: String, publica: Boolean): DetalheCaixinha =
+        ApiClient.patch(
+            "/caixinhas/$caixinhaId/publica?mes=${mesLocal()}",
+            JSONObject().put("publica", publica),
+            token,
+        ).paraDetalheCaixinha()
+
     // ── Histórico unificado ───────────────────────────────────────────────────
     suspend fun historico(limite: Int = 50, kind: String? = null): Historico {
         // `?` e `&` decide se isto monta `/history?kind=BILL&limit=50` ou

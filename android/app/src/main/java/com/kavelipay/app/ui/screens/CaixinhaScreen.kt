@@ -25,6 +25,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -316,6 +317,47 @@ fun KpCaixinhaScreen(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // ── Vitrine (só o dono decide) ──────────────────────────────
+                if (ehDono) {
+                    item {
+                        KpCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(Spacing.md)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Vitrine pública", style = TituloCard)
+                                        Text(
+                                            "Qualquer pessoa encontra esta caixinha e vê o " +
+                                                "que está publicado abaixo.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = d.publica,
+                                        onCheckedChange = {
+                                            vm.definirCaixinhaPublica(d.id, it)
+                                        },
+                                    )
+                                }
+                                if (d.publica) {
+                                    Spacer(Modifier.height(Spacing.xs))
+                                    Text(
+                                        "Aparecem na vitrine: seu nome, seu telefone (se " +
+                                            "preenchido), o nome da caixinha, o valor pedido, a " +
+                                            "taxa, o arrecadado e as avaliações. Desligar aqui " +
+                                            "tira tudo isso na hora.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         }
                     }

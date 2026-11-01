@@ -106,6 +106,8 @@
 - `PATCH /caixinhas/{id}/meu-telefone` — cada um grava o próprio telefone
   (dono → `caixinhas.telefone_dono`; membro → a linha dele). Só dígitos,
   10 ou 11; a formatação é da tela.
+- `PATCH /caixinhas/{id}/publica` — `{"publica": bool}`, **só o dono** (membro
+  recebe 403). Liga/desliga a vitrine; é a revogação do consentimento.
 - Erros: 404/409/422 com mensagens **literais em pt-BR** combinadas com o app
   (tabela completa em `docs/caixinha-api.md`). `NaoEncontrado`/`NaoValido` em
   `error.rs` são as variantes de mensagem literal (code `not_found` /

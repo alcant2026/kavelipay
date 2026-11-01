@@ -153,21 +153,32 @@ fun KpNovaCaixinhaScreen(
 
             item {
                 KpCard(Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(Spacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Aparecer na vitrine pública", style = MaterialTheme.typography.bodyLarge)
+                    Column(Modifier.padding(Spacing.md)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Aparecer na vitrine pública", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Outras pessoas encontram sua caixinha e entram com a chave.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(checked = publica, onCheckedChange = { publica = it })
+                        }
+                        if (publica) {
+                            Spacer(Modifier.height(Spacing.sm))
                             Text(
-                                "Outras pessoas encontram sua caixinha e entram com a chave.",
+                                "Ao publicar, ficam visíveis para qualquer pessoa: seu nome, " +
+                                    "seu telefone (se preenchido), o nome da caixinha, o valor " +
+                                    "pedido, a taxa, quanto já foi arrecadado e as avaliações. " +
+                                    "Você pode desligar isso depois, na tela da caixinha.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Switch(checked = publica, onCheckedChange = { publica = it })
                     }
                 }
             }

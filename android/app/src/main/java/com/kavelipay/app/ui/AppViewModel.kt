@@ -939,6 +939,11 @@ fun carregarChargeQr(chargeId: String) {
         mutarCaixinha({ api.salvarTelefoneCaixinha(caixinhaId, telefone) })
     }
 
+    /** Publicar/despublicar a vitrine: revogar consentimento é um toque. */
+    fun definirCaixinhaPublica(caixinhaId: String, publica: Boolean) {
+        mutarCaixinha({ api.definirCaixinhaPublica(caixinhaId, publica) })
+    }
+
     // ── Histórico ─────────────────────────────────────────────────────────────
     fun carregarHistorico(limite: Int = 50, kind: String? = null) {
         viewModelScope.launch {

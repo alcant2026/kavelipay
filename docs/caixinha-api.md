@@ -154,6 +154,7 @@ Rotas no `routes/mod.rs` — literais **antes** de `{id}`, como investments:
 /caixinhas/{id}/movimentos/{mov_id}/cancelar     POST       (quem propôs)
 /caixinhas/{id}/avaliacao     POST   avaliar 1–5            (membro)
 /caixinhas/{id}/meu-telefone  PATCH  salvar meu telefone
+/caixinhas/{id}/publica       PATCH  dono liga/desliga a vitrine
 ```
 
 Todo endpoint que devolve detalhe aceita `?mes=YYYY-MM` (default: mês atual
@@ -319,6 +320,16 @@ Só membro com `aportado > 0`, uma vez, 1–5. 200 → detalhe
 ```
 Dono grava `telefone_dono`; membro grava o próprio `caixinha_membros.telefone`.
 Filtrar só dígitos; 10 ou 11, senão 422. 200 → detalhe.
+
+### PATCH /caixinhas/{id}/publica
+
+```json
+{ "publica": true }
+```
+
+Só o dono (membro recebe **403**). Liga/desliga a presença na vitrine
+`GET /caixinhas/publicas`. É o caminho de revogação do consentimento: quem
+publicou sai da vitrine sozinho, sem passar pelo suporte. 200 → detalhe.
 
 ## Derivações (funções puras, unidade-testáveis sem banco)
 

@@ -174,7 +174,7 @@ private fun AvisoIndicacao() {
     KpCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(Spacing.md)) {
             Text(
-                text = "Indicação, não venda",
+                text = "Publicidade: indicação, não venda",
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(

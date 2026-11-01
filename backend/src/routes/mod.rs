@@ -162,6 +162,10 @@ pub fn router(state: AppState) -> Router {
             "/caixinhas/{id}/meu-telefone",
             patch(caixinhas::meu_telefone),
         )
+        .route(
+            "/caixinhas/{id}/publica",
+            patch(caixinhas::definir_publica),
+        )
         // vitrine de lojas parceiras (indicação de afiliado): usuário só lê;
         // cadastro é /admin com X-Admin-Token (503 se ADMIN_TOKEN não existe)
         .route("/parceiros", get(parceiros::list))

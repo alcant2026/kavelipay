@@ -910,6 +910,37 @@ check "para o bob (membro) entrou é True (recebido ${ENTROU_B:-vazio})" \
     "$([ "$ENTROU_B" = "True" ] && echo true || echo false)"
 
 echo
+echo "vitrine: só o dono muda — e dá para sair dela (consentimento revogável)"
+
+C_PUB_MEMBRO=$(code -X PATCH "$BASE/caixinhas/$CAIXINHA/publica" -H "$AUTH_B" \
+    -H 'Content-Type: application/json' -d '{"publica":false}')
+check "membro tentando despublicar é 403 (recebido $C_PUB_MEMBRO)" \
+    "$([ "$C_PUB_MEMBRO" = "403" ] && echo true || echo false)"
+
+DESPUB=$(curl -s -X PATCH "$BASE/caixinhas/$CAIXINHA/publica" -H "$AUTH_A" \
+    -H 'Content-Type: application/json' -d '{"publica":false}')
+PUB_DES=$(campo publica <<<"$DESPUB")
+check "dono despublica: publica=false (recebido ${PUB_DES:-vazio})" \
+    "$([ "$PUB_DES" = "False" ] && echo true || echo false)"
+
+N_APOS=$(qtd_de '' <<<"$(curl -s "$BASE/caixinhas/publicas" -H "$AUTH_D")")
+check "vitrine vazia depois de despublicar (recebido ${N_APOS:-vazio})" \
+    "$([ "$N_APOS" = "0" ] && echo true || echo false)"
+
+C_REPUB=$(code -X PATCH "$BASE/caixinhas/$CAIXINHA/publica" -H "$AUTH_A" \
+    -H 'Content-Type: application/json' -d '{"publica":true}')
+check "dono republica é 200 (recebido $C_REPUB)" \
+    "$([ "$C_REPUB" = "200" ] && echo true || echo false)"
+
+N_VOLTOU=$(qtd_de '' <<<"$(curl -s "$BASE/caixinhas/publicas" -H "$AUTH_D")")
+check "vitrine volta com 1 (recebido ${N_VOLTOU:-vazio})" \
+    "$([ "$N_VOLTOU" = "1" ] && echo true || echo false)"
+
+SALDO_A_PUB=$(saldo "$AUTH_A")
+check "saldo do dono segue 0.00 (recebido ${SALDO_A_PUB:-vazio})" \
+    "$([ "$SALDO_A_PUB" = "0.00" ] && echo true || echo false)"
+
+echo
 echo "minhas caixinhas: cada um vê as suas, com o papel certo"
 
 MINHAS_A=$(curl -s "$BASE/caixinhas" -H "$AUTH_A")

@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.kavelipay.app.ui.AppViewModel
+import com.kavelipay.app.ui.Fornecedor
 import com.kavelipay.app.ui.components.KpBotaoPrimario
 import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
@@ -204,6 +205,34 @@ fun KpPlanoScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                                 text = "O código chega depois da compra. O KaveliPay " +
                                     "não processa pagamento: o app só troca o código " +
                                     "pelo período de acesso.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                item { Text("Reembolso e cancelamento", style = TituloSecao) }
+
+                item {
+                    KpCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(Spacing.md)) {
+                            Text(
+                                "Você pode desistir da compra em até 7 dias corridos e receber " +
+                                    "tudo de volta, sem precisar justificar (art. 49 do CDC). " +
+                                    "Escreva para ${Fornecedor.EMAIL} com o e-mail da sua conta.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Spacer(Modifier.height(Spacing.sm))
+                            Text(
+                                "Não existe cobrança automática: nenhum cartão fica guardado e " +
+                                    "o acesso não renova sozinho. Quando o período acabar, a conta " +
+                                    "volta ao plano grátis e seus dados continuam lá.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(Spacing.sm))
+                            Text(
+                                "${Fornecedor.NOME} · ${Fornecedor.REFERENCIA}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

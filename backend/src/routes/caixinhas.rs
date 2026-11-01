@@ -861,6 +861,42 @@ pub async fn meu_telefone(
     Ok(Json(carregar_detalhe(&state, id, auth.user_id(), mes).await?))
 }
 
+// ── PATCH /caixinhas/{id}/publica ───────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct PublicaRequest {
+    pub publica: bool,
+}
+
+/// `PATCH /caixinhas/{id}/publica` — dono decide se a caixinha aparece na vitrine.
+///
+/// A criação já pergunta, mas consentimento se revoga: quem publicou precisa
+/// sair da vitrine sozinho, sem abrir pedido de suporte. Só o dono muda — membro
+/// que tenta recebe 403 e a vitrine não muda para ele.
+pub async fn definir_publica(
+    State(state): State<AppState>,
+    auth: crate::auth::AuthUser,
+    Path(id): Path<Uuid>,
+    Query(q): Query<MesQuery>,
+    Json(req): Json<PublicaRequest>,
+) -> AppResult<Json<CaixinhaDetalhe>> {
+    let mes = mes_da_query(&q)?;
+
+    let mut tx = state.db.begin().await?;
+    let (_, eh_dono) = acesso(&mut tx, id, auth.user_id()).await?;
+    if !eh_dono {
+        return Err(AppError::Forbidden);
+    }
+    sqlx::query("UPDATE caixinhas SET publica = $2 WHERE id = $1")
+        .bind(id)
+        .bind(req.publica)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    Ok(Json(carregar_detalhe(&state, id, auth.user_id(), mes).await?))
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /// Linha de `caixinhas`: id, dono, nome, valor_pedido, taxa_mensal,
