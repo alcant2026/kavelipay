@@ -24,3 +24,6 @@ keystore.properties
 .neon
 .agents/
 skills-lock.json
+
+# Config local do agente (contém token do MCP do Render)
+opencode.json
