@@ -80,10 +80,13 @@ import kotlinx.coroutines.launch
  * Home — padrão Nubank:
  * 1. TopBar (saudação + tema + notificações + ocultar saldo)
  * 2. Saldo herói (GET /wallet) com selo Demonstrativo + toggle ocultar
- * 3. Fila de ações (LazyRow horizontal): Entrada, Despesa, Boleto, Cobrar,
- *    Dividir, Investir, Parceiro
+ * 3. Fila de ações (LazyRow horizontal): Entrada, Despesa, Cobrar, Dividir —
+ *    as quatro coisas que a pessoa faz toda semana. Boleto, Caixinha,
+ *    Investir e Parceiro moraram aqui até virar oito atalhos numa tela só;
+ *    oito botões para quem só quer anotar "paguei 50 no mercado" é um painel
+ *    de avião. Eles não sumiram: foram para o cartão "Mais".
  * 4. Bloco "Contas a pagar" com badges de vencido
- * 5. Cartão "Mais" (só o que não tem outro caminho na Home)
+ * 5. Cartão "Mais" (o que não cabe em atalho nem em aba)
  * 6. Últimos lançamentos (extrato resumido)
  * 7. TabBar inferior 5 abas
  *
@@ -218,16 +221,8 @@ fun KpHomeScreen(
                     acoes = listOf(
                         { KpAcaoItem(Icons.Default.Add, "Entrada", aoNovaTransacao) },
                         { KpAcaoItem(Icons.Default.Remove, "Despesa", aoNovaDespesa) },
-                        { KpAcaoItem(Icons.Default.ReceiptLong, "Boleto", aoNovaConta) },
                         { KpAcaoItem(Icons.Default.QrCode, "Cobrar", aoNovaCharge) },
                         { KpAcaoItem(Icons.Default.SwapHoriz, "Dividir", aoVerDivisoes) },
-                        { KpAcaoItem(Icons.Default.TrendingUp, "Investir", aoVerInvestimentos) },
-                        // "Parceiro", não "Loja": o atalho não leva a uma loja
-                        // NOSSA (o app não vende). Ele leva a uma vitrine de
-                        // indicações de lojas de terceiros — e o rótulo tem
-                        // que dizer isso antes do clique, não depois.
-                        { KpAcaoItem(Icons.Default.Storefront, "Parceiro", aoVerParceiros) },
-                        { KpAcaoItem(Icons.Default.Inventory2, "Caixinha", aoVerCaixinha) },
                     )
                 )
             }
@@ -321,6 +316,36 @@ fun KpHomeScreen(
                             rotulo = "Categorias",
                             subtitulo = "Classifique entradas e despesas do seu jeito",
                             onClick = aoVerCategorias,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        // Saíram da fila de atalhos para cá: continuam a um
+                        // toque, mas deixam de competir com o que é diário.
+                        KpMenuRow(
+                            icone = Icons.Default.Inventory2,
+                            rotulo = "Caixinhas",
+                            subtitulo = "Junte dinheiro com outras pessoas, mês a mês",
+                            onClick = aoVerCaixinha,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        KpMenuRow(
+                            icone = Icons.Default.ReceiptLong,
+                            rotulo = "Nova conta a pagar",
+                            subtitulo = "Boleto, aluguel, assinatura — com data de vencimento",
+                            onClick = aoNovaConta,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        KpMenuRow(
+                            icone = Icons.Default.TrendingUp,
+                            rotulo = "Investimentos",
+                            subtitulo = "Acompanhe o que você já tem fora do app",
+                            onClick = aoVerInvestimentos,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        KpMenuRow(
+                            icone = Icons.Default.Storefront,
+                            rotulo = "Parceiros",
+                            subtitulo = "Vitrine de lojas de terceiros: indicação, não venda",
+                            onClick = aoVerParceiros,
                         )
                     }
                 }
