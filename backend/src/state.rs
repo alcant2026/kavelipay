@@ -36,6 +36,10 @@ pub struct AppState {
     /// porque a semântica é outra: aqui não existe "login deu certo", só
     /// quantos envios o IP já pediu na última hora.
     pub reset_gate: crate::rate_limit::Cooldown,
+    /// Teto global de requisições por IP. Existe para a instância free (0,1
+    /// vCPU) não cair inteira por causa de um script — o `login_gate` protege
+    /// uma conta, este protege o processo.
+    pub limite_global: crate::rate_limit::LimiteGlobal,
 }
 
 /// Wallet do usuário, exigindo ACTIVE: wallet bloqueada não se move. Ponto

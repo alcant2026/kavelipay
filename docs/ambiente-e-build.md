@@ -47,6 +47,13 @@ aparelho de usuário. O host que respondeu é persistido em `SharedPreferences`
 mudar (DHCP), atualize `CAMINHOS_LOCAIS` em `ApiClient.kt`** — ou reserve a
 IP no roteador. O backend não sobe em `:3000` por padrão — ajuste `config.rs`.
 
+Texto claro segue a mesma divisão: `app/src/main/res/xml/network_security_config.xml`
+só permite HTTPS (vai no release) e `app/src/debug/res/xml/network_security_config.xml`
+sobrescreve com as exceções dos quatro hosts de dev. O APK de release não
+contém esses IPs — confira com
+`find app/build/intermediates -path '*release*/xml/network_security_config.xml'`
+se um dia duvidar.
+
 Armadilhas de Compose que já custaram build: ver a skill
 `kotlin-compose-pitfalls`.
 
@@ -209,7 +216,9 @@ Senha `kavelipay` = container `kavelipay-pg` (o de volume nomeado, dono de
 55432 agora); o recipe `kp_pgtest` mais acima usa `test`. Com a porta ocupada
 por um, o outro não sobe.
 
-Quinze scripts. `password_reset_e2e.sh` sobe um SMTP falso (`tests/smtp_mock.py`)
+Dezesseis scripts. `limite_e2e.sh` sobe o servidor com `LIMITE_POR_MINUTO=5`
+e prova o freio global por IP (6º pedido é 429, outro IP não herda o bloqueio,
+`X-Forwarded-For` manda na chave). `password_reset_e2e.sh` sobe um SMTP falso (`tests/smtp_mock.py`)
 em `127.0.0.1` e lê o código do e-mail entregue — o fluxo inteiro de "esqueci a
 senha" roda sem internet e sem provedor. `caixinhas_e2e.sh` (porta dinâmica — antes fixa em 3324) é a jornada da Caixinha
 (criação → convite de uso único com rotação → fronteira 404 → aporte /
@@ -242,7 +251,7 @@ plano free do Render, `/health` a 20 conexões = 100 req/s (p50 178 ms). Rota
 que consulta o banco fica bem abaixo disso: cada requisição faz 2 a 5 idas ao
 Neon (Ohio → us-east-2), e o pool é de 10 conexões.
 
-Os doze outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
+Os treze outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
 binário real (porta dinâmica por execução: `BASE_PORT` fixa explicitamente; antes fixas em :3311 auth, :3312 ledger, :3313 bills, :3314 splits,
 `:3315` charges, `:3316` perfil/notif/histórico, `:3317` dívidas, `:3321`
 transparência, `:3319` parceiros, `:3322` refresh, `:3323` investimentos).

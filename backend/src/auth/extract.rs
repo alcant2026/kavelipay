@@ -35,6 +35,12 @@ impl AuthUser {
 /// axum injeta o endereço; requests fabricados (testes) ficam com `None`. Este
 /// extractor NUNCA falha — por isso não é `Option<ConnectInfo>`, que não é
 /// extractor válido no axum 0.8.
+///
+/// **Ordem de preferência**: `X-Forwarded-For` antes do socket. Em produção o
+/// Render termina o TLS e repassa do próprio proxy, então o socket é sempre o
+/// IP do balanceador — limitar por ele travaria o mundo inteiro numa cota só.
+/// Usa a última entrada do header (a do hop mais próximo, que é o proxy e não
+/// o valor que o cliente digitou), caindo para o socket quando não há header.
 pub struct ClientIp(pub Option<std::net::IpAddr>);
 
 impl FromRequestParts<AppState> for ClientIp {
@@ -44,12 +50,17 @@ impl FromRequestParts<AppState> for ClientIp {
         parts: &mut Parts,
         _state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        Ok(ClientIp(
-            parts
-                .extensions
-                .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-                .map(|c| c.0.ip()),
-        ))
+        let do_proxy = parts
+            .headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.rsplit(',').next())
+            .and_then(|v| v.trim().parse().ok());
+        let do_socket = parts
+            .extensions
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|c| c.0.ip());
+        Ok(ClientIp(do_proxy.or(do_socket)))
     }
 }
 

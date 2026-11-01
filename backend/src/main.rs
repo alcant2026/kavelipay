@@ -91,9 +91,23 @@ async fn main() -> Result<(), AppError> {
         login_gate: kavelipay_backend::rate_limit::LoginGate::default(),
         mailer: config.mailer.clone(),
         reset_gate: Default::default(),
+        limite_global: kavelipay_backend::rate_limit::LimiteGlobal::new(
+            config.limite_por_minuto,
+        ),
     };
 
-    let app = routes::router(state)
+    let app = routes::router(state.clone())
+        // Ordem de fora para dentro: trace, timeout, limite, rotas. O timeout
+        // existe para uma consulta travada não segurar uma das 10 conexões do
+        // pool até o socket cair; o limite, para um script não virar queda.
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            routes::limite_global,
+        ))
+        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+            axum::http::StatusCode::REQUEST_TIMEOUT,
+            std::time::Duration::from_secs(30),
+        ))
         .layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;

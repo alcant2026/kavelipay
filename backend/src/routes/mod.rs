@@ -20,10 +20,35 @@ pub mod reports;
 pub mod splits;
 pub mod wallet;
 
+use axum::extract::State;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
-use axum::Router;
+use axum::{extract::Request, Router};
 
+use crate::error::AppError;
 use crate::state::AppState;
+
+/// 429 para quem passa do teto por minuto (ver `rate_limit::LimiteGlobal`).
+///
+/// Fica como camada, não dentro do handler: assim nenhuma rota nova nasce sem
+/// o freio. O IP vem de `X-Forwarded-For` quando existe (produção está atrás
+/// do proxy do Render), senão do socket.
+pub async fn limite_global(
+    State(state): State<AppState>,
+    ip: crate::auth::ClientIp,
+    req: Request,
+    next: Next,
+) -> Response {
+    let ip = ip.0.unwrap_or(std::net::Ipv4Addr::UNSPECIFIED.into());
+    if !state.limite_global.permite(ip) {
+        return AppError::TooManyRequests(
+            "muitos pedidos em pouco tempo; aguarde um minuto".to_string(),
+        )
+        .into_response();
+    }
+    next.run(req).await
+}
 
 pub fn router(state: AppState) -> Router {
     Router::new()

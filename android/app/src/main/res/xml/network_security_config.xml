@@ -1,20 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Cleartext bloqueado por padrão (produção só HTTPS). As exceções são os
-    hosts de DESENVOLVIMENTO do backend local — a sonda de ApiClient testa esses
-    endereços:
-
-    - 192.168.240.1  = lado host da bridge do Waydroid;
-    - 192.168.1.8    = máquina dev na rede Wi-Fi (aparelho físico);
-    - 10.0.2.2       = loopback do host no emulador AVD;
-    - localhost      = depuração direta no host.
+    Produção: só HTTPS. Os hosts de desenvolvimento (Waydroid, rede local,
+    emulador) NÃO moram aqui — estão em src/debug/res/xml, que só entra no
+    build debug. Se um dia alguém apontar o app para um IP de LAN, o release
+    simplesmente recusa a conexão em vez de vazar em texto claro.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">192.168.240.1</domain>
-        <domain includeSubdomains="false">192.168.1.8</domain>
-        <domain includeSubdomains="false">10.0.2.2</domain>
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
 </network-security-config>

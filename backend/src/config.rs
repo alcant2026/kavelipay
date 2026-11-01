@@ -25,6 +25,9 @@ pub struct Config {
     /// Teto do pool de conexões. Neon cobra por CU-hour e limita conexões
     /// simultâneas; 10 é folgado para um processo e não estoura o free tier.
     pub db_max_connections: u32,
+    /// Requisições por minuto aceitas por IP no limitador global. `0` desliga
+    /// (só serve para teste local; em produção a porta fica aberta).
+    pub limite_por_minuto: u32,
     /// Chave HS256 de assinatura dos access tokens.
     pub jwt_secret: String,
     /// Minutos de validade do access token.
@@ -122,10 +125,21 @@ impl Config {
             .filter(|n| (1..=100).contains(n))
             .unwrap_or(10);
 
+        // Freio global por IP. Um plano free (0,1 vCPU) cai com um `for` em
+        // paralelo. 300/min = 5 por segundo: um app inteiro abrindo gasta ~10
+        // de uma vez, então gente não percebe. Não desça para 120 — operadora
+        // com CGNAT põe muitos clientes no mesmo IP público.
+        let limite_por_minuto = env::var("LIMITE_POR_MINUTO")
+            .ok()
+            .and_then(|valor| valor.trim().parse::<u32>().ok())
+            .filter(|n| *n <= 10_000)
+            .unwrap_or(300);
+
         Ok(Self {
             database_url,
             bind_addr,
             db_max_connections,
+            limite_por_minuto,
             jwt_secret,
             access_token_ttl_minutes: ACCESS_TOKEN_TTL_MINUTES,
             refresh_token_ttl_days: REFRESH_TOKEN_TTL_DAYS,

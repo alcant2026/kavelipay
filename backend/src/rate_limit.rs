@@ -129,9 +129,79 @@ impl Cooldown {
     }
 }
 
+/// Freio global por IP: teto de requisições por minuto em toda a API.
+///
+/// Diferente do `LoginGate` (que protege uma conta), este existe para a
+/// instância não cair inteira: no plano free são 0,1 vCPU, e um script em
+/// paralelo derruba o app de todo mundo. Por IP, não por conta — quem abusa
+/// normalmente nem tem conta.
+#[derive(Default, Clone)]
+pub struct LimiteGlobal {
+    /// `0` desliga (só para teste local).
+    pub max: u32,
+    janelas: Arc<Mutex<HashMap<IpAddr, Janela>>>,
+}
+
+struct Janela {
+    inicio: Instant,
+    contagem: u32,
+}
+
+impl LimiteGlobal {
+    pub const DURACAO: Duration = Duration::from_secs(60);
+
+    pub fn new(max: u32) -> Self {
+        Self {
+            max,
+            janelas: Arc::default(),
+        }
+    }
+
+    /// `true` se a requisição pode seguir — e já conta como uma.
+    pub fn permite(&self, ip: IpAddr) -> bool {
+        if self.max == 0 {
+            return true;
+        }
+        let mut mapa = self.janelas.lock().unwrap_or_else(|p| p.into_inner());
+        let agora = Instant::now();
+        // Poda: sem isso um mês de IPs distintos nunca encolhe.
+        if mapa.len() > 10_000 {
+            mapa.retain(|_, j| agora.duration_since(j.inicio) <= Self::DURACAO);
+        }
+        let janela = mapa.entry(ip).or_insert(Janela {
+            inicio: agora,
+            contagem: 0,
+        });
+        if agora.duration_since(janela.inicio) > Self::DURACAO {
+            janela.inicio = agora;
+            janela.contagem = 0;
+        }
+        janela.contagem += 1;
+        janela.contagem <= self.max
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn limite_global_corta_no_maximo_e_libera_outro_ip() {
+        let limite = LimiteGlobal::new(3);
+        for _ in 0..3 {
+            assert!(limite.permite(ip()));
+        }
+        assert!(!limite.permite(ip()));
+        assert!(limite.permite("10.0.0.2".parse().unwrap()));
+    }
+
+    #[test]
+    fn limite_global_com_zero_nao_bloqueia() {
+        let limite = LimiteGlobal::new(0);
+        for _ in 0..1000 {
+            assert!(limite.permite(ip()));
+        }
+    }
 
     fn ip() -> IpAddr {
         "10.0.0.1".parse().unwrap()

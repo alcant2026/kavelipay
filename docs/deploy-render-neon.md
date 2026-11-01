@@ -100,6 +100,7 @@ uma instância só.
 | `OPENROUTER_API_KEY` | não | liga IA de prefill; sem ela devolve 503 |
 | `OPENROUTER_MODEL` | não | padrão `mistralai/mistral-nemo` |
 | `DB_MAX_CONNECTIONS` | não | padrão 10 |
+| `LIMITE_POR_MINUTO` | não | padrão 300 req/min por IP (429 acima; 0 desliga) |
 | `BREVO_API_KEY` | não | **preferido no plano free do Render**: liga a recuperação de senha pela API HTTPS da Brevo (grátis até 300 e-mails/dia). O free bloqueia saída nas portas 25/465/587, então SMTP só funciona em instância paga |
 | `MAIL_FROM` | com `BREVO_API_KEY` | endereço verificado na Brevo que aparece como remetente |
 | `SMTP_HOST` | não | alternativa por SMTP (instância paga); sem nenhuma das duas, `/auth/forgot-password` devolve 503 |
