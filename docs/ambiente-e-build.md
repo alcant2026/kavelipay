@@ -222,6 +222,26 @@ histórico → segurança → isolamento entre contas → conferência contábil
 imprime o dinheiro entrando e saindo a cada passo. Rode para ver o produto
 funcionar, não só para passar: `bash tests/simulacao.sh`.
 
+### Teste de carga
+
+`tests/carga.py` (só stdlib — não precisa instalar `hey`/`ab`) mede latência e
+vazão:
+
+```bash
+python3 tests/carga.py --url http://127.0.0.1:3100 --auth -n 600 -c 20   # toca o banco
+python3 tests/carga.py --url https://kavelipay-backend.onrender.com -n 100 -c 5  # só /health
+```
+
+`--auth` cadastra ou reaproveita `carga@kavelipay.dev` — só em dev ou banco
+descartável. Sem `--auth` ele bate em `/health`, que **não** consulta o banco
+(portanto não estoura a cota de compute do Neon).
+
+Medição de 2026-11-01, como referência: build **debug** local, 600 requisições
+autenticadas a 20 conexões = 364 req/s (p50 41 ms, p95 162 ms); produção no
+plano free do Render, `/health` a 20 conexões = 100 req/s (p50 178 ms). Rota
+que consulta o banco fica bem abaixo disso: cada requisição faz 2 a 5 idas ao
+Neon (Ohio → us-east-2), e o pool é de 10 conexões.
+
 Os doze outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
 binário real (porta dinâmica por execução: `BASE_PORT` fixa explicitamente; antes fixas em :3311 auth, :3312 ledger, :3313 bills, :3314 splits,
 `:3315` charges, `:3316` perfil/notif/histórico, `:3317` dívidas, `:3321`
