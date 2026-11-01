@@ -21,18 +21,16 @@ jobs:
     name: pg_dump
     runs-on: ubuntu-latest
     steps:
-      - name: Instala o cliente do Postgres
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client
-
       - name: Dump
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
           mkdir -p out
-          pg_dump "$DATABASE_URL" -Fc -f "out/kavelipay-$(date -u +%F).dump"
+          # O cliente do runner (16) é mais antigo que o servidor do Neon (18)
+          # e o pg_dump recusa. A imagem oficial casa a versão sem repositório.
+          docker run --rm postgres:18 pg_dump "$DATABASE_URL" -Fc \
+            > "out/kavelipay-$(date -u +%F).dump"
           ls -lh out
 
       - uses: actions/upload-artifact@v4
