@@ -27,3 +27,11 @@ skills-lock.json
 
 # Config local do agente (contém token do MCP do Render)
 opencode.json
+
+# Ferramentas internas de agente (não fazem parte do produto)
+.claude/
+.agents/
+.superpowers/
+skills-lock.json
+*.jks.*
+keystore.properties.*

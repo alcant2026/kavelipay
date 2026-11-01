@@ -8,16 +8,29 @@
 cd android
 ./gradlew :app:assembleRelease      # APK assinado em app/build/outputs/apk/release/
 ./gradlew :app:assembleDebug
-./gradlew :app:testDebugUnitTest    # JUnit das regras puras (65 testes, sem emulador)
+./gradlew :app:testDebugUnitTest    # JUnit das regras puras (103 testes, sem emulador)
 ```
 
 Saída: `android/app/build/outputs/apk/release/KaveliPay-release.apk`
 (~3,4 MB com R8, minSdk 26, targetSdk 34, AGP 8.2.0, Kotlin 1.9.20).
 
 Assinatura: `android/kavelipay-release.jks` + `android/keystore.properties`
-(alias `kavelipay`). Verificar com
-`~/Android/Sdk/build-tools/36.0.0/apksigner verify --print-certs <apk>`.
+(alias `kavelipay`, PKCS12, RSA 4096, validade 10.000 dias). Nenhum dos dois
+é versionado — nem agora, nem no histórico (foram removidos com
+`git filter-repo` em 2026-11-01). Verificar com
+`~/Android/Sdk/build-tools/37.0.0/apksigner verify --print-certs <apk>`;
+o SHA-256 da chave atual é
+`e4:2b:86:5a:bf:1b:ab:d7:0b:8c:86:8a:e5:47:59:71:b5:a8:4b:3a:b2:11:90:01:0b:ef:7d:12:53:74:a0:70`.
 O nome do arquivo **sem** `-unsigned` é o sinal de que o signing pegou.
+
+**A chave de 2026-10 vazou** (estava no histórico do repo junto com a senha,
+que era o nome do app seguido de três dígitos) e foi substituída. Consequência para quem tinha o APK antigo:
+o Android recusa atualização assinada por outra chave — é preciso
+desinstalar e instalar de novo, perdendo o dado local. A chave nova está
+guardada fora do git e nos secrets do GitHub (`KEYSTORE_BASE64`,
+`KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`). **Perder a keystore nova
+inviabiliza publicar atualização para quem já instalou** — mantenha uma cópia
+em local seguro, fora do repositório.
 
 Use `--offline` quando a rede não for confiável — todas as dependências já
 estão em `~/.gradle/caches`. Biblioteca nova (ZXing, por exemplo) exige
@@ -26,11 +39,13 @@ download.
 `ApiClient` resolve o `BASE_URL` por sonda TCP entre candidatos fixos:
 `http://192.168.240.1:3000` (lado host da bridge do Waydroid),
 `http://192.168.1.8:3000` (IP da máquina na rede local, aparelho físico) e
-`http://10.0.2.2:3000` (emulador AVD). O mesmo APK serve os três ambientes; o
-host que respondeu é persistido em `SharedPreferences` (`kavelipay.servidor`)
-e reassumido na próxima abertura. **Se a IP da máquina mudar (DHCP), atualize
-`CANDIDATOS` em `ApiClient.kt`** — ou reserve a IP no roteador. O backend não
-sobe em `:3000` por padrão — ajuste `config.rs`.
+`http://10.0.2.2:3000` (emulador AVD). Isso vale **só em build debug**
+(`permiteLocal` checa `FLAG_DEBUGGABLE`): o APK release fala exclusivamente
+com `https://kavelipay-backend.onrender.com`, para não aceitar host local em
+aparelho de usuário. O host que respondeu é persistido em `SharedPreferences`
+(`kavelipay.servidor`) e reassumido na próxima abertura. **Se a IP da máquina
+mudar (DHCP), atualize `CAMINHOS_LOCAIS` em `ApiClient.kt`** — ou reserve a
+IP no roteador. O backend não sobe em `:3000` por padrão — ajuste `config.rs`.
 
 Armadilhas de Compose que já custaram build: ver a skill
 `kotlin-compose-pitfalls`.

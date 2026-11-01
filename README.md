@@ -72,3 +72,20 @@ Push na `main` → GitHub Actions roda a suíte (Rust + e2e com Postgres real + 
 - Saldo sempre derivado do ledger. Nunca `UPDATE`/`INSERT` direto em saldo.
 - Dinheiro em `Decimal` + `NUMERIC(19,4)`; **nunca float** (na API, sempre string).
 - `user_id` vem do token, nunca do body/query.
+
+## Baixar o app
+
+APK assinado de cada versão publicada: [Releases](../../releases). O app não
+está em loja; a instalação é manual (Android 8.0+, `minSdk 26`).
+
+## Segurança
+
+Falha de segurança ou de autorização: **não abra issue** — veja
+[`SECURITY.md`](SECURITY.md). Chaves de assinatura, senhas de banco e tokens
+não ficam neste repositório.
+
+## Licença
+
+[PolyForm Noncommercial 1.0.0](LICENSE): o código é público para leitura,
+estudo e uso pessoal; **não** pode ser usado para fins comerciais nem para
+distribuir um produto pago. Para outro uso, fale com o autor.
