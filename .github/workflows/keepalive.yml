@@ -1,0 +1,28 @@
+# Mantém o backend do Render acordado.
+#
+# O plano free derruba o serviço depois de 15 minutos sem tráfego; a próxima
+# requisição espera o container subir (~40 a 60 s) e o app, que espera 60 s,
+# costuma estourar. Um ping a cada 10 minutos evita o sono na prática.
+#
+# O cron do GitHub é "melhor esforço" (pode atrasar alguns minutos sob carga).
+# Se um dia a tela de login começar a demorar, troque por um monitor grátis
+# (UptimeRobot, cron-job.org) apontando para a mesma URL.
+name: Keep-alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    name: /health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Acorda o backend
+        run: |
+          curl -fsS --max-time 90 --retry 2 --retry-delay 5 \
+            https://kavelipay-backend.onrender.com/health

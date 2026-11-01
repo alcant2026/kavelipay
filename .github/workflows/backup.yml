@@ -1,0 +1,42 @@
+# Backup diário do Postgres de produção (Neon) para um artefato do GitHub.
+#
+# O Neon guarda histórico curto: se um dado for apagado por engano hoje, o
+# restore dele cobre horas, não meses. Este dump é a rede de segurança de
+# verdade — 30 dias de cópias, baixáveis de graça.
+#
+# Secret necessário: DATABASE_URL (a mesma do Render, host DIRETO sem
+# `-pooler`; pg_dump não funciona através do pooler).
+name: Backup
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    name: pg_dump
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instala o cliente do Postgres
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Dump
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          pg_dump "$DATABASE_URL" -Fc -f "out/kavelipay-$(date -u +%F).dump"
+          ls -lh out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dump-${{ github.run_id }}
+          path: out/*.dump
+          retention-days: 30

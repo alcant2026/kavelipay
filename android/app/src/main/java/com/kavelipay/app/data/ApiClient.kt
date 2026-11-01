@@ -179,7 +179,10 @@ object ApiClient {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        // 60s porque o backend no plano free do Render hiberna e a primeira
+        // requisição do dia espera o container subir (~40s). Com 30s o login
+        // parecia erro de rede. O keep-alive do CI reduz, mas não elimina.
+        .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
     /**
