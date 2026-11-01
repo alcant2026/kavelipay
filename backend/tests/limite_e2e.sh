@@ -85,8 +85,8 @@ grep -q 'too_many_requests' /tmp/kp_limite_corpo \
 echo
 echo "isolamento e IP do proxy"
 status 200 "IP B não herda o bloqueio do IP A" 198.51.100.20
-status 429 'cadeia "6.6.6.6, <IP A>" usa a ÚLTIMA entrada' "6.6.6.6, 198.51.100.10"
-status 200 'cadeia "6.6.6.6, <IP C>" abre balde novo para o IP C' "6.6.6.6, 198.51.100.30"
+status 429 'cadeia "<IP A>, 6.6.6.6" usa a PRIMEIRA entrada' "198.51.100.10, 6.6.6.6"
+status 200 'cadeia "<IP C>, 6.6.6.6" abre balde novo para o IP C' "198.51.100.30, 6.6.6.6"
 
 # O balde do IP C já gastou 1; mais quatro fecham o teto.
 for n in $(seq 2 "$TETO"); do

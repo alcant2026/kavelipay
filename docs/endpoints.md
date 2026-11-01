@@ -6,7 +6,7 @@
 
 **Freios comuns a todas as rotas**: 300 requisições por minuto por IP
 (`LIMITE_POR_MINUTO`, 429 `too_many_requests`) e 30 s de tempo máximo por
-requisição (408). O IP é lido de `X-Forwarded-For` — em produção o socket é o
+requisição (408). O IP é lido de `X-Forwarded-For` (primeira entrada) — em produção o socket é o
 proxy do Render. Rota nova herda os dois por serem camadas, não código de
 handler.
 

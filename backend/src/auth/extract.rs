@@ -39,8 +39,10 @@ impl AuthUser {
 /// **Ordem de preferência**: `X-Forwarded-For` antes do socket. Em produção o
 /// Render termina o TLS e repassa do próprio proxy, então o socket é sempre o
 /// IP do balanceador — limitar por ele travaria o mundo inteiro numa cota só.
-/// Usa a última entrada do header (a do hop mais próximo, que é o proxy e não
-/// o valor que o cliente digitou), caindo para o socket quando não há header.
+/// Usa a PRIMEIRA entrada do header — é onde o Render põe o IP do cliente.
+/// A última não serve: em produção ela é o hop interno do balanceador, que
+/// muda a cada requisição (medido: 400 pedidos do mesmo IP, zero no freio).
+/// Cai para o socket quando não há header.
 pub struct ClientIp(pub Option<std::net::IpAddr>);
 
 impl FromRequestParts<AppState> for ClientIp {
@@ -54,7 +56,7 @@ impl FromRequestParts<AppState> for ClientIp {
             .headers
             .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.rsplit(',').next())
+            .and_then(|v| v.split(',').next())
             .and_then(|v| v.trim().parse().ok());
         let do_socket = parts
             .extensions
