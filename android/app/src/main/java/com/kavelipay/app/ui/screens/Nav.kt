@@ -46,8 +46,6 @@ private object Rota {
     const val SPLITS = "splits"
     const val SPLITS_DETALHE = "splits_detalhe"
     const val NOVA_SPLIT = "nova_split"
-    const val NOVA_DIVIDA = "nova_divida"
-    const val EDITAR_DIVIDA = "editar_divida"
     const val CHARGES = "charges"
     const val CHARGES_QR = "charges_qr"
     const val NOVA_CHARGE = "nova_charge"
@@ -55,22 +53,11 @@ private object Rota {
     const val COBRANCA_PUBLICA = "cobranca_publica"
     const val CATEGORIAS = "categorias"
     const val NOVA_CATEGORIA = "nova_categoria"
-    const val INVESTIMENTOS = "investimentos"
-    const val NOVO_ATIVO = "novo_ativo"
-    const val ATIVO = "ativo"
-    const val MOVIMENTO_INVESTIMENTO = "movimento_investimento"
-    const val PRECO_ATUAL = "preco_atual"
     const val HISTORICO = "historico"
     const val PERFIL = "perfil"
     const val LGPD = "lgpd"
     const val SESSOES = "sessoes"
     const val PLANO = "plano"
-    const val PARCEIROS = "parceiros"
-    const val PARCEIRO = "parceiro"
-    const val CAIXINHAS = "caixinhas"
-    const val NOVA_CAIXINHA = "nova_caixinha"
-    const val CAIXINHA = "caixinha"
-    const val CAIXINHAS_PUBLICAS = "caixinhas_publicas"
 }
 
 /**
@@ -152,13 +139,10 @@ fun KpRaiz(
                 aoVerHistorico = { irParaAba(2) },
                 aoVerCategorias = { nav.navigate(Rota.CATEGORIAS) },
                 aoVerPerfil = { irParaAba(4) },
-                aoVerInvestimentos = { nav.navigate(Rota.INVESTIMENTOS) },
                 aoVerNotificacoes = { nav.navigate(Rota.NOTIFICACOES) },
                 aoNovaDespesa = { nav.navigate(Rota.NOVA_DESPESA) },
                 aoNovaConta = { nav.navigate(Rota.NOVA_CONTA) },
                 aoNovaCharge = { nav.navigate(Rota.NOVA_CHARGE) },
-                aoVerParceiros = { nav.navigate(Rota.PARCEIROS) },
-                aoVerCaixinha = { nav.navigate(Rota.CAIXINHAS) },
                 temaEscuro = temaEscuro,
                 aoAlternarTema = aoAlternarTema,
                 abaAtual = 0,
@@ -233,35 +217,11 @@ fun KpRaiz(
                 aoVoltar = { nav.popBackStack() },
                 aoNovaSplit = { nav.navigate(Rota.NOVA_SPLIT) },
                 aoAbrirDetalhe = { id -> nav.navigate("${Rota.SPLITS_DETALHE}/$id") },
-                aoNovaDivida = { nav.navigate(Rota.NOVA_DIVIDA) },
-                aoEditarDivida = { id -> nav.navigate("${Rota.EDITAR_DIVIDA}/$id") },
             )
         }
         composable(Rota.NOVA_SPLIT) {
             KpNovaSplitScreen(
                 vm = vm,
-                aoVoltar = { nav.popBackStack() },
-                aoSalvar = { nav.popBackStack() },
-            )
-        }
-        // Mesma tela nos dois casos (create/edit): `dividaId == null` cria;
-        // com argumento, preenche de `estado.dividas` e salva via PATCH.
-        composable(Rota.NOVA_DIVIDA) {
-            KpNovaDividaScreen(
-                vm = vm,
-                dividaId = null,
-                aoVoltar = { nav.popBackStack() },
-                aoSalvar = { nav.popBackStack() },
-            )
-        }
-        composable(
-            route = "${Rota.EDITAR_DIVIDA}/{dividaId}",
-            arguments = listOf(navArgument("dividaId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val dividaId = backStackEntry.arguments?.getString("dividaId").orEmpty()
-            KpNovaDividaScreen(
-                vm = vm,
-                dividaId = dividaId,
                 aoVoltar = { nav.popBackStack() },
                 aoSalvar = { nav.popBackStack() },
             )
@@ -341,129 +301,15 @@ fun KpRaiz(
                 aoSair = { vm.sair() },
             )
         }
-        composable(Rota.PLANO) {
-            KpPlanoScreen(vm, aoVoltar = { nav.popBackStack() })
-        }
         composable(Rota.SESSOES) {
             KpSessoesScreen(vm, aoVoltar = { nav.popBackStack() })
         }
         composable(Rota.LGPD) {
             KpLgpdScreen(vm, aoVoltar = { nav.popBackStack() })
         }
+        composable(Rota.PLANO) {
+            KpPlanoScreen(vm, aoVoltar = { nav.popBackStack() })
+        }
 
-        // Investimentos
-        composable(Rota.INVESTIMENTOS) {
-            KpInvestimentosScreen(
-                vm = vm,
-                aoVoltar = { nav.popBackStack() },
-                aoNovoAtivo = { nav.navigate(Rota.NOVO_ATIVO) },
-                aoAbrirAtivo = { id -> nav.navigate("${Rota.ATIVO}/$id") },
-            )
-        }
-        composable(Rota.NOVO_ATIVO) {
-            KpNovoAtivoScreen(
-                vm = vm,
-                aoVoltar = { nav.popBackStack() },
-                aoSalvar = { nav.popBackStack() },
-            )
-        }
-        composable(
-            route = "${Rota.ATIVO}/{ativoId}",
-            arguments = listOf(navArgument("ativoId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val ativoId = backStackEntry.arguments?.getString("ativoId").orEmpty()
-            KpAtivoScreen(
-                vm = vm,
-                ativoId = ativoId,
-                aoVoltar = { nav.popBackStack() },
-                aoRegistrarMovimento = { nav.navigate("${Rota.MOVIMENTO_INVESTIMENTO}/$ativoId") },
-                aoEditarPreco = { nav.navigate("${Rota.PRECO_ATUAL}/$ativoId") },
-            )
-        }
-        composable(
-            route = "${Rota.PRECO_ATUAL}/{ativoId}",
-            arguments = listOf(navArgument("ativoId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val ativoId = backStackEntry.arguments?.getString("ativoId").orEmpty()
-            KpPrecoAtualScreen(
-                vm = vm,
-                ativoId = ativoId,
-                aoVoltar = { nav.popBackStack() },
-                aoSalvar = { nav.popBackStack() },
-            )
-        }
-        composable(
-            route = "${Rota.MOVIMENTO_INVESTIMENTO}/{ativoId}",
-            arguments = listOf(navArgument("ativoId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val ativoId = backStackEntry.arguments?.getString("ativoId").orEmpty()
-            KpMovimentoInvestimentoScreen(
-                vm = vm,
-                ativoId = ativoId,
-                aoVoltar = { nav.popBackStack() },
-                aoSalvar = { nav.popBackStack() },
-            )
-        }
-        // Caixinha: Home aponta para a LISTA (o botão "Caixinha" abre as
-        // minhas), e as rotas de criar/detalhe/vitrine penduram daqui — o
-        // detalhe recebe o id porque papel e números vêm do servidor, não
-        // do estado de quem abriu.
-        composable(Rota.CAIXINHAS) {
-            KpCaixinhasScreen(
-                vm = vm,
-                aoVoltar = { nav.popBackStack() },
-                aoNovaCaixinha = { nav.navigate(Rota.NOVA_CAIXINHA) },
-                aoAbrirDetalhe = { id -> nav.navigate("${Rota.CAIXINHA}/$id") },
-                aoVerPublicas = { nav.navigate(Rota.CAIXINHAS_PUBLICAS) },
-            )
-        }
-        composable(Rota.NOVA_CAIXINHA) {
-            KpNovaCaixinhaScreen(
-                vm = vm,
-                aoVoltar = { nav.popBackStack() },
-                aoSalvar = { id ->
-                    nav.popBackStack()
-                    nav.navigate("${Rota.CAIXINHA}/$id")
-                },
-            )
-        }
-        composable(
-            route = "${Rota.CAIXINHA}/{caixinhaId}",
-            arguments = listOf(navArgument("caixinhaId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val caixinhaId = backStackEntry.arguments?.getString("caixinhaId").orEmpty()
-            KpCaixinhaScreen(
-                vm = vm,
-                caixinhaId = caixinhaId,
-                aoVoltar = { nav.popBackStack() },
-            )
-        }
-        composable(Rota.CAIXINHAS_PUBLICAS) {
-            KpCaixinhasPublicasScreen(
-                vm = vm,
-                aoVoltar = { nav.popBackStack() },
-                aoEntrar = { id -> nav.navigate("${Rota.CAIXINHA}/$id") },
-            )
-        }
-        composable(Rota.PARCEIROS) {
-            KpParceirosScreen(
-                vm = vm,
-                aoVoltar = { nav.popBackStack() },
-                aoAbrir = { oferta -> nav.navigate("${Rota.PARCEIRO}/${oferta.id}") },
-            )
-        }
-        composable(
-            route = "${Rota.PARCEIRO}/{ofertaId}",
-            arguments = listOf(navArgument("ofertaId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            // A oferta é achada pelo id no estado já carregado, em vez de ir a
-            // URL pela rota: URL com `?`, `&` e `#` dentro de rota de navegação
-            // é fonte de bug de encoding — e a lista já está aqui.
-            val ofertaId = backStackEntry.arguments?.getString("ofertaId").orEmpty()
-            KpParceiroWebScreen(
-                oferta = estado.parceiros.firstOrNull { it.id == ofertaId },
-                aoVoltar = { nav.popBackStack() },
-            )
-        }
     }
 }

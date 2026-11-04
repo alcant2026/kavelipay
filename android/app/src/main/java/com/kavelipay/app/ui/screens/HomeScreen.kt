@@ -112,7 +112,6 @@ fun KpHomeScreen(
     aoVerHistorico: () -> Unit,
     aoVerCategorias: () -> Unit,
     aoVerPerfil: () -> Unit,
-    aoVerInvestimentos: () -> Unit,
     // Defaults para a Home continuar compilável sem quem os injeta (o Nav
     // antigo não passa esses quatro); quem alimenta é a raiz, no commit que
     // traz as rotas novas.
@@ -123,10 +122,6 @@ fun KpHomeScreen(
     // e nenhum cadastrava nada. Agora eles abrem o formulário.
     aoNovaConta: () -> Unit = {},
     aoNovaCharge: () -> Unit = {},
-    // Vitrine de parceiros. Default vazio para a Home não quebrar em preview
-    // ou em chamador antigo; quem alimenta é a raiz.
-    aoVerParceiros: () -> Unit = {},
-    aoVerCaixinha: () -> Unit = {},
     temaEscuro: Boolean = false,
     aoAlternarTema: () -> Unit = {},
     // Quem manda na aba é a raiz: a TabBar aparece nas CINCO abas, então o
@@ -321,31 +316,10 @@ fun KpHomeScreen(
                         // Saíram da fila de atalhos para cá: continuam a um
                         // toque, mas deixam de competir com o que é diário.
                         KpMenuRow(
-                            icone = Icons.Default.Inventory2,
-                            rotulo = "Caixinhas",
-                            subtitulo = "Junte dinheiro com outras pessoas, mês a mês",
-                            onClick = aoVerCaixinha,
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-                        KpMenuRow(
                             icone = Icons.Default.ReceiptLong,
                             rotulo = "Nova conta a pagar",
                             subtitulo = "Boleto, aluguel, assinatura — com data de vencimento",
                             onClick = aoNovaConta,
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-                        KpMenuRow(
-                            icone = Icons.Default.TrendingUp,
-                            rotulo = "Investimentos",
-                            subtitulo = "Acompanhe o que você já tem fora do app",
-                            onClick = aoVerInvestimentos,
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-                        KpMenuRow(
-                            icone = Icons.Default.Storefront,
-                            rotulo = "Parceiros",
-                            subtitulo = "Vitrine de lojas de terceiros: indicação, não venda",
-                            onClick = aoVerParceiros,
                         )
                     }
                 }

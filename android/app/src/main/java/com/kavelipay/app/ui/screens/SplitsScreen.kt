@@ -44,8 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.kavelipay.app.data.DividaRegras
-import com.kavelipay.app.data.ItemDivida
 import com.kavelipay.app.data.ItemSplit
 import com.kavelipay.app.data.ItemSplitParte
 import com.kavelipay.app.ui.AppViewModel
@@ -65,11 +63,7 @@ import com.kavelipay.app.ui.theme.TituloCard
 import com.kavelipay.app.ui.theme.TituloSecao
 
 /**
- * Lista de divisões de despesa e das dívidas do usuário ("Eu devo").
- *
- * Os dois sentidos moram na mesma tela: "Divisões" (o usuário adiantou e as
- * partes devem a ele) e "Eu devo" (dívidas com credor, chip de status e
- * ações por estado — as guards moram em `DividaRegras`).
+ * Lista de divisões de despesa: o usuário adiantou e as partes devem a ele.
  */
 @Composable
 fun KpSplitsScreen(
@@ -77,16 +71,11 @@ fun KpSplitsScreen(
     aoVoltar: () -> Unit,
     aoNovaSplit: () -> Unit = {},
     aoAbrirDetalhe: (String) -> Unit = {},
-    aoNovaDivida: () -> Unit = {},
-    aoEditarDivida: (String) -> Unit = {},
 ) {
     val estado by vm.estado.collectAsState()
-    val sem = KpTheme.semanticas
-    var dividaApagando by remember { mutableStateOf<ItemDivida?>(null) }
 
     LaunchedEffect(Unit) {
         vm.carregarSplits()
-        vm.carregarDividas()
     }
 
     Scaffold(topBar = { CabecalhoComVoltar("Divisão de despesa", aoVoltar) }) { padding ->
@@ -109,22 +98,12 @@ fun KpSplitsScreen(
             }
 
             item {
-                Row(
+                KpBotaoPrimario(
+                    texto = "Nova divisão",
+                    onClick = aoNovaSplit,
+                    icone = Icons.Default.Add,
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                ) {
-                    KpBotaoPrimario(
-                        texto = "Nova divisão",
-                        onClick = aoNovaSplit,
-                        icone = Icons.Default.Add,
-                        modifier = Modifier.weight(1f),
-                    )
-                    KpBotaoPrimario(
-                        texto = "Nova dívida",
-                        onClick = aoNovaDivida,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+                )
             }
 
             val splits = estado.splits?.itens.orEmpty()
@@ -155,151 +134,7 @@ fun KpSplitsScreen(
                 }
             }
 
-            // ── Eu devo ──────────────────────────────────────────────────────
-            val dividas = estado.dividas?.itens.orEmpty()
-            if (dividas.isEmpty()) {
-                item {
-                    KpCard(Modifier.fillMaxWidth()) {
-                        KpVazio(
-                            icone = Icons.Default.Person,
-                            titulo = "Nenhuma dívida",
-                            descricao = "Pediu dinheiro emprestado? Registre aqui a quem você deve.",
-                        )
-                    }
-                }
-            } else {
-                item { Text("Eu devo", style = TituloSecao) }
-                items(dividas.size) { indice ->
-                    val divida = dividas[indice]
-                    KpCard(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(Spacing.md)) {
-                            LinhaDivida(
-                                divida = divida,
-                                aoEditar = aoEditarDivida,
-                                onPagar = { vm.pagarDivida(divida.id) },
-                                onConfirmar = { vm.confirmarDivida(divida.id) },
-                                onApagar = { dividaApagando = divida },
-                            )
-                        }
-                    }
-                }
-            }
         }
-    }
-
-    // Confirmação de apagar: o diálogo só nasce de PENDING (o botão Editar/
-    // Apagar só existe lá); o backend ainda recusa o resto com 409, e o
-    // `estado.erro` daí aparece no card de erro no topo da tela.
-    dividaApagando?.let { alvo ->
-        AlertDialog(
-            onDismissRequest = { dividaApagando = null },
-            title = { Text("Apagar esta dívida?") },
-            text = {
-                Text(
-                    "${alvo.description} — R\$ ${Money.brl(alvo.amount)} com ${alvo.creditorName}. " +
-                        "O registro some da lista; nada muda no seu saldo.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            },
-            confirmButton = {
-                KpBotaoPrimario(
-                    texto = "Apagar",
-                    onClick = {
-                        vm.apagarDivida(alvo.id)
-                        dividaApagando = null
-                    },
-                    cor = sem.despesa,
-                )
-            },
-            dismissButton = {
-                KpBotaoSecundario("Cancelar", onClick = { dividaApagando = null })
-            },
-        )
-    }
-}
-
-/**
- * Uma dívida ("Eu devo"): credor em destaque, motivo, valor e chip de status.
- *
- * As ações seguem as guards de `DividaRegras` — pagar só pendente, confirmar
- * só pago, editar/apagar só pendente. Sem botão acesório para estado que o
- * backend vai recusar com 409.
- */
-@Composable
-private fun LinhaDivida(
-    divida: ItemDivida,
-    aoEditar: (String) -> Unit,
-    onPagar: () -> Unit,
-    onConfirmar: () -> Unit,
-    onApagar: (ItemDivida) -> Unit,
-) {
-    val sem = KpTheme.semanticas
-    // Chip por intenção, não por paleta: aviso enquanto pendente, neutro
-    // ("despesa" é o quase-preto do app) no meio-termo pago-por-mim,
-    // receita quando o credor confirmou.
-    val (corChip, fundoChip) = when (divida.status) {
-        "PENDING" -> sem.aviso to sem.avisoFundo
-        "PAID" -> sem.despesa to sem.despesaFundo
-        else -> sem.receita to sem.receitaFundo
-    }
-
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    divida.creditorName,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    divida.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                )
-            }
-            KpEtiqueta(DividaRegras.rotulo(divida.status), corChip, fundo = fundoChip)
-        }
-
-        Spacer(Modifier.height(Spacing.sm))
-        Text(
-            "R$ ${Money.brl(divida.amount)}",
-            style = TituloCard,
-        )
-
-        if (DividaRegras.podePagar(divida.status)) {
-            Spacer(Modifier.height(Spacing.sm))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-            ) {
-                KpBotaoPrimario(
-                    texto = "Paguei",
-                    onClick = onPagar,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = { aoEditar(divida.id) }) {
-                    Icon(Icons.Default.Edit, contentDescription = "Editar dívida")
-                }
-                IconButton(onClick = { onApagar(divida) }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Apagar dívida")
-                }
-            }
-        } else if (DividaRegras.podeConfirmar(divida.status)) {
-            Spacer(Modifier.height(Spacing.sm))
-            KpBotaoPrimario(
-                texto = "Credor confirmou",
-                onClick = onConfirmar,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        // CONFIRMED é estado final: só o chip, sem ação.
     }
 }
 
