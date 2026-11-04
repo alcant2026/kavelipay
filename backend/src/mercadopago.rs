@@ -66,9 +66,11 @@ impl MercadoPago {
     }
 
     /// Cria a preferência de Checkout Pro de uma cobrança.
+    /// `referencia` é o `external_reference` que volta no webhook: o id da
+    /// cobrança, ou `parte:<id>` quando o que se cobra é a cota de uma divisão.
     pub async fn criar_preferencia(
         &self,
-        charge_id: uuid::Uuid,
+        referencia: &str,
         descricao: &str,
         valor: Decimal,
         moeda: &str,
@@ -85,13 +87,13 @@ impl MercadoPago {
         let volta = format!("kavelipay://cobranca/{token_compartilhamento}");
         let mut corpo = json!({
             "items": [{
-                "id": charge_id.to_string(),
+                "id": referencia,
                 "title": descricao,
                 "quantity": 1,
                 "currency_id": moeda,
                 "unit_price": unit_price,
             }],
-            "external_reference": charge_id.to_string(),
+            "external_reference": referencia,
             "back_urls": { "success": volta, "pending": volta, "failure": volta },
         });
         if let Some(url) = &self.notification_url {

@@ -5,12 +5,15 @@
 //!  2. Quitar uma parte devolve dinheiro ao dono da wallet via `Settlement`,
 //!     que é a inversão contábil de `BillPaid`.
 //!
-//! O que NÃO existe aqui: cobrança, PIX, transferência real. Uma parte
-//! quitada é o registro de que o usuário informou que o dinheiro voltou.
+//! Cada parte em aberto ganha um link público (`/cobranca/parte/{token}/pagar`)
+//! que o participante abre sem conta: ele paga no Checkout Pro e quem confirma
+//! é o webhook do Mercado Pago, não a palavra do dono. O clique manual em
+//! `settle_part` continua existindo para quem pagou por fora (Pix direto).
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use axum::response::{Html, Redirect};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -18,6 +21,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::ledger::{self, TransactionType};
 use crate::money::Money;
+use crate::routes::charges;
 use crate::state::wallet_ativa;
 use crate::state::AppState;
 
@@ -45,6 +49,9 @@ pub struct SplitPartResponse {
     pub owed_amount: Money,
     pub is_settled: bool,
     pub settled_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Link https para o participante pagar sem ter o app. `None` quando já
+    /// quitada — link aberto de parte paga só mostra "pagamento confirmado".
+    pub link: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -194,40 +201,12 @@ pub async fn settle_part(
         return Err(AppError::Conflict("parte já quitada".into()));
     }
 
-    let valor = Money::new(parte.0);
-    let nome = parte.1.clone();
-
     // Transação primeiro: se o ledger recusar, a parte continua pendente —
     // e qualquer falha depois daqui desfaz os dois lados juntos.
-    let transaction_id = ledger::postar_em_com_categoria(
-        &mut tx,
-        wallet,
-        TransactionType::Settlement,
-        valor,
-        Some(&format!("Quitação de {nome}")),
-        Some(serde_json::json!({ "split_id": split_id, "part_id": part_id })),
-        None,
-        Some(auth.user_id()),
-    )
-    .await?;
-
-    let rows = sqlx::query(
-        "UPDATE expense_split_parts
-            SET settled_at = now(), settled_transaction_id = $3
-          WHERE id = $1 AND split_id = $2 AND settled_at IS NULL",
-    )
-    .bind(part_id)
-    .bind(split_id)
-    .bind(transaction_id)
-    .execute(&mut *tx)
-    .await?;
-
-    if rows.rows_affected() == 0 {
-        // Corrida defensiva: desfaz TUDO — o ledger não pode ficar com
-        // crédito órfão de uma parte não quitada.
-        tracing::warn!(%split_id, %part_id, "quitação concorrente; transação desfeita");
+    if let Err(e) = quitar_parte(&mut tx, wallet, split_id, part_id, &parte.1, parte.0, auth.user_id(), None).await
+    {
         tx.rollback().await?;
-        return Err(AppError::Conflict("parte já quitada".into()));
+        return Err(e);
     }
 
     tx.commit().await?;
@@ -255,8 +234,18 @@ pub async fn list_splits(
     let mut out = Vec::with_capacity(splits.len());
 
     for (id, desc, total, currency, created_at) in splits {
-        let parts = sqlx::query_as::<_, (Uuid, String, Decimal, bool, Option<chrono::DateTime<chrono::Utc>>)>(
-            "SELECT id, participant_name, owed_amount, settled_at IS NOT NULL, settled_at
+        let parts = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                Decimal,
+                bool,
+                Option<chrono::DateTime<chrono::Utc>>,
+                String,
+            ),
+        >(
+            "SELECT id, participant_name, owed_amount, settled_at IS NOT NULL, settled_at, share_token
                FROM expense_split_parts WHERE split_id = $1 ORDER BY created_at",
         )
         .bind(id)
@@ -276,12 +265,13 @@ pub async fn list_splits(
             currency,
             parts: parts
                 .into_iter()
-                .map(|(pid, name, owed, settled, at)| SplitPartResponse {
+                .map(|(pid, name, owed, settled, at, token)| SplitPartResponse {
                     id: pid,
                     name,
                     owed_amount: Money::new(owed),
                     is_settled: settled,
                     settled_at: at,
+                    link: link_da_parte(&state, settled, &token),
                 })
                 .collect(),
             pending_amount: Money::new(pendente),
@@ -306,8 +296,18 @@ async fn buscar(state: &AppState, id: Uuid, wallet: Uuid) -> AppResult<SplitResp
     .await?
     .ok_or(AppError::NotFound("divisão"))?;
 
-    let parts = sqlx::query_as::<_, (Uuid, String, Decimal, bool, Option<chrono::DateTime<chrono::Utc>>)>(
-        "SELECT id, participant_name, owed_amount, settled_at IS NOT NULL, settled_at
+    let parts = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            Decimal,
+            bool,
+            Option<chrono::DateTime<chrono::Utc>>,
+            String,
+        ),
+    >(
+        "SELECT id, participant_name, owed_amount, settled_at IS NOT NULL, settled_at, share_token
            FROM expense_split_parts WHERE split_id = $1 ORDER BY created_at",
     )
     .bind(id)
@@ -324,16 +324,176 @@ async fn buscar(state: &AppState, id: Uuid, wallet: Uuid) -> AppResult<SplitResp
         currency: row.2,
         parts: parts
             .into_iter()
-            .map(|(pid, name, owed, settled, at)| SplitPartResponse {
+            .map(|(pid, name, owed, settled, at, token)| SplitPartResponse {
                 id: pid,
                 name,
                 owed_amount: Money::new(owed),
                 is_settled: settled,
                 settled_at: at,
+                link: link_da_parte(&state, settled, &token),
             })
             .collect(),
         pending_amount: Money::new(pendente),
         balance: Money::new(saldo),
         created_at: row.3,
     })
+}
+/// Link público da parte — é o que o dono manda no WhatsApp. `None` quando já
+/// está quitada: link de coisa paga só gera cobrança repetida.
+fn link_da_parte(state: &AppState, quitada: bool, token: &str) -> Option<String> {
+    if quitada {
+        None
+    } else {
+        Some(format!("{}/cobranca/parte/{token}/pagar", state.public_base_url))
+    }
+}
+
+/// Quita uma parte dentro da transação de quem chamou (o dono clicando, ou o
+/// webhook do Mercado Pago confirmando). Ledger primeiro: se ele recusar, a
+/// parte continua pendente e nada fica pela metade.
+pub(crate) async fn quitar_parte(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    wallet: Uuid,
+    split_id: Uuid,
+    part_id: Uuid,
+    nome: &str,
+    valor: Decimal,
+    user_id: Uuid,
+    mp_payment_id: Option<&str>,
+) -> AppResult<()> {
+    let transaction_id = ledger::postar_em_com_categoria(
+        tx,
+        wallet,
+        TransactionType::Settlement,
+        Money::new(valor),
+        Some(&format!("Quitação de {nome}")),
+        Some(serde_json::json!({ "split_id": split_id, "part_id": part_id })),
+        None,
+        Some(user_id),
+    )
+    .await?;
+
+    let rows = sqlx::query(
+        "UPDATE expense_split_parts
+            SET settled_at = now(), settled_transaction_id = $3, mp_payment_id = $4
+          WHERE id = $1 AND split_id = $2 AND settled_at IS NULL",
+    )
+    .bind(part_id)
+    .bind(split_id)
+    .bind(transaction_id)
+    .bind(mp_payment_id)
+    .execute(&mut **tx)
+    .await?;
+
+    if rows.rows_affected() == 0 {
+        // Corrida defensiva: desfaz TUDO — o ledger não pode ficar com crédito
+        // órfão de uma parte não quitada.
+        tracing::warn!(%split_id, %part_id, "quitação concorrente; transação desfeita");
+        return Err(AppError::Conflict("parte já quitada".into()));
+    }
+
+    Ok(())
+}
+
+struct PartePublica {
+    id: Uuid,
+    name: String,
+    owed_amount: Decimal,
+    settled: bool,
+    description: String,
+    cobrador: Option<String>,
+}
+
+async fn por_token_parte(state: &AppState, token: &str) -> AppResult<PartePublica> {
+    let token = token.trim().to_ascii_lowercase();
+    if token.len() != 32 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AppError::NotFound("divisão"));
+    }
+    let row = sqlx::query_as::<_, (Uuid, Uuid, String, Decimal, bool, String, Option<String>)>(
+        "SELECT p.id, p.split_id, p.participant_name, p.owed_amount, p.settled_at IS NOT NULL,
+                s.description, u.display_name
+           FROM expense_split_parts p
+           JOIN expense_splits s ON s.id = p.split_id
+           JOIN wallets w ON w.id = s.wallet_id
+           JOIN users u ON u.id = w.user_id
+          WHERE p.share_token = $1",
+    )
+    .bind(&token)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("divisão"))?;
+
+    Ok(PartePublica {
+        id: row.0,
+        name: row.2,
+        owed_amount: row.3,
+        settled: row.4,
+        description: row.5,
+        cobrador: row.6.filter(|n| !n.trim().is_empty()),
+    })
+}
+
+/// GET /cobranca/parte/{token}/pagar — a cota de uma divisão, pública.
+pub async fn pagina_parte(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> AppResult<Html<String>> {
+    let p = por_token_parte(&state, &token).await?;
+
+    let acao = if p.settled {
+        "<p class=\"aviso ok\">Pagamento confirmado.</p>"
+    } else {
+        "<form method=\"post\"><button type=\"submit\">Pagar com Mercado Pago</button></form>
+         <p class=\"pe\">Pix ou cartão, na página do Mercado Pago.</p>"
+    };
+
+    Ok(charges::pagina(
+        "DIVISÃO",
+        p.owed_amount,
+        &format!("{} · {}", p.name, p.description),
+        p.cobrador.as_deref(),
+        "",
+        acao,
+    ))
+}
+
+/// POST /cobranca/parte/{token}/pagar — cria (ou reaproveita) a preferência e
+/// manda o participante para o Checkout Pro.
+pub async fn pagar_pela_parte(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> AppResult<Redirect> {
+    let p = por_token_parte(&state, &token).await?;
+    if p.settled {
+        return Ok(Redirect::to(&format!("/cobranca/parte/{token}/pagar")));
+    }
+
+    let existente = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT mp_preference_id FROM expense_split_parts WHERE id = $1",
+    )
+    .bind(p.id)
+    .fetch_one(&state.db)
+    .await?;
+    if let Some(id) = existente {
+        return Ok(Redirect::to(&charges::init_point(&id)));
+    }
+
+    let preferencia = state
+        .mp
+        .criar_preferencia(
+            &format!("parte:{}", p.id),
+            &format!("{} · {}", p.name, p.description),
+            p.owed_amount,
+            "BRL",
+            &token,
+        )
+        .await?;
+
+    sqlx::query("UPDATE expense_split_parts SET mp_preference_id = $2 WHERE id = $1")
+        .bind(p.id)
+        .bind(&preferencia.id)
+        .execute(&state.db)
+        .await?;
+
+    Ok(Redirect::to(&preferencia.init_point))
 }

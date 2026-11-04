@@ -267,6 +267,106 @@ check "POST em cobrança paga volta pra página, não pro MP (recebido $REDIR)" 
     "$([ "$REDIR" = "303 $BASE/cobranca/$TOKEN/pagar" ] && echo true || echo false)"
 
 echo
+echo "parte de divisão paga pelo Mercado Pago (quem confirma é o MP)"
+
+SPLIT=$(curl -s -X POST "$BASE/splits" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"description":"Pizza de sexta","total_amount":"40.00","parts":[
+          {"name":"Bruno","amount":"20.00"},{"name":"Carla","amount":"20.00"}]}')
+ID_SPLIT=$(get id <<<"$SPLIT")
+ID_PARTE=$("${PSQL[@]}" -t -A -d "$DB" \
+    -c "SELECT id FROM expense_split_parts WHERE split_id='$ID_SPLIT' AND participant_name='Bruno'")
+SALDO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "divisão debitou o total da carteira (saldo 10.00, recebido $SALDO)" \
+    "$([ "$SALDO" = "10.00" ] && echo true || echo false)"
+
+# O link sai do próprio GET /splits: o app copia daqui, sem rota nova.
+LINK_PARTE=$(curl -s "$BASE/splits" -H "$AUTH" | python3 -c '
+import json,sys
+for s in json.load(sys.stdin):
+    for p in s["parts"]:
+        if p["name"] == "Bruno":
+            print(p.get("link") or "")
+')
+check "parte em aberto expõe link público para pagar ($LINK_PARTE)" \
+    "$(python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"https?://[^/]+/cobranca/parte/[0-9a-f]{32}/pagar", sys.argv[1]) else 1)' "$LINK_PARTE" && echo true || echo false)"
+
+TOKEN_PARTE=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT share_token FROM expense_split_parts WHERE id='$ID_PARTE'")
+PAGINA=$(curl -s "$BASE/cobranca/parte/$TOKEN_PARTE/pagar")
+check "página da parte abre sem login e mostra o valor" \
+    "$(grep -q 'R\$ 20,00' <<<"$PAGINA" && echo true || echo false)"
+check "página da parte mostra participante e a despesa" \
+    "$(grep -q 'Bruno' <<<"$PAGINA" && grep -q 'Pizza de sexta' <<<"$PAGINA" && echo true || echo false)"
+check "página da parte tem o botão do Mercado Pago" \
+    "$(grep -q 'Pagar com Mercado Pago' <<<"$PAGINA" && echo true || echo false)"
+check "token malformado de parte devolve 404 (recebido $(code "$BASE/cobranca/parte/xyz/pagar"))" \
+    "$([ "$(code "$BASE/cobranca/parte/xyz/pagar")" = "404" ] && echo true || echo false)"
+
+REDIR=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$BASE/cobranca/parte/$TOKEN_PARTE/pagar")
+check "parte sem preferência cria nova e redireciona pro MP (recebido $REDIR)" \
+    "$([ "$REDIR" = "303 https://mp.teste/pref-teste-1" ] && echo true || echo false)"
+REDIR=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$BASE/cobranca/parte/$TOKEN_PARTE/pagar")
+check "segundo POST reaproveita a preferência (recebido $REDIR)" \
+    "$([ "$REDIR" = "303 https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=pref-teste-1" ] && echo true || echo false)"
+
+# Webhook pendente: a API do MP diz "pending", nada pode ser quitado.
+C=$(code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' \
+    -d '{"type":"payment","data":{"id":"pend"}}')
+QUITADA=$("${PSQL[@]}" -t -A -d "$DB" \
+    -c "SELECT settled_at IS NOT NULL FROM expense_split_parts WHERE id='$ID_PARTE'")
+check "webhook pendente não quita a parte (settled=$QUITADA)" \
+    "$([ "$C" = "200" ] && [ "$QUITADA" = "f" ] && echo true || echo false)"
+
+printf 'parte:%s' "$ID_PARTE" > "$EXT_REF"
+C=$(code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' \
+    -d '{"type":"payment","data":{"id":"777"}}')
+QUITADA=$("${PSQL[@]}" -t -A -d "$DB" \
+    -c "SELECT mp_payment_id FROM expense_split_parts WHERE id='$ID_PARTE'")
+SALDO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "webhook aprovado quita a parte e grava o pagamento ($QUITADA)" \
+    "$([ "$C" = "200" ] && [ "$QUITADA" = "777" ] && echo true || echo false)"
+check "quitação credita o valor da parte no dono (saldo 30.00, recebido $SALDO)" \
+    "$([ "$SALDO" = "30.00" ] && echo true || echo false)"
+
+TXNS=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT COUNT(*) FROM ledger_transactions")
+C=$(code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' \
+    -d '{"type":"payment","data":{"id":"777"}}')
+SALDO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+TXNS2=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT COUNT(*) FROM ledger_transactions")
+check "reenvio do webhook da parte não credita de novo (saldo $SALDO)" \
+    "$([ "$SALDO" = "30.00" ] && echo true || echo false)"
+check "reenvio da parte não cria transação nova ($TXNS → $TXNS2)" \
+    "$([ "$TXNS" = "$TXNS2" ] && echo true || echo false)"
+
+PAGINA=$(curl -s "$BASE/cobranca/parte/$TOKEN_PARTE/pagar")
+check "página da parte paga avisa que o pagamento foi confirmado" \
+    "$(grep -q 'Pagamento confirmado.' <<<"$PAGINA" && echo true || echo false)"
+check "página da parte paga não tem botão de pagar" \
+    "$(grep -q 'Pagar com Mercado Pago' <<<"$PAGINA" && echo false || echo true)"
+REDIR=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$BASE/cobranca/parte/$TOKEN_PARTE/pagar")
+check "POST em parte paga volta pra página, não pro MP (recebido $REDIR)" \
+    "$([ "$REDIR" = "303 $BASE/cobranca/parte/$TOKEN_PARTE/pagar" ] && echo true || echo false)"
+
+LINKS=$(curl -s "$BASE/splits" -H "$AUTH" | python3 -c '
+import json,sys
+for s in json.load(sys.stdin):
+    for p in s["parts"]:
+        if p["is_settled"] and p.get("link"):
+            print("sobrou")
+')
+check "parte quitada não expõe mais link" \
+    "$([ -z "$LINKS" ] && echo true || echo false)"
+
+echo
+echo "quitação manual continua valendo para quem pagou por fora"
+
+PENDENTE=$(curl -s -X POST "$BASE/splits/$ID_SPLIT/parts/$("${PSQL[@]}" -t -A -d "$DB" \
+    -c "SELECT id FROM expense_split_parts WHERE split_id='$ID_SPLIT' AND participant_name='Carla'")/settle" \
+    -H "$AUTH" | get pending_amount)
+SALDO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "quitar no clique do dono ainda funciona (pendente $PENDENTE, saldo $SALDO)" \
+    "$([ "$PENDENTE" = "0.00" ] && [ "$SALDO" = "50.00" ] && echo true || echo false)"
+
+echo
 echo "--------------------------------------------"
 printf 'passaram: %d  falharam: %d\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

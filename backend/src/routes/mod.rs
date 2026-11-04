@@ -114,6 +114,8 @@ pub fn router(state: AppState) -> Router {
         .route("/cobranca/{token}", get(charges::cobranca_publica))
         .route("/cobranca/{token}/pagar", get(charges::pagina_pagamento))
         .route("/cobranca/{token}/pagar", post(charges::pagar_pela_pagina))
+        .route("/cobranca/parte/{token}/pagar", get(splits::pagina_parte))
+        .route("/cobranca/parte/{token}/pagar", post(splits::pagar_pela_parte))
         // notificações
         .route("/notifications", get(notifications::list))
         .route("/notifications/generate", post(notifications::generate))

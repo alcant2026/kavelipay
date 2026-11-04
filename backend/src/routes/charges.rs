@@ -307,13 +307,69 @@ async fn por_token(state: &AppState, token: &str) -> AppResult<Publica> {
 
 /// Escapa texto de usuário antes de entrar no HTML. A descrição da cobrança é
 /// livre, então sem isso o link público viraria XSS refletido.
-fn escapar(texto: &str) -> String {
+pub(crate) fn escapar(texto: &str) -> String {
     texto
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+/// Esqueleto da página pública. Cobrança e parte de divisão mostram a mesma
+/// coisa para quem paga — valor, do que é, de quem — então o HTML mora aqui.
+pub(crate) fn pagina(
+    titulo: &str,
+    valor: Decimal,
+    descricao: &str,
+    cobrador: Option<&str>,
+    nota: &str,
+    acao: &str,
+) -> Html<String> {
+    let quem = match cobrador.filter(|n| !n.trim().is_empty()) {
+        Some(n) => format!("<p class=\"quem\">Cobrança de {}</p>", escapar(n)),
+        None => String::new(),
+    };
+
+    Html(format!(
+        r#"<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{titulo} · KaveliPay</title>
+<style>
+:root{{color-scheme:light dark}}
+body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#f5f5f7;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111}}
+main{{background:#fff;border-radius:20px;padding:32px 24px;max-width:380px;width:100%;
+box-shadow:0 8px 30px rgba(0,0,0,.08);text-align:center}}
+h1{{font-size:16px;font-weight:600;color:#666;margin:0 0 4px}}
+.valor{{font-size:40px;font-weight:700;margin:8px 0 4px;letter-spacing:-1px}}
+.desc{{font-size:17px;margin:0 0 20px}}
+.quem,.pe{{font-size:14px;color:#666;margin:6px 0}}
+.aviso{{margin-top:20px;padding:14px;border-radius:12px;background:#fff4e5;color:#8a5300;font-size:15px}}
+.aviso.ok{{background:#e8f6ee;color:#1a6b3c}}
+button{{width:100%;margin-top:20px;padding:16px;border:0;border-radius:14px;background:#7b2ff7;
+color:#fff;font-size:17px;font-weight:600;cursor:pointer}}
+.rodape{{margin-top:22px;font-size:12px;color:#999}}
+@media(prefers-color-scheme:dark){{body{{background:#0e0e10;color:#f2f2f2}}
+main{{background:#1b1b1f;box-shadow:none}}.aviso{{background:#3a2b12;color:#f0c27a}}
+.aviso.ok{{background:#15301f;color:#8fdcae}}}}
+</style></head>
+<body><main>
+<h1>{titulo}</h1>
+<p class="valor">R$ {valor}</p>
+<p class="desc">{desc}</p>
+{quem}{nota}
+{acao}
+<p class="rodape">KaveliPay · não é banco, não guarda dinheiro</p>
+</main></body></html>"#,
+        titulo = escapar(titulo),
+        valor = format!("{:.2}", valor).replace('.', ","),
+        desc = escapar(descricao),
+        quem = quem,
+        nota = nota,
+        acao = acao,
+    ))
 }
 
 /// GET /cobranca/{token}/pagar — página pública de pagamento.
@@ -339,53 +395,19 @@ pub async fn pagina_pagamento(
         }
     };
 
-    let cobrador = match &c.cobrador {
-        Some(n) => format!("<p class=\"quem\">Cobrança de {}</p>", escapar(n)),
-        None => String::new(),
-    };
-    let vence = match c.due_date {
+    let nota = match c.due_date {
         Some(d) => format!("<p class=\"pe\">Vence em {}</p>", d.format("%d/%m/%Y")),
         None => String::new(),
     };
 
-    Ok(Html(format!(
-        r#"<!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Cobrança · KaveliPay</title>
-<style>
-:root{{color-scheme:light dark}}
-body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-background:#f5f5f7;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111}}
-main{{background:#fff;border-radius:20px;padding:32px 24px;max-width:380px;width:100%;
-box-shadow:0 8px 30px rgba(0,0,0,.08);text-align:center}}
-h1{{font-size:16px;font-weight:600;color:#666;margin:0 0 4px}}
-.valor{{font-size:40px;font-weight:700;margin:8px 0 4px;letter-spacing:-1px}}
-.desc{{font-size:17px;margin:0 0 20px}}
-.quem,.pe{{font-size:14px;color:#666;margin:6px 0}}
-.aviso{{margin-top:20px;padding:14px;border-radius:12px;background:#fff4e5;color:#8a5300;font-size:15px}}
-.aviso.ok{{background:#e8f6ee;color:#1a6b3c}}
-button{{width:100%;margin-top:20px;padding:16px;border:0;border-radius:14px;background:#7b2ff7;
-color:#fff;font-size:17px;font-weight:600;cursor:pointer}}
-.rodape{{margin-top:22px;font-size:12px;color:#999}}
-@media(prefers-color-scheme:dark){{body{{background:#0e0e10;color:#f2f2f2}}
-main{{background:#1b1b1f;box-shadow:none}}.aviso{{background:#3a2b12;color:#f0c27a}}
-.aviso.ok{{background:#15301f;color:#8fdcae}}}}
-</style></head>
-<body><main>
-<h1>COBRANÇA</h1>
-<p class="valor">R$ {valor}</p>
-<p class="desc">{desc}</p>
-{quem}{vence}
-{acao}
-<p class="rodape">KaveliPay · não é banco, não guarda dinheiro</p>
-</main></body></html>"#,
-        valor = format!("{:.2}", c.amount).replace('.', ","),
-        desc = escapar(&c.description),
-        quem = cobrador,
-        vence = vence,
-        acao = acao,
-    )))
+    Ok(pagina(
+        "COBRANÇA",
+        c.amount,
+        &c.description,
+        c.cobrador.as_deref(),
+        &nota,
+        acao,
+    ))
 }
 
 /// POST /cobranca/{token}/pagar — cria (ou reaproveita) a preferência e manda
@@ -414,7 +436,7 @@ pub async fn pagar_pela_pagina(
 
     let preferencia = state
         .mp
-        .criar_preferencia(c.id, &c.description, c.amount, &c.currency, &token)
+        .criar_preferencia(&c.id.to_string(), &c.description, c.amount, &c.currency, &token)
         .await?;
 
     sqlx::query(
@@ -430,7 +452,7 @@ pub async fn pagar_pela_pagina(
 
 /// URL do Checkout Pro a partir da preferência. Usada quando a preferência já
 /// existe (o `init_point` só é devolvido na criação).
-fn init_point(preferencia: &str) -> String {
+pub(crate) fn init_point(preferencia: &str) -> String {
     format!("https://www.mercadopago.com.br/checkout/v1/redirect?pref_id={preferencia}")
 }
 
@@ -619,7 +641,7 @@ pub async fn link_pagamento(
 
     let preferencia = state
         .mp
-        .criar_preferencia(id, &description, amount, &currency, &token)
+        .criar_preferencia(&id.to_string(), &description, amount, &currency, &token)
         .await?;
 
     sqlx::query(
@@ -662,12 +684,59 @@ pub async fn webhook(
     if pagamento.status != "approved" {
         return Ok(StatusCode::OK);
     }
-    let Ok(charge_id) = pagamento
-        .external_reference
-        .as_deref()
-        .unwrap_or_default()
-        .parse::<Uuid>()
-    else {
+    let referencia = pagamento.external_reference.as_deref().unwrap_or_default();
+
+    // Cota de divisão (`parte:<uuid>`): mesma confiança da cobrança — quem
+    // confirma é a consulta ao Mercado Pago, não o clique do dono.
+    if let Some(resto) = referencia.strip_prefix("parte:") {
+        let Ok(parte_id) = resto.parse::<Uuid>() else {
+            return Ok(StatusCode::OK);
+        };
+        let mut tx = state.db.begin().await?;
+        let linha = sqlx::query_as::<_, (String, Decimal, bool, Uuid, Uuid, Option<String>, Uuid)>(
+            "SELECT p.participant_name, p.owed_amount, p.settled_at IS NOT NULL,
+                    p.split_id, w.id, p.mp_payment_id, w.user_id
+               FROM expense_split_parts p
+               JOIN expense_splits s ON s.id = p.split_id
+               JOIN wallets w ON w.id = s.wallet_id
+              WHERE p.id = $1
+              FOR UPDATE OF p",
+        )
+        .bind(parte_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some((nome, valor, quitada, split_id, wallet, ja_pago, user_id)) = linha else {
+            return Ok(StatusCode::OK);
+        };
+        if quitada || ja_pago.is_some() {
+            return Ok(StatusCode::OK);
+        }
+
+        // Conflito aqui é corrida com outra quitação: o ledger já foi desfeito
+        // pelo rollback, e responder 200 evita o MP reenviar por horas.
+        if crate::routes::splits::quitar_parte(
+            &mut tx,
+            wallet,
+            split_id,
+            parte_id,
+            &nome,
+            valor,
+            user_id,
+            Some(pagamento_id),
+        )
+        .await
+        .is_err()
+        {
+            tx.rollback().await?;
+            return Ok(StatusCode::OK);
+        }
+
+        tx.commit().await?;
+        return Ok(StatusCode::OK);
+    }
+
+    let Ok(charge_id) = referencia.parse::<Uuid>() else {
         return Ok(StatusCode::OK);
     };
 

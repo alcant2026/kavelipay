@@ -36,9 +36,18 @@ handler.
 - `DELETE /bills/{id}` — cancela; só PENDING (pago é 409)
 - `POST /splits` — `{description, total_amount, parts:[{name, amount}]}`. A soma
   das partes **tem** de fechar com o total; a despesa inteira sai da carteira
-- `GET /splits`
-- `POST /splits/{id}/parts/{part_id}/settle` — quita a parte e devolve o dinheiro
-  ao dono via transação `SETTLEMENT`
+- `GET /splits` — cada parte em aberto traz `link`: a URL `https` abaixo, para o
+  dono mandar no WhatsApp (parte quitada vem sem link)
+- `POST /splits/{id}/parts/{part_id}/settle` — quita a parte **por declaração do
+  dono** (quem pagou por fora) e devolve o dinheiro via `SETTLEMENT`
+- `GET /cobranca/parte/{token}/pagar` — **pública, sem sessão**: a cota de uma
+  divisão em HTML. Em aberto mostra o botão do Mercado Pago; paga mostra
+  "Pagamento confirmado." e não oferece pagamento de novo
+- `POST /cobranca/parte/{token}/pagar` — **pública**: cria (ou reaproveita
+  `mp_preference_id`) a preferência da parte e responde 303 para o checkout. A
+  preferência leva `external_reference = parte:<id>`; o webhook do MP consulta o
+  pagamento na API deles e só então quita a parte, gravando `mp_payment_id`. Quem
+  confirma o pagamento é o MP, não o clique do dono
 - `POST /charges` — cria cobrança e devolve o QR. **NÃO gera lançamento**
 - `GET /charges`, `GET /charges/{id}/qr` — o QR é
   `kavelipay://cobranca/<token>` (deep link do app, **nunca** BR Code/EMV); o

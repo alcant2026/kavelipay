@@ -366,7 +366,7 @@ private fun statusColorDe(status: String, sem: KpSemanticas) = when (status) {
  * `ClipboardManager` sem `ClipData` foi depreciado no Android 13 e em alguns
  * aparelhos faz a cópia falhar em silêncio — por isso o `ClipData` explícito.
  */
-private fun copiarParaAreaTransferencia(contexto: Context, texto: String) {
+internal fun copiarParaAreaTransferencia(contexto: Context, texto: String) {
     val clipboard = contexto.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("KaveliPay", texto))
 }

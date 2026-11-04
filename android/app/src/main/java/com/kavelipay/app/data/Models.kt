@@ -117,6 +117,8 @@ data class ItemSplitParte(
      */
     val amount: String,
     val settledAt: String?,
+    /** Link público para o participante pagar no Mercado Pago. `null` quando quitada. */
+    val link: String?,
 )
 
 data class ItemSplit(
@@ -453,6 +455,7 @@ fun JSONObject.paraItemSplitParte() = ItemSplitParte(
     name = optString("name"),
     amount = optString("owed_amount", "0.00"),
     settledAt = anulavel("settled_at"),
+    link = anulavel("link"),
 )
 
 // ── Charges ────────────────────────────────────────────────────────────────────

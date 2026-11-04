@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Payments
@@ -43,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kavelipay.app.data.ItemSplit
 import com.kavelipay.app.data.ItemSplitParte
@@ -179,6 +181,7 @@ fun KpSplitsDetalheScreen(vm: AppViewModel, splitId: String, aoVoltar: () -> Uni
     val estado by vm.estado.collectAsState()
     val split = estado.splitDetalhe
     val sem = KpTheme.semanticas
+    val contexto = LocalContext.current
 
     LaunchedEffect(splitId) {
         vm.carregarSplitDetalhe(splitId)
@@ -219,6 +222,16 @@ fun KpSplitsDetalheScreen(vm: AppViewModel, splitId: String, aoVoltar: () -> Uni
                         Column(Modifier.padding(horizontal = Spacing.md)) {
                             val parte = s.partes[indice]
                             LinhaParte(parte, onQuitar = { vm.quitarParte(s.id, parte.id) })
+                            // O link é o que o participante abre no navegador; sem
+                            // ele a única quitação possível seria o clique do dono.
+                            parte.link?.let { link ->
+                                KpBotaoSecundario(
+                                    texto = "Copiar link de pagamento",
+                                    onClick = { copiarParaAreaTransferencia(contexto, link) },
+                                    icone = Icons.Default.ContentCopy,
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.sm),
+                                )
+                            }
                             if (indice < s.partes.lastIndex) HorizontalDivider(
                                 color = MaterialTheme.colorScheme.outline
                             )
