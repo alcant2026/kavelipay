@@ -1,5 +1,7 @@
 package com.kavelipay.app.ui.screens
 
+import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -155,7 +158,8 @@ private fun LinhaSplit(split: ItemSplit, aoAbrirDetalhe: (String) -> Unit) {
             Text(split.description, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
             Spacer(Modifier.height(4.dp))
             Text(
-                "${split.partes.size} pessoas · a receber R$ ${Money.brl(split.pendingAmount)}",
+                "${split.partes.size} ${if (split.partes.size == 1) "pessoa" else "pessoas"}" +
+                    " · a receber R$ ${Money.brl(split.pendingAmount)}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -224,13 +228,26 @@ fun KpSplitsDetalheScreen(vm: AppViewModel, splitId: String, aoVoltar: () -> Uni
                             LinhaParte(parte, onQuitar = { vm.quitarParte(s.id, parte.id) })
                             // O link é o que o participante abre no navegador; sem
                             // ele a única quitação possível seria o clique do dono.
+                            // Enviar é o caminho normal (a pessoa manda no WhatsApp);
+                            // copiar serve para quem vai colar em outro lugar.
                             parte.link?.let { link ->
-                                KpBotaoSecundario(
-                                    texto = "Copiar link de pagamento",
-                                    onClick = { copiarParaAreaTransferencia(contexto, link) },
-                                    icone = Icons.Default.ContentCopy,
+                                Row(
                                     modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.sm),
-                                )
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                ) {
+                                    KpBotaoSecundario(
+                                        texto = "Enviar link",
+                                        onClick = { compartilharLink(contexto, link) },
+                                        icone = Icons.Default.Share,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    KpBotaoSecundario(
+                                        texto = "Copiar",
+                                        onClick = { copiarParaAreaTransferencia(contexto, link) },
+                                        icone = Icons.Default.ContentCopy,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
                             }
                             if (indice < s.partes.lastIndex) HorizontalDivider(
                                 color = MaterialTheme.colorScheme.outline
@@ -357,4 +374,9 @@ fun LinhaNovaParte(
             )
         }
     }
+}
+/** Manda o link da parte pelo app que a pessoa já usa (WhatsApp, e-mail…). */
+private fun compartilharLink(contexto: Context, link: String) {
+    val enviar = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link)
+    contexto.startActivity(Intent.createChooser(enviar, "Enviar link de pagamento"))
 }
