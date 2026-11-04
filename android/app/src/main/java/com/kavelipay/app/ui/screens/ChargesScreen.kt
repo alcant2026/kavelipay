@@ -1,6 +1,9 @@
 package com.kavelipay.app.ui.screens
 
 import android.content.ClipData
+import android.widget.Toast
+import android.net.Uri
+import android.content.Intent
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.background
@@ -25,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.ReceiptLong
@@ -287,6 +291,40 @@ fun KpChargeQrScreen(vm: AppViewModel, chargeId: String, aoVoltar: () -> Unit) {
                             KpLinhaResumo("Status", cobranca.status, corValor = statusColorDe(cobranca.status, sem))
                         }
                     }
+
+                    Spacer(Modifier.height(Spacing.md))
+                    // Checkout Pro: o link nasce no backend e abre a página do
+                    // Mercado Pago no navegador (o app não é provedor de
+                    // pagamento). Quem confirma é o webhook, não este botão.
+                    KpBotaoSecundario(
+                        texto = "Pagar com Mercado Pago",
+                        onClick = {
+                            vm.gerarLinkPagamento(cobranca.id) { url ->
+                                runCatching {
+                                    contexto.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }.onFailure {
+                                    // Sem navegador (ou URL recusada): o link
+                                    // ainda serve para mandar para quem paga.
+                                    copiarParaAreaTransferencia(contexto, url)
+                                    Toast.makeText(contexto, "Link copiado.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        habilitado = cobranca.status == "PENDING" && !estado.enviando,
+                        icone = Icons.Default.OpenInNew,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(Spacing.xs))
+                    Text(
+                        "Abre o pagamento no Mercado Pago. A cobrança só vira recebida " +
+                            "quando o Mercado Pago confirmar.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
 
                     Spacer(Modifier.height(Spacing.md))
                     KpBotaoPrimario(

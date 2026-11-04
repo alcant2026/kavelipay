@@ -749,6 +749,18 @@ fun carregarChargeQr(chargeId: String) {
         }
     }
 
+    /**
+     * Gera o link do Checkout Pro (`POST /charges/{id}/pagamento`).
+     * Nada é marcado como recebido aqui: quem confirma é o webhook do MP.
+     */
+    fun gerarLinkPagamento(chargeId: String, aoAbrir: (String) -> Unit) {
+        viewModelScope.launch {
+            runCatching { api.linkPagamento(chargeId) }
+                .onSuccess(aoAbrir)
+                .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
+        }
+    }
+
     fun receberCharge(chargeId: String) {
         viewModelScope.launch {
             _estado.update { it.copy(enviando = true, erro = null) }

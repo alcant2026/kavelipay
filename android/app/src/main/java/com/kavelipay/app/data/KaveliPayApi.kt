@@ -317,6 +317,18 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
         ApiClient.post("/charges/$chargeId/receive", null, token)
             .optString("balance", "0.00")
 
+    /**
+     * `POST /charges/{id}/pagamento` — cria a preferência do Checkout Pro e
+     * devolve o `init_point` (página de pagamento do Mercado Pago).
+     *
+     * Gerar o link NÃO marca a cobrança como recebida: quem confirma é o
+     * webhook do MP, no backend. Um botão que marcasse aqui seria fingir
+     * pagamento.
+     */
+    suspend fun linkPagamento(chargeId: String): String =
+        ApiClient.post("/charges/$chargeId/pagamento", null, token)
+            .optString("init_point")
+
     suspend fun cancelarCharge(chargeId: String) =
         runCatching { ApiClient.delete("/charges/$chargeId", null, token) }
 
