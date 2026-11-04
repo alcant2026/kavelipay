@@ -13,6 +13,8 @@
     <!-- Escanear linha digitável do boleto. required=false: quem não tem
          câmera (ou nega) instala e usa o caminho de digitação manual. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Trava do app: digital/rosto com queda para o PIN do aparelho. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />

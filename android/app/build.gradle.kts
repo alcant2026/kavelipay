@@ -121,6 +121,9 @@ dependencies {
     // Instala o perfil de arranque no primeiro uso do app (Android 7+).
     implementation("androidx.profileinstaller:profileinstaller:1.3.0")
     implementation("androidx.activity:activity-compose:1.8.2")
+    // Trava por biometria; `fragment` é exigência do BiometricPrompt.
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.6.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 

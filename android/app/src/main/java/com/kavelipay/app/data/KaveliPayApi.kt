@@ -18,11 +18,20 @@ class KaveliPayApi(private val sessao: SessionStore) {
     // ── Auth ─────────────────────────────────────────────────────────────────
 
     suspend fun login(email: String, senha: String): String {
-        val r = ApiClient.post(
-            "/auth/login",
-            JSONObject().put("email", email).put("password", senha),
-            null,
-        )
+        val r = try {
+            ApiClient.post(
+                "/auth/login",
+                JSONObject().put("email", email).put("password", senha),
+                null,
+            )
+        } catch (e: ApiClient.ErroApi) {
+            // O backend responde 401 com "não autorizado" — jargão de HTTP que
+            // não diz nada a quem está na tela de login. A mesma mensagem serve
+            // para token vencido em qualquer outra chamada, então a tradução
+            // fica aqui, no único ponto onde 401 significa senha errada.
+            if (e.status != 401) throw e
+            throw ApiClient.ErroApi(401, e.codigo, "E-mail ou senha inválidos")
+        }
         return guardar(r)
     }
 
