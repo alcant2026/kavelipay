@@ -112,6 +112,8 @@ pub fn router(state: AppState) -> Router {
         // quem recebe a cobrança pode não ter conta (ou estar deslogado). O
         // segredo é o token do link, não o login.
         .route("/cobranca/{token}", get(charges::cobranca_publica))
+        .route("/cobranca/{token}/pagar", get(charges::pagina_pagamento))
+        .route("/cobranca/{token}/pagar", post(charges::pagar_pela_pagina))
         // notificações
         .route("/notifications", get(notifications::list))
         .route("/notifications/generate", post(notifications::generate))

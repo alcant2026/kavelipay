@@ -55,6 +55,9 @@ pub struct Config {
     /// URL pública que o Mercado Pago chama no webhook. `None` = preferência
     /// criada sem notificação (só pagamento manual de teste).
     pub mp_notification_url: Option<String>,
+    /// Base pública do backend, sem barra no fim. É o que vira link de
+    /// pagamento para quem não tem o app (`{base}/cobranca/{token}/pagar`).
+    pub public_base_url: String,
     /// Base URL do brapi (cotação de ação + dividendos). Grátis e sem
     /// chave (verificado ao vivo) — como a OpenRouter, o hook de teste é a
     /// base URL.
@@ -174,6 +177,11 @@ impl Config {
                 .ok()
                 .map(|u| u.trim().to_string())
                 .filter(|u| !u.is_empty()),
+            public_base_url: env::var("PUBLIC_BASE_URL")
+                .ok()
+                .map(|u| u.trim().trim_end_matches('/').to_string())
+                .filter(|u| !u.is_empty())
+                .unwrap_or_else(|| "https://kavelipay-backend.onrender.com".to_string()),
             admin_token,
             mailer: crate::mail::Mailer::from_env()?,
         })

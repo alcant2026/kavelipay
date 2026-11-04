@@ -94,6 +94,7 @@ async fn main() -> Result<(), AppError> {
         ai,
         cotacao,
         mp,
+        public_base_url: config.public_base_url.clone(),
         admin_token: config.admin_token.clone(),
         login_gate: kavelipay_backend::rate_limit::LoginGate::default(),
         mailer: config.mailer.clone(),

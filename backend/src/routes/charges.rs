@@ -13,6 +13,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::{Html, Redirect};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -165,7 +166,7 @@ pub async fn charge_qr(
     State(state): State<AppState>,
     auth: crate::auth::AuthUser,
     Path(id): Path<Uuid>,
-) -> AppResult<Json<PaymentPayload>> {
+) -> AppResult<Json<QrComLink>> {
     let wallet = wallet_ativa(&state, auth.user_id()).await?;
     let charge = buscar(&state, id, wallet).await?;
 
@@ -175,7 +176,25 @@ pub async fn charge_qr(
         ));
     }
 
-    Ok(Json(DemoPaymentProvider.qr_payload(&token_do_qr(&state, id, wallet).await?)))
+    let token = token_do_qr(&state, id, wallet).await?;
+    Ok(Json(QrComLink {
+        link: link_publico(&state, &token),
+        qr: DemoPaymentProvider.qr_payload(&token),
+    }))
+}
+
+/// QR do app **mais** o link https que qualquer pessoa abre no navegador.
+/// O `payload` continua sendo deep link `kavelipay://` (a spec proíbe fingir
+/// BR Code/PIX); o `link` é a página de pagamento pública.
+#[derive(Serialize)]
+pub struct QrComLink {
+    #[serde(flatten)]
+    pub qr: PaymentPayload,
+    pub link: String,
+}
+
+fn link_publico(state: &AppState, token: &str) -> String {
+    format!("{}/cobranca/{token}/pagar", state.public_base_url)
 }
 
 /// Lê o token de compartilhamento da cobrança. Só o dono chega aqui: o id vem
@@ -220,20 +239,51 @@ pub async fn cobranca_publica(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> AppResult<Json<CobrancaPublica>> {
+    let c = por_token(&state, &token).await?;
+    Ok(Json(CobrancaPublica {
+        description: c.description,
+        amount: Money::new(c.amount),
+        currency: c.currency,
+        status: c.status,
+        due_date: c.due_date,
+        cobrador: c.cobrador,
+    }))
+}
+
+/// Cobrança vista pelo link público. O `id` fica fora da resposta JSON — só a
+/// página precisa dele para gerar a preferência.
+struct Publica {
+    id: Uuid,
+    description: String,
+    amount: Decimal,
+    currency: String,
+    status: String,
+    due_date: Option<chrono::NaiveDate>,
+    cobrador: Option<String>,
+}
+
+/// Token de 128 bits gerado pelo banco: 32 hex. Malformado e inexistente dão o
+/// mesmo 404 — diferenciar tornaria a rota um oráculo para adivinhar tokens.
+fn normalizar_token(token: &str) -> AppResult<String> {
     let token = token.trim().to_ascii_lowercase();
     if token.len() != 32 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(AppError::NotFound("cobrança"));
     }
+    Ok(token)
+}
 
+async fn por_token(state: &AppState, token: &str) -> AppResult<Publica> {
+    let token = normalizar_token(token)?;
     let row = sqlx::query_as::<_, (
+        Uuid,
         String,
-        rust_decimal::Decimal,
+        Decimal,
         String,
         String,
         Option<chrono::NaiveDate>,
         Option<String>,
     )>(
-        "SELECT c.description, c.amount, c.currency, c.status, c.due_date, u.display_name
+        "SELECT c.id, c.description, c.amount, c.currency, c.status, c.due_date, u.display_name
            FROM charges c
            JOIN wallets w ON w.id = c.wallet_id
            JOIN users u ON u.id = w.user_id
@@ -244,14 +294,144 @@ pub async fn cobranca_publica(
     .await?
     .ok_or(AppError::NotFound("cobrança"))?;
 
-    Ok(Json(CobrancaPublica {
-        description: row.0,
-        amount: Money::new(row.1),
-        currency: row.2,
-        status: row.3,
-        due_date: row.4,
-        cobrador: row.5.filter(|n| !n.trim().is_empty()),
-    }))
+    Ok(Publica {
+        id: row.0,
+        description: row.1,
+        amount: row.2,
+        currency: row.3,
+        status: row.4,
+        due_date: row.5,
+        cobrador: row.6.filter(|n| !n.trim().is_empty()),
+    })
+}
+
+/// Escapa texto de usuário antes de entrar no HTML. A descrição da cobrança é
+/// livre, então sem isso o link público viraria XSS refletido.
+fn escapar(texto: &str) -> String {
+    texto
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+/// GET /cobranca/{token}/pagar — página pública de pagamento.
+///
+/// É o endereço que se manda por WhatsApp: abre no navegador, sem app e sem
+/// conta. O botão só cria a preferência do Checkout Pro e manda para o Mercado
+/// Pago; quem confirma o recebimento continua sendo o webhook.
+pub async fn pagina_pagamento(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> AppResult<Html<String>> {
+    let c = por_token(&state, &token).await?;
+
+    let acao = if c.status == "PENDING" {
+        "<form method=\"post\"><button type=\"submit\">Pagar com Mercado Pago</button></form>
+         <p class=\"pe\">Pix ou cartão, na página do Mercado Pago.</p>"
+    } else {
+        // Reabrir o link de uma cobrança já resolvida não deve oferecer pagamento
+        // de novo — o pior erro possível numa cobrança é cobrar duas vezes.
+        match c.status.as_str() {
+            "RECEIVED" => "<p class=\"aviso ok\">Esta cobrança já foi paga.</p>",
+            _ => "<p class=\"aviso\">Esta cobrança foi cancelada.</p>",
+        }
+    };
+
+    let cobrador = match &c.cobrador {
+        Some(n) => format!("<p class=\"quem\">Cobrança de {}</p>", escapar(n)),
+        None => String::new(),
+    };
+    let vence = match c.due_date {
+        Some(d) => format!("<p class=\"pe\">Vence em {}</p>", d.format("%d/%m/%Y")),
+        None => String::new(),
+    };
+
+    Ok(Html(format!(
+        r#"<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cobrança · KaveliPay</title>
+<style>
+:root{{color-scheme:light dark}}
+body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#f5f5f7;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111}}
+main{{background:#fff;border-radius:20px;padding:32px 24px;max-width:380px;width:100%;
+box-shadow:0 8px 30px rgba(0,0,0,.08);text-align:center}}
+h1{{font-size:16px;font-weight:600;color:#666;margin:0 0 4px}}
+.valor{{font-size:40px;font-weight:700;margin:8px 0 4px;letter-spacing:-1px}}
+.desc{{font-size:17px;margin:0 0 20px}}
+.quem,.pe{{font-size:14px;color:#666;margin:6px 0}}
+.aviso{{margin-top:20px;padding:14px;border-radius:12px;background:#fff4e5;color:#8a5300;font-size:15px}}
+.aviso.ok{{background:#e8f6ee;color:#1a6b3c}}
+button{{width:100%;margin-top:20px;padding:16px;border:0;border-radius:14px;background:#7b2ff7;
+color:#fff;font-size:17px;font-weight:600;cursor:pointer}}
+.rodape{{margin-top:22px;font-size:12px;color:#999}}
+@media(prefers-color-scheme:dark){{body{{background:#0e0e10;color:#f2f2f2}}
+main{{background:#1b1b1f;box-shadow:none}}.aviso{{background:#3a2b12;color:#f0c27a}}
+.aviso.ok{{background:#15301f;color:#8fdcae}}}}
+</style></head>
+<body><main>
+<h1>COBRANÇA</h1>
+<p class="valor">R$ {valor}</p>
+<p class="desc">{desc}</p>
+{quem}{vence}
+{acao}
+<p class="rodape">KaveliPay · não é banco, não guarda dinheiro</p>
+</main></body></html>"#,
+        valor = format!("{:.2}", c.amount).replace('.', ","),
+        desc = escapar(&c.description),
+        quem = cobrador,
+        vence = vence,
+        acao = acao,
+    )))
+}
+
+/// POST /cobranca/{token}/pagar — cria (ou reaproveita) a preferência e manda
+/// o pagador para o Checkout Pro. Público: quem paga não tem conta nem sessão.
+pub async fn pagar_pela_pagina(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> AppResult<Redirect> {
+    let token = normalizar_token(&token)?;
+    let c = por_token(&state, &token).await?;
+    if c.status != "PENDING" {
+        return Ok(Redirect::to(&format!("/cobranca/{token}/pagar")));
+    }
+
+    // Reaproveita a preferência já gerada: dois cliques no botão não devem
+    // criar duas preferências para a mesma cobrança.
+    let existente = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT mp_preference_id FROM charges WHERE id = $1",
+    )
+    .bind(c.id)
+    .fetch_one(&state.db)
+    .await?;
+    if let Some(id) = existente {
+        return Ok(Redirect::to(&init_point(&id)));
+    }
+
+    let preferencia = state
+        .mp
+        .criar_preferencia(c.id, &c.description, c.amount, &c.currency, &token)
+        .await?;
+
+    sqlx::query(
+        "UPDATE charges SET mp_preference_id = $2, updated_at = now() WHERE id = $1",
+    )
+    .bind(c.id)
+    .bind(&preferencia.id)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Redirect::to(&preferencia.init_point))
+}
+
+/// URL do Checkout Pro a partir da preferência. Usada quando a preferência já
+/// existe (o `init_point` só é devolvido na criação).
+fn init_point(preferencia: &str) -> String {
+    format!("https://www.mercadopago.com.br/checkout/v1/redirect?pref_id={preferencia}")
 }
 
 /// POST /charges/{id}/receive

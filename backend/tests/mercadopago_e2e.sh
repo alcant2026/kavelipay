@@ -155,6 +155,34 @@ check "preferência gravada na cobrança ($PREF_DB)" \
     "$([ "$PREF_DB" = "pref-teste-1" ] && echo true || echo false)"
 
 echo
+echo "página pública: quem recebe o link paga sem ter o app"
+
+TOKEN=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT share_token FROM charges WHERE id='$ID_CH'")
+PAGINA=$(curl -s "$BASE/cobranca/$TOKEN/pagar")
+check "página abre sem login e mostra o valor" \
+    "$(grep -q 'R\$ 50,00' <<<"$PAGINA" && echo true || echo false)"
+check "página mostra a descrição" \
+    "$(grep -q 'Aluguel do sobrinho' <<<"$PAGINA" && echo true || echo false)"
+check "página tem o botão do Mercado Pago" \
+    "$(grep -q 'Pagar com Mercado Pago' <<<"$PAGINA" && echo true || echo false)"
+check "token inexistente devolve 404 (recebido $(code "$BASE/cobranca/nao-existe/pagar"))" \
+    "$([ "$(code "$BASE/cobranca/nao-existe/pagar")" = "404" ] && echo true || echo false)"
+
+REDIR=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$BASE/cobranca/$TOKEN/pagar")
+# Preferência já existia (criada no teste autenticado): a página remonta a URL
+# de redirect do MP a partir do pref_id em vez de chamar a API de novo.
+check "pagar pela página redireciona pro MP (recebido $REDIR)" \
+    "$([ "$REDIR" = "303 https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=pref-teste-1" ] && echo true || echo false)"
+
+# Cobrança nova, ainda sem preferência: a página cria uma e usa o init_point do MP.
+CH2=$(curl -s -X POST "$BASE/charges" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"description":"Rateio do churrasco","amount":"12.30","debtor_name":"Carla"}')
+TOKEN2=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT share_token FROM charges WHERE id='$(get id <<<"$CH2")'")
+REDIR=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$BASE/cobranca/$TOKEN2/pagar")
+check "página cria preferência nova quando não existe (recebido $REDIR)" \
+    "$([ "$REDIR" = "303 https://mp.teste/pref-teste-1" ] && echo true || echo false)"
+
+echo
 echo "webhook não confia no corpo: só no status devolvido pela API"
 
 # Corpo com "approved" mas o id consultado na API está pendente: nada acontece.
@@ -225,6 +253,18 @@ check "cobrança RECEIVED recusa novo link com 409 (recebido $C)" \
 C=$(code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' -d '{')
 check "corpo inválido é recusado sem derrubar nada (recebido $C)" \
     "$([ "$C" = "400" ] && echo true || echo false)"
+
+echo
+echo "página de cobrança já paga não reapresenta pagamento"
+
+PAGINA=$(curl -s "$BASE/cobranca/$TOKEN/pagar")
+check "página de cobrança paga avisa que já foi paga" \
+    "$(grep -q 'já foi paga' <<<"$PAGINA" && echo true || echo false)"
+check "página de cobrança paga não tem botão de pagar" \
+    "$(grep -q 'Pagar com Mercado Pago' <<<"$PAGINA" && echo false || echo true)"
+REDIR=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$BASE/cobranca/$TOKEN/pagar")
+check "POST em cobrança paga volta pra página, não pro MP (recebido $REDIR)" \
+    "$([ "$REDIR" = "303 $BASE/cobranca/$TOKEN/pagar" ] && echo true || echo false)"
 
 echo
 echo "--------------------------------------------"

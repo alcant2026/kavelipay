@@ -258,7 +258,9 @@ fun KpChargeQrScreen(vm: AppViewModel, chargeId: String, aoVoltar: () -> Unit) {
                         KpBotaoSecundario(
                             texto = "Copiar link",
                             onClick = {
-                                copiarParaAreaTransferencia(contexto, qr.payload)
+                                // Sempre o link https quando existir: quem não tem o
+                                // app não consegue abrir o deep link kavelipay://.
+                                copiarParaAreaTransferencia(contexto, qr.link.ifBlank { qr.payload })
                             },
                             icone = Icons.Default.ContentCopy,
                             modifier = Modifier.fillMaxWidth(),

@@ -24,6 +24,9 @@ pub struct AppState {
     /// Cliente do Mercado Pago (Checkout Pro). Mesmo motivo do `ai`: um pool
     /// TLS só, não um por cobrança.
     pub mp: crate::mercadopago::MercadoPago,
+    /// Base pública do backend, sem barra no fim. É o que vira link de pagamento
+    /// para quem não tem o app (`{base}/cobranca/{token}/pagar`).
+    pub public_base_url: String,
     /// Token do cadastro de ofertas da vitrine. `None` = rota de admin
     /// desligada (503). Fica no estado, e não numa env lida no handler, para
     /// o processo morrer no boot se o token for fraco — e para os testes

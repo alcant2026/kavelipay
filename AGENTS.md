@@ -4,7 +4,7 @@ App Android de organização financeira e pagamentos para **pessoa física**, co
 
 ## Estado atual
 
-Backend Rust (`backend/`) completo: **800 testes passando** (191 Rust + 609 shell e2e) + 103 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
+Backend Rust (`backend/`) completo: **809 testes passando** (191 Rust + 618 shell e2e) + 103 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
 
 ## Comandos essenciais
 

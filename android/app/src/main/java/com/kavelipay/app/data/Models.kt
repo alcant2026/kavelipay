@@ -134,6 +134,9 @@ data class ChargeQr(
     val payload: String,
     val format: String,
     val provider: String,
+    // Link https para quem NÃO tem o app: abre a página de pagamento no navegador.
+    // Vazio quando o backend ainda não devolve (cobrança criada, não o /qr).
+    val link: String = "",
 )
 
 data class ItemCharge(
@@ -470,6 +473,7 @@ fun JSONObject.paraChargeQr() = ChargeQr(
     payload = optString("payload"),
     format = optString("format"),
     provider = optString("provider"),
+    link = optString("link"),
 )
 
 fun JSONObject.paraCobrancaPublica() = CobrancaPublica(
