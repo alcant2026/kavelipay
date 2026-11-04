@@ -45,6 +45,16 @@ pub struct Config {
     /// Base URL da API da OpenRouter. Existe como config para os testes de
     /// integração apontarem para um mock local — em produção ninguém mexe.
     pub openrouter_base_url: String,
+    /// Token do Mercado Pago (Checkout Pro). `None` desliga a cobrança por
+    /// link: `POST /charges/{id}/pagamento` devolve 503 e o app fica só com o
+    /// deep link/QR. Opcional pelo mesmo motivo da OpenRouter.
+    pub mp_access_token: Option<String>,
+    /// Base URL da API do Mercado Pago. Config para os testes apontarem para
+    /// um mock local; em produção ninguém mexe.
+    pub mp_base_url: String,
+    /// URL pública que o Mercado Pago chama no webhook. `None` = preferência
+    /// criada sem notificação (só pagamento manual de teste).
+    pub mp_notification_url: Option<String>,
     /// Base URL do brapi (cotação de ação + dividendos). Grátis e sem
     /// chave (verificado ao vivo) — como a OpenRouter, o hook de teste é a
     /// base URL.
@@ -154,6 +164,16 @@ impl Config {
                 .unwrap_or_else(|_| crate::cotacao::YAHOO_BASE_PADRAO.to_string()),
             statusinvest_base_url: env::var("STATUSINVEST_BASE_URL")
                 .unwrap_or_else(|_| crate::cotacao::STATUSINVEST_BASE_PADRAO.to_string()),
+            mp_access_token: env::var("MP_ACCESS_TOKEN")
+                .ok()
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty()),
+            mp_base_url: env::var("MP_BASE_URL")
+                .unwrap_or_else(|_| crate::mercadopago::BASE_URL_PADRAO.to_string()),
+            mp_notification_url: env::var("MP_NOTIFICATION_URL")
+                .ok()
+                .map(|u| u.trim().to_string())
+                .filter(|u| !u.is_empty()),
             admin_token,
             mailer: crate::mail::Mailer::from_env()?,
         })

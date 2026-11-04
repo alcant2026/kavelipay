@@ -48,6 +48,16 @@ handler.
   link/QR — inclusive sem conta no app. Token malformado e inexistente dão o
   mesmo 404; a resposta não expõe wallet, id da cobrança nem nome do devedor
 - `POST /charges/{id}/receive` — registra o recebimento; único toque na carteira
+- `POST /charges/{id}/pagamento` — **Mercado Pago**: gera a preferência do
+  Checkout Pro e devolve `{preference_id, init_point}`. Só cobrança `PENDING` do
+  dono (409 caso contrário). Sem `MP_ACCESS_TOKEN` é 503. A cobrança NÃO muda de
+  status aqui
+- `POST /webhooks/mercadopago` — público. O corpo **não é fonte de verdade**:
+  o status vem da consulta autenticada a `/v1/payments/{id}` e o valor vem do
+  banco. Só `approved` credita; o crédito entra como `ChargeReceived` com
+  `UPDATE charges ... WHERE status='PENDING'` na mesma transação, então
+  reenvio é idempotente (segunda vez não cria transação) e sempre responde 200
+  para o MP não reenfileirar
 - `DELETE /charges/{id}` — cancela; só PENDING
 - `POST /investments/lookup` — `{symbol, kind}` → `{found, name?, summary?}`;
   prefill por IA do "Adicionar ativo" (ver a seção de IA abaixo)

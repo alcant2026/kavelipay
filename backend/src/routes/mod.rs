@@ -104,7 +104,10 @@ pub fn router(state: AppState) -> Router {
         .route("/charges", get(charges::list_charges))
         .route("/charges/{id}/qr", get(charges::charge_qr))
         .route("/charges/{id}/receive", post(charges::receive_charge))
+        .route("/charges/{id}/pagamento", post(charges::link_pagamento))
         .route("/charges/{id}", delete(charges::cancel_charge))
+        // webhook do Mercado Pago: público por definição (quem chama é o MP)
+        .route("/webhooks/mercadopago", post(charges::webhook))
         // cobrança pública: o que o QR do app aponta. Sem sessão de propósito —
         // quem recebe a cobrança pode não ter conta (ou estar deslogado). O
         // segredo é o token do link, não o login.

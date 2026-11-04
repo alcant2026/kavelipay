@@ -395,3 +395,152 @@ fn convert(r: ChargeRow) -> ChargeResponse {
         created_at: r.8,
     }
 }
+/// Resposta de `POST /charges/{id}/pagamento`.
+#[derive(Serialize)]
+pub struct LinkPagamento {
+    pub preference_id: String,
+    /// Página do Checkout Pro. O app abre no navegador externo.
+    pub init_point: String,
+}
+
+/// POST /charges/{id}/pagamento — cria o link do Checkout Pro.
+///
+/// Isto NÃO marca nada como pago: só gera a página de pagamento. A confirmação
+/// vem do webhook, que lê o status na API do Mercado Pago. Um botão que
+/// marcasse "recebido" aqui seria exatamente o "fingir pagamento" que a spec
+/// proíbe.
+pub async fn link_pagamento(
+    State(state): State<AppState>,
+    auth: crate::auth::AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<LinkPagamento>> {
+    let wallet = wallet_ativa(&state, auth.user_id()).await?;
+
+    let linha = sqlx::query_as::<_, (String, Decimal, String, String, Option<String>)>(
+        "SELECT status, amount, description, currency, share_token
+           FROM charges WHERE id = $1 AND wallet_id = $2",
+    )
+    .bind(id)
+    .bind(wallet)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("cobrança"))?;
+
+    let (status, amount, description, currency, share_token) = linha;
+    if status != "PENDING" {
+        return Err(AppError::Conflict(format!(
+            "cobrança já está {status}; só PENDING pode ser paga"
+        )));
+    }
+    // Toda cobrança nasce com token (migration 0010); sem ele não há link de
+    // volta para o app, então é erro de dado, não do usuário.
+    let token = share_token
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("cobrança {id} sem share_token")))?;
+
+    let preferencia = state
+        .mp
+        .criar_preferencia(id, &description, amount, &currency, &token)
+        .await?;
+
+    sqlx::query(
+        "UPDATE charges SET mp_preference_id = $3, updated_at = now()
+          WHERE id = $1 AND wallet_id = $2",
+    )
+    .bind(id)
+    .bind(wallet)
+    .bind(&preferencia.id)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(LinkPagamento {
+        preference_id: preferencia.id,
+        init_point: preferencia.init_point,
+    }))
+}
+
+/// POST /webhooks/mercadopago — o Mercado Pago avisa que o pagamento mudou.
+///
+/// Público (o Mercado Pago é quem chama, não tem sessão). A confiança NÃO vem
+/// do corpo: qualquer um pode postar `{"type":"payment","data":{"id":"1"}}`.
+/// Vem de consultar o pagamento na API deles com o nosso token — só pagamento
+/// que existe lá, `approved`, apontando para uma cobrança nossa, credita.
+///
+/// Sempre 200 quando não há o que fazer: status != 200 faz o Mercado Pago
+/// reenviar a mesma notificação por horas.
+pub async fn webhook(
+    State(state): State<AppState>,
+    Json(corpo): Json<serde_json::Value>,
+) -> AppResult<StatusCode> {
+    if corpo.get("type").and_then(|v| v.as_str()) != Some("payment") {
+        return Ok(StatusCode::OK);
+    }
+    let Some(pagamento_id) = corpo.pointer("/data/id").and_then(|v| v.as_str()) else {
+        return Ok(StatusCode::OK);
+    };
+
+    let pagamento = state.mp.pagamento(pagamento_id).await?;
+    if pagamento.status != "approved" {
+        return Ok(StatusCode::OK);
+    }
+    let Ok(charge_id) = pagamento
+        .external_reference
+        .as_deref()
+        .unwrap_or_default()
+        .parse::<Uuid>()
+    else {
+        return Ok(StatusCode::OK);
+    };
+
+    let mut tx = state.db.begin().await?;
+    // FOR UPDATE OF c: dois webhooks do mesmo pagamento não postam duas vezes.
+    let linha = sqlx::query_as::<_, (String, Decimal, String, Uuid, Uuid, Option<String>)>(
+        "SELECT c.status, c.amount, c.description, c.wallet_id, w.user_id, c.mp_payment_id
+           FROM charges c
+           JOIN wallets w ON w.id = c.wallet_id
+          WHERE c.id = $1
+          FOR UPDATE OF c",
+    )
+    .bind(charge_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some((status, amount, description, wallet, user_id, ja_pago)) = linha else {
+        return Ok(StatusCode::OK);
+    };
+    if status != "PENDING" || ja_pago.is_some() {
+        return Ok(StatusCode::OK);
+    }
+
+    let transaction_id = ledger::postar_em_com_categoria(
+        &mut tx,
+        wallet,
+        TransactionType::ChargeReceived,
+        Money::new(amount),
+        Some(&format!("Recebimento: {description}")),
+        Some(serde_json::json!({ "charge_id": charge_id, "mp_payment_id": pagamento_id })),
+        None,
+        Some(user_id),
+    )
+    .await?;
+
+    let rows = sqlx::query(
+        "UPDATE charges
+            SET status = 'RECEIVED', received_at = now(), received_transaction_id = $3,
+                mp_payment_id = $4, updated_at = now()
+          WHERE id = $1 AND wallet_id = $2 AND status = 'PENDING'",
+    )
+    .bind(charge_id)
+    .bind(wallet)
+    .bind(transaction_id)
+    .bind(pagamento_id)
+    .execute(&mut *tx)
+    .await?;
+
+    if rows.rows_affected() == 0 {
+        tx.rollback().await?;
+        return Ok(StatusCode::OK);
+    }
+
+    tx.commit().await?;
+    Ok(StatusCode::OK)
+}

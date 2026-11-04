@@ -14,6 +14,7 @@ pub mod http_cru;
 pub mod ledger;
 pub mod mail;
 pub mod money;
+pub mod mercadopago;
 pub mod payment;
 pub mod rate_limit;
 pub mod routes;

@@ -78,6 +78,12 @@ async fn main() -> Result<(), AppError> {
         config.statusinvest_base_url.clone(),
     )?;
 
+    let mp = kavelipay_backend::mercadopago::MercadoPago::new(
+        config.mp_access_token.clone(),
+        config.mp_base_url.clone(),
+        config.mp_notification_url.clone(),
+    )?;
+
     let state = AppState {
         db,
         tokens: auth::TokenService::new(
@@ -87,6 +93,7 @@ async fn main() -> Result<(), AppError> {
         ),
         ai,
         cotacao,
+        mp,
         admin_token: config.admin_token.clone(),
         login_gate: kavelipay_backend::rate_limit::LoginGate::default(),
         mailer: config.mailer.clone(),
