@@ -9,18 +9,15 @@
 -- notificação por horas, e o índice único garantido é o que impede crédito
 -- duplo no ledger.
 
+-- Token e colunas numa única instrução, com o default avaliado linha a linha.
+-- Um `UPDATE` de backfill seguido de `ALTER` quebra em produção: a tabela tem
+-- constraint trigger DEFERRABLE (soma das partes), o UPDATE deixa o evento
+-- pendente até o commit e o ALTER seguinte falha com 55006 "cannot ALTER TABLE
+-- because it has pending trigger events".
 ALTER TABLE expense_split_parts
-    ADD COLUMN share_token TEXT,
+    ADD COLUMN share_token TEXT NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', ''),
     ADD COLUMN mp_preference_id TEXT,
     ADD COLUMN mp_payment_id TEXT;
-
-UPDATE expense_split_parts SET share_token = replace(gen_random_uuid()::text, '-', '');
-
-ALTER TABLE expense_split_parts ALTER COLUMN share_token SET NOT NULL;
--- Nova parte ganha token sozinha: o INSERT de `create_split` não precisa saber
--- que essa coluna existe, e ninguém cria parte sem link.
-ALTER TABLE expense_split_parts ALTER COLUMN share_token
-    SET DEFAULT replace(gen_random_uuid()::text, '-', '');
 
 ALTER TABLE expense_split_parts ADD CONSTRAINT expense_split_parts_share_token_formato
     CHECK (share_token ~ '^[0-9a-f]{32}$');
