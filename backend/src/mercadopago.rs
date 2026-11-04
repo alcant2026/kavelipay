@@ -65,7 +65,9 @@ impl MercadoPago {
         self.token.as_deref().ok_or(AppError::Unavailable)
     }
 
-    /// Cria a preferência de Checkout Pro de uma cobrança.
+    /// Cria a preferência de Checkout Pro. `volta` é para onde o Mercado Pago
+    /// manda o pagador depois: o deep link da cobrança no app, ou a página
+    /// pública da parte para quem paga no navegador sem ter o app.
     /// `referencia` é o `external_reference` que volta no webhook: o id da
     /// cobrança, ou `parte:<id>` quando o que se cobra é a cota de uma divisão.
     pub async fn criar_preferencia(
@@ -74,7 +76,7 @@ impl MercadoPago {
         descricao: &str,
         valor: Decimal,
         moeda: &str,
-        token_compartilhamento: &str,
+        volta: &str,
     ) -> AppResult<Preferencia> {
         // Única conversão para f64 do caminho de dinheiro: a API do Mercado
         // Pago só aceita número em `unit_price`. O valor cobrado continua
@@ -84,7 +86,6 @@ impl MercadoPago {
             .parse::<f64>()
             .map_err(|e| AppError::InvalidAmount(format!("valor inválido para o pagamento: {e}")))?;
 
-        let volta = format!("kavelipay://cobranca/{token_compartilhamento}");
         let mut corpo = json!({
             "items": [{
                 "id": referencia,

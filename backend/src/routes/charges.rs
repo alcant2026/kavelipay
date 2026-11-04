@@ -436,7 +436,13 @@ pub async fn pagar_pela_pagina(
 
     let preferencia = state
         .mp
-        .criar_preferencia(&c.id.to_string(), &c.description, c.amount, &c.currency, &token)
+        .criar_preferencia(
+            &c.id.to_string(),
+            &c.description,
+            c.amount,
+            &c.currency,
+            &format!("kavelipay://cobranca/{token}"),
+        )
         .await?;
 
     sqlx::query(
@@ -641,7 +647,13 @@ pub async fn link_pagamento(
 
     let preferencia = state
         .mp
-        .criar_preferencia(&id.to_string(), &description, amount, &currency, &token)
+        .criar_preferencia(
+            &id.to_string(),
+            &description,
+            amount,
+            &currency,
+            &format!("kavelipay://cobranca/{token}"),
+        )
         .await?;
 
     sqlx::query(

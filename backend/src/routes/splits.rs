@@ -468,14 +468,15 @@ pub async fn pagar_pela_parte(
         return Ok(Redirect::to(&format!("/cobranca/parte/{token}/pagar")));
     }
 
-    let existente = sqlx::query_scalar::<_, Option<String>>(
+    let existente = |id: String| Ok(Redirect::to(&charges::init_point(&id)));
+    let salva = sqlx::query_scalar::<_, Option<String>>(
         "SELECT mp_preference_id FROM expense_split_parts WHERE id = $1",
     )
     .bind(p.id)
     .fetch_one(&state.db)
     .await?;
-    if let Some(id) = existente {
-        return Ok(Redirect::to(&charges::init_point(&id)));
+    if let Some(id) = salva {
+        return existente(id);
     }
 
     let preferencia = state
@@ -485,15 +486,30 @@ pub async fn pagar_pela_parte(
             &format!("{} · {}", p.name, p.description),
             p.owed_amount,
             "BRL",
-            &token,
+            &format!("{}/cobranca/parte/{token}/pagar", state.public_base_url),
         )
         .await?;
 
-    sqlx::query("UPDATE expense_split_parts SET mp_preference_id = $2 WHERE id = $1")
+    // Só grava se ainda não houver preferência: dois POSTs simultâneos não
+    // podem deixar duas preferências pagáveis para a mesma cota (o pagador
+    // poderia pagar duas vezes e o segundo webhook não teria o que quitar).
+    let gravada = sqlx::query(
+        "UPDATE expense_split_parts SET mp_preference_id = $2
+          WHERE id = $1 AND mp_preference_id IS NULL",
+    )
+    .bind(p.id)
+    .bind(&preferencia.id)
+    .execute(&state.db)
+    .await?;
+    if gravada.rows_affected() == 0 {
+        let atual = sqlx::query_scalar::<_, String>(
+            "SELECT mp_preference_id FROM expense_split_parts WHERE id = $1",
+        )
         .bind(p.id)
-        .bind(&preferencia.id)
-        .execute(&state.db)
+        .fetch_one(&state.db)
         .await?;
+        return existente(atual);
+    }
 
     Ok(Redirect::to(&preferencia.init_point))
 }
