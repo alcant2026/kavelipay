@@ -238,6 +238,10 @@ conectada a página pública avisa e não oferece pagar.
   (`/assinar/<token>`) que o app abre num WebView. O preço **não** vem do app —
   a URL guarda o valor lido de `preco_mensal`/`preco_anual` no banco. `503`
   quando o Mercado Pago não está configurado (`MP_PUBLIC_KEY` ausente).
+  Com `MP_SANDBOX=true` a resposta é o link do **Checkout Pro** no sandbox, não
+  a página do Brick: a API de pagamentos recusa credencial de teste
+  (`401 Unauthorized use of live credentials`), mas o Checkout Pro aceita
+  cartão de teste. O webhook `plano:<id>` libera o acesso do mesmo jeito.
 - `GET /assinar/{token}` — página pública do Payment Brick (cartão e Pix), com
   o valor e o e-mail de quem vai pagar. Token de 32 hex; malformado e
   inexistente dão o mesmo `404`. Já paga, mostra "pagamento confirmado" e não
