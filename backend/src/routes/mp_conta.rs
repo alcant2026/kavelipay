@@ -71,29 +71,46 @@ fn novo_state() -> String {
 }
 
 /// GET /mercadopago/conectar — manda o usuário autorizar a conta dele.
-pub async fn conectar(State(state): State<AppState>, auth: AuthUser) -> AppResult<Redirect> {
-    let oauth = oauth(&state)?;
+/// Monta a URL de autorização e grava o `state` — é o que impede um callback
+/// de fora de conectar a conta a um usuário que não pediu.
+async fn url_de_conexao(state: &AppState, user_id: Uuid) -> AppResult<String> {
+    let oauth = oauth(state)?;
     let state_token = novo_state();
 
     // Um state por usuário: tentativa antiga abandonada não acumula lixo.
     sqlx::query("DELETE FROM mp_oauth_states WHERE user_id = $1")
-        .bind(auth.user_id())
+        .bind(user_id)
         .execute(&state.db)
         .await?;
     sqlx::query("INSERT INTO mp_oauth_states (state, user_id) VALUES ($1, $2)")
         .bind(&state_token)
-        .bind(auth.user_id())
+        .bind(user_id)
         .execute(&state.db)
         .await?;
 
     // `redirect_uri` tem de ser exatamente a cadastrada no painel do Mercado
     // Pago; por isso ela nasce do `public_base_url`, não de header do request.
-    let url = format!(
+    Ok(format!(
         "{AUTORIZACAO}?client_id={}&response_type=code&platform_id=mp&state={state_token}\
          &redirect_uri={}/mercadopago/callback",
         oauth.id, state.public_base_url
-    );
-    Ok(Redirect::to(&url))
+    ))
+}
+
+/// `GET /mercadopago/conectar` — abre a tela do Mercado Pago no navegador.
+pub async fn conectar(State(state): State<AppState>, auth: AuthUser) -> AppResult<Redirect> {
+    Ok(Redirect::to(&url_de_conexao(&state, auth.user_id()).await?))
+}
+
+/// `GET /mercadopago/link` — a mesma URL, em JSON. O app não consegue mandar
+/// o header de sessão num WebView, então busca o link já autenticado e abre
+/// só o domínio do Mercado Pago.
+pub async fn link(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> AppResult<Json<serde_json::Value>> {
+    let url = url_de_conexao(&state, auth.user_id()).await?;
+    Ok(Json(serde_json::json!({ "url": url })))
 }
 
 #[derive(Deserialize)]

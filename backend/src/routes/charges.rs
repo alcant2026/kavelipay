@@ -270,7 +270,7 @@ struct Publica {
 fn normalizar_token(token: &str) -> AppResult<String> {
     let token = token.trim().to_ascii_lowercase();
     if token.len() != 32 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(AppError::NotFound("cobrança"));
+        return Err(AppError::NaoEncontrado("Cobrança não encontrada.".into()));
     }
     Ok(token)
 }
@@ -297,7 +297,7 @@ async fn por_token(state: &AppState, token: &str) -> AppResult<Publica> {
     .bind(&token)
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::NotFound("cobrança"))?;
+    .ok_or(AppError::NaoEncontrado("Cobrança não encontrada.".into()))?;
 
     Ok(Publica {
         id: row.0,
@@ -501,7 +501,7 @@ pub async fn receive_charge(
     .bind(wallet)
     .fetch_optional(&mut *tx)
     .await?
-    .ok_or(AppError::NotFound("cobrança"))?;
+    .ok_or(AppError::NaoEncontrado("Cobrança não encontrada.".into()))?;
 
     let (status, amount, description) = pendente;
     if status != "PENDING" {
@@ -596,7 +596,7 @@ async fn buscar(state: &AppState, id: Uuid, wallet: Uuid) -> AppResult<ChargeRes
     .bind(wallet)
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::NotFound("cobrança"))?;
+    .ok_or(AppError::NaoEncontrado("Cobrança não encontrada.".into()))?;
 
     Ok(convert(row))
 }
@@ -643,7 +643,7 @@ pub async fn link_pagamento(
     .bind(wallet)
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::NotFound("cobrança"))?;
+    .ok_or(AppError::NaoEncontrado("Cobrança não encontrada.".into()))?;
 
     let (status, amount, description, currency, share_token) = linha;
     if status != "PENDING" {

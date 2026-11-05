@@ -294,7 +294,7 @@ async fn buscar(state: &AppState, id: Uuid, wallet: Uuid) -> AppResult<SplitResp
     .bind(wallet)
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::NotFound("divisão"))?;
+    .ok_or(AppError::NaoEncontrado("Divisão não encontrada.".into()))?;
 
     let parts = sqlx::query_as::<
         _,
@@ -410,7 +410,7 @@ struct PartePublica {
 async fn por_token_parte(state: &AppState, token: &str) -> AppResult<PartePublica> {
     let token = token.trim().to_ascii_lowercase();
     if token.len() != 32 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(AppError::NotFound("divisão"));
+        return Err(AppError::NaoEncontrado("Divisão não encontrada.".into()));
     }
     let row = sqlx::query_as::<_, (
         Uuid,
@@ -433,7 +433,7 @@ async fn por_token_parte(state: &AppState, token: &str) -> AppResult<PartePublic
     .bind(&token)
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::NotFound("divisão"))?;
+    .ok_or(AppError::NaoEncontrado("Divisão não encontrada.".into()))?;
 
     Ok(PartePublica {
         id: row.0,

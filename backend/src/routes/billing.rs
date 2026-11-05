@@ -475,7 +475,7 @@ pub async fn criar_checkout(
 async fn checkout_por_token(state: &AppState, token: &str) -> AppResult<Checkout> {
     let token = token.trim().to_ascii_lowercase();
     if token.len() != 32 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(AppError::NotFound("assinatura"));
+        return Err(AppError::NaoEncontrado("Assinatura não encontrada.".into()));
     }
 
     let row = sqlx::query_as::<_, (Uuid, Uuid, String, Decimal, String, bool)>(
@@ -487,7 +487,7 @@ async fn checkout_por_token(state: &AppState, token: &str) -> AppResult<Checkout
     .bind(&token)
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::NotFound("assinatura"))?;
+    .ok_or(AppError::NaoEncontrado("Assinatura não encontrada.".into()))?;
 
     Ok(Checkout {
         id: row.0,

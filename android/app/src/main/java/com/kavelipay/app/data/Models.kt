@@ -248,6 +248,17 @@ data class Plano(
     val accessToken: String?,
 )
 
+/**
+ * Conta do Mercado Pago que recebe as cobranças desta pessoa.
+ *
+ * `null` em [ContaMp] (estado da tela) = ainda não perguntamos; desconectado
+ * de verdade é `conectado = false`.
+ */
+data class ContaMp(
+    val conectado: Boolean,
+    val mpUserId: Long?,
+)
+
 // ── Investimentos ─────────────────────────────────────────────────────────────
 
 /**
@@ -723,4 +734,9 @@ internal fun JSONObject.paraPaginaParceiros() = PaginaParceiros(
     total = optInt("total"),
     limit = optInt("limit", 10),
     offset = optInt("offset"),
+)
+
+fun JSONObject.paraContaMp(): ContaMp = ContaMp(
+    conectado = optBoolean("conectado", false),
+    mpUserId = if (isNull("mp_user_id")) null else optLong("mp_user_id"),
 )

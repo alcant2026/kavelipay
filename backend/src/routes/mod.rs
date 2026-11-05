@@ -103,6 +103,7 @@ pub fn router(state: AppState) -> Router {
         // conta do Mercado Pago de cada usuário (o dinheiro cai direto nela)
         .route("/mercadopago/conectar", get(mp_conta::conectar))
         .route("/mercadopago/callback", get(mp_conta::callback))
+        .route("/mercadopago/link", get(mp_conta::link))
         .route("/mercadopago/status", get(mp_conta::status))
         .route("/mercadopago/conta", delete(mp_conta::desconectar))
         // apresentação do produto (o Mercado Pago exige uma URL de site)

@@ -575,6 +575,23 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
         return resposta.getString("url")
     }
 
+    // ── Conta do Mercado Pago (recebe as cobranças) ───────────────────────────
+
+    /** `GET /mercadopago/status` — se o dinheiro das cobranças cai nesta conta. */
+    suspend fun contaMp(): ContaMp = ApiClient.get("/mercadopago/status", token).paraContaMp()
+
+    /**
+     * `GET /mercadopago/link` — URL de autorização do Mercado Pago.
+     *
+     * Buscada com o token no header porque num WebView não dá para mandar
+     * header na navegação; o app abre só o domínio do Mercado Pago.
+     */
+    suspend fun linkMp(): String = ApiClient.get("/mercadopago/link", token).getString("url")
+
+    suspend fun desconectarMp() {
+        ApiClient.delete("/mercadopago/conta", null, token)
+    }
+
     // ── Investimentos ─────────────────────────────────────────────────────────
 
     suspend fun investimentos(): CarteiraInvestimentos =

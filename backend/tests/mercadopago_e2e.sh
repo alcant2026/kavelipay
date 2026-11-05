@@ -196,6 +196,11 @@ check "conectar manda pro OAuth do MP com o client_id da aplicação" \
     "$(grep -q 'auth.mercadopago.com/authorization?client_id=client-teste' <<<"$AUTORIZACAO" && echo true || echo false)"
 STATE=$(python3 -c 'import sys, urllib.parse as u; print(u.parse_qs(u.urlparse(sys.argv[1]).query)["state"][0])' "$AUTORIZACAO")
 VOLTA=$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/mercadopago/callback?code=codigo-teste&state=$STATE")
+# O app não manda header num WebView: busca o link pronto, em JSON. (Depois do
+# callback de propósito: cada pedido de link invalida o state anterior.)
+LINK_JSON=$(curl -s "$BASE/mercadopago/link" -H "$AUTH")
+check "o app pega a mesma URL em JSON, sem header no WebView" \
+    "$(grep -q 'auth.mercadopago.com/authorization' <<<"$LINK_JSON" && echo true || echo false)"
 check "callback troca o código e devolve o app (recebido $VOLTA)" \
     "$([ "$VOLTA" = "kavelipay://mercadopago/conectado" ] && echo true || echo false)"
 check "status passa a mostrar a conta conectada" \

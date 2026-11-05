@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Key
@@ -43,6 +44,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.ui.unit.dp
 import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpBotaoPrimario
@@ -88,7 +95,10 @@ fun KpPerfilScreen(
     val estado by vm.estado.collectAsState()
     val sem = KpTheme.semanticas
 
-    LaunchedEffect(Unit) { vm.carregarPerfilESessoes() }
+    LaunchedEffect(Unit) {
+        vm.carregarPerfilESessoes()
+        vm.carregarContaMp()
+    }
 
     var dialogoNome by remember { mutableStateOf(false) }
     var novoNome by remember { mutableStateOf("") }
@@ -101,6 +111,8 @@ fun KpPerfilScreen(
     val email = estado.perfil?.email.orEmpty()
     val sessoes = estado.sessoes?.itens.orEmpty()
     val plano = estado.plano
+    val contaMp = estado.contaMp
+    var dialogoMp by remember { mutableStateOf(false) }
     val validade = plano?.periodoFim
         ?.takeIf { it.isNotBlank() }
         ?.let { formatarDataCompleta(it) }
@@ -186,6 +198,32 @@ fun KpPerfilScreen(
                 }
             }
 
+            // ── Recebimentos ────────────────────────────────────────────────
+            // O dinheiro das cobranças vai para a conta do Mercado Pago de quem
+            // cobrou. Sem esta conexão não há como receber sem o app virar
+            // intermediário — por isso a linha fica aqui, visível, e não
+            // escondida numa tela de configuração avançada.
+            item { Text("Recebimentos", style = TituloSecao) }
+
+            item {
+                KpCard(Modifier.fillMaxWidth()) {
+                    KpMenuRow(
+                        icone = Icons.Default.AccountBalanceWallet,
+                        rotulo = "Conta do Mercado Pago",
+                        subtitulo = when {
+                            contaMp == null -> null
+                            contaMp.conectado ->
+                                "Conectada: o dinheiro das cobranças cai direto em você"
+                            else -> "Não conectada: toque para conectar e poder receber"
+                        },
+                        onClick = {
+                            if (contaMp?.conectado == true) dialogoMp = true
+                            else vm.abrirConexaoMp()
+                        },
+                    )
+                }
+            }
+
             // ── Seus dados ──────────────────────────────────────────────────
             item { Text("Seus dados", style = TituloSecao) }
 
@@ -251,6 +289,66 @@ fun KpPerfilScreen(
                         .padding(top = Spacing.lg, start = Spacing.md, end = Spacing.md),
                 )
             }
+        }
+    }
+
+    // ── Dialog: conta do Mercado Pago conectada ──────────────────────────────
+    if (dialogoMp) {
+        AlertDialog(
+            onDismissRequest = { dialogoMp = false },
+            title = { Text("Conta do Mercado Pago") },
+            text = {
+                Text(
+                    "As cobranças que você fizer caem direto na sua conta do " +
+                        "Mercado Pago. Se desconectar, os links param de receber " +
+                        "até você conectar de novo.",
+                )
+            },
+            confirmButton = {
+                KpBotaoSecundario(
+                    texto = "Desconectar",
+                    onClick = {
+                        dialogoMp = false
+                        vm.desconectarMp()
+                    },
+                )
+            },
+            dismissButton = {
+                KpBotaoSecundario("Fechar", onClick = { dialogoMp = false })
+            },
+        )
+    }
+
+    // ── WebView: autorização do Mercado Pago ─────────────────────────────────
+    estado.mpUrl?.let { url ->
+        Dialog(
+            onDismissRequest = { vm.fecharConexaoMp() },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        // O callback do backend devolve `kavelipay://...`: é o
+                        // sinal de que a conta foi conectada, não uma página.
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView,
+                                request: WebResourceRequest,
+                            ): Boolean {
+                                if (request.url.scheme == "kavelipay") {
+                                    vm.fecharConexaoMp()
+                                    return true
+                                }
+                                return false
+                            }
+                        }
+                        loadUrl(url)
+                    }
+                },
+            )
         }
     }
 

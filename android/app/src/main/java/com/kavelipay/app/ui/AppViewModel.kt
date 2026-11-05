@@ -28,6 +28,7 @@ import com.kavelipay.app.data.Notificacao
 import com.kavelipay.app.data.OfertaParceiro
 import com.kavelipay.app.data.Perfil
 import com.kavelipay.app.data.PesquisaAtivo
+import com.kavelipay.app.data.ContaMp
 import com.kavelipay.app.data.Plano
 import com.kavelipay.app.data.Relatorio
 import com.kavelipay.app.data.ResumoInvestimentos
@@ -121,6 +122,12 @@ data class EstadoApp(
      * sobreviver à recomposição da tela; `null` = nenhum checkout aberto.
      */
     val checkoutUrl: String? = null,
+
+    /** Conta do Mercado Pago que recebe as cobranças; `null` = não carregada. */
+    val contaMp: ContaMp? = null,
+
+    /** URL da autorização do Mercado Pago aberta num WebView. */
+    val mpUrl: String? = null,
 
     // Notificações (tela dedicada; o contador `naoLidas` existe desde o início)
     val notificacoes: List<Notificacao>? = null,
@@ -1125,6 +1132,50 @@ fun carregarChargeQr(chargeId: String) {
     fun fecharCheckout() {
         _estado.update { it.copy(checkoutUrl = null) }
         carregarPlano()
+    }
+
+    // ── Conta do Mercado Pago ─────────────────────────────────────────────────
+
+    /**
+     * Quem recebe as cobranças é a conta do Mercado Pago de quem cobrou: sem
+     * conexão, o dinheiro cairia na conta do app — que é justamente custódia.
+     */
+    fun carregarContaMp() {
+        viewModelScope.launch {
+            runCatching { api.contaMp() }.onSuccess { c ->
+                _estado.update { it.copy(contaMp = c) }
+            }
+        }
+    }
+
+    fun abrirConexaoMp() {
+        viewModelScope.launch {
+            runCatching { api.linkMp() }
+                .onSuccess { url -> _estado.update { it.copy(mpUrl = url) } }
+                .onFailure { e ->
+                    _estado.update {
+                        it.copy(avisoPerfil = mensagemDe(e), avisoPerfilFalhou = true)
+                    }
+                }
+        }
+    }
+
+    /** O WebView voltou de `kavelipay://mercadopago/conectado` (ou foi fechado). */
+    fun fecharConexaoMp() {
+        _estado.update { it.copy(mpUrl = null) }
+        carregarContaMp()
+    }
+
+    fun desconectarMp() {
+        viewModelScope.launch {
+            runCatching { api.desconectarMp() }
+                .onSuccess { carregarContaMp() }
+                .onFailure { e ->
+                    _estado.update {
+                        it.copy(avisoPerfil = mensagemDe(e), avisoPerfilFalhou = true)
+                    }
+                }
+        }
     }
 
     // ── LGPD ──────────────────────────────────────────────────────────────────
