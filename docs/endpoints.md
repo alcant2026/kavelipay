@@ -76,6 +76,21 @@ handler.
   `UPDATE charges ... WHERE status='PENDING'` na mesma transação, então
   reenvio é idempotente (segunda vez não cria transação) e sempre responde 200
   para o MP não reenfileirar
+- `GET /mercadopago/link` — devolve `{url}` da autorização do Mercado Pago para
+  este usuário. Existe porque o app abre a página num WebView e WebView não manda
+  header de sessão; o token nunca sai para o Mercado Pago
+- `GET /mercadopago/conectar` — mesmo link, como redirect 303 (navegador)
+- `GET /mercadopago/callback` — público, o Mercado Pago volta aqui com `code` e
+  `state`. Troca o código por `access_token`/`refresh_token` e guarda cifrado
+  (`pgp_sym_encrypt`, chave em `MP_TOKEN_KEY`), depois redireciona para
+  `kavelipay://mercadopago/conectado`. `state` é de uso único e vale 10 minutos;
+  repetido devolve 422. Sem `MP_CLIENT_ID`/`MP_CLIENT_SECRET`/`MP_TOKEN_KEY` é 503
+- `GET /mercadopago/status` — `{conectado, mp_user_id}`
+- `DELETE /mercadopago/conta` — desconecta (204)
+
+Com a conta conectada, cobrança e parte de divisão criam a preferência com o
+token **do dono**: o dinheiro cai na conta dele, não na do app. Sem conta
+conectada a página pública avisa e não oferece pagar.
 - `DELETE /charges/{id}` — cancela; só PENDING
 - `POST /investments/lookup` — `{symbol, kind}` → `{found, name?, summary?}`;
   prefill por IA do "Adicionar ativo" (ver a seção de IA abaixo)
