@@ -455,15 +455,37 @@ pub async fn criar_checkout(
         AppError::Validation("plano deve ser mensal ou anual".to_string())
     })?;
 
-    let token = sqlx::query_scalar::<_, String>(
+    let (checkout_id, token) = sqlx::query_as::<_, (Uuid, String)>(
         "INSERT INTO premium_checkouts (user_id, plano, valor)
-         VALUES ($1, $2, $3) RETURNING token",
+         VALUES ($1, $2, $3) RETURNING id, token",
     )
     .bind(auth.user_id())
     .bind(&plano)
     .bind(valor)
     .fetch_one(&state.db)
     .await?;
+
+    // No modo de teste o Payment Brick não tem como cobrar: a API de pagamentos
+    // recusa credencial de teste (401 "Unauthorized use of live credentials").
+    // O Checkout Pro, esse, aceita cartão de teste — então no sandbox o app abre
+    // o checkout do Mercado Pago em vez da página com o Brick. O webhook
+    // `plano:<id>` libera o acesso do mesmo jeito.
+    if state.mp.sandbox() {
+        let preferencia = state
+            .mp
+            .criar_preferencia(
+                &format!("plano:{checkout_id}"),
+                &format!("KaveliPay Premium ({plano})"),
+                valor,
+                "BRL",
+                &format!("{}/assinar/{token}", state.public_base_url),
+                None,
+            )
+            .await?;
+        return Ok(Json(CheckoutResponse {
+            url: preferencia.init_point,
+        }));
+    }
 
     Ok(Json(CheckoutResponse {
         url: format!("{}/assinar/{token}", state.public_base_url),

@@ -85,7 +85,12 @@ impl MercadoPago {
         }
     }
 
-    /// Base da API — para o OAuth montar `{base}/oauth/token`.
+    /// Modo de teste ligado por `MP_SANDBOX`: o Checkout Pro aponta para o host
+    /// de sandbox e o premium vai por ele em vez do Payment Brick.
+    pub fn sandbox(&self) -> bool {
+        self.sandbox
+    }
+
     /// Link do Checkout Pro para uma preferência. Produção e sandbox têm hosts
     /// diferentes e o mesmo parâmetro — sandbox só aceita cartão de teste.
     pub fn checkout_url(&self, preferencia: &str) -> String {
@@ -97,6 +102,7 @@ impl MercadoPago {
         format!("{host}/checkout/v1/redirect?pref_id={preferencia}")
     }
 
+    /// Base da API — o OAuth monta `{base}/oauth/token` a partir dela.
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
