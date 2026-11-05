@@ -39,7 +39,7 @@ MOCK_PID=""
 cleanup() {
     [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
     [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null || true
-    rm -f "$EXT_REF" "$EXT_REF.bearer" "$EXT_REF.pagamento" "$TMP_MOCK"
+    rm -f "$EXT_REF" "$EXT_REF.bearer" "$EXT_REF.pagamento" "$EXT_REF.preferencia" "$TMP_MOCK"
     "${PSQL[@]}" -d postgres -c "DROP DATABASE IF EXISTS \"$DB\";" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -89,6 +89,8 @@ class H(BaseHTTPRequestHandler):
                 self._json({"message": "sem token"}, 401); return
             # Quem recebe é o vendedor: a preferência tem de sair com o token dele.
             open(EXT_REF + ".bearer", "w").write(self.headers.get("authorization") or "")
+            # Corpo também: é dele que sai a comissão do KaveliPay.
+            open(EXT_REF + ".preferencia", "w").write(corpo.decode() or "{}")
             self._json({"id": "pref-teste-1", "init_point": "https://mp.teste/pref-teste-1"})
         elif self.path == "/v1/payments":
             if not (self.headers.get("authorization") or "").startswith("Bearer "):
@@ -229,6 +231,11 @@ check "link devolve init_point do MP" \
 BEARER=$(cat "$EXT_REF.bearer" 2>/dev/null)
 check "a preferência sai com o token do VENDEDOR, não da aplicação (recebido $BEARER)" \
     "$([ "$BEARER" = "Bearer tok-vendedor" ] && echo true || echo false)"
+# A cobrança tem de sair com a comissão: 1% de R$ 50,00 é R$ 0,50.
+FEE=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('marketplace_fee'))" "$EXT_REF.preferencia" 2>/dev/null)
+check "a preferência leva a comissão do KaveliPay (recebido $FEE)" \
+    "$([ "$FEE" = "0.5" ] && echo true || echo false)"
+
 PREF_DB=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT mp_preference_id FROM charges WHERE id='$ID_CH'")
 check "preferência gravada na cobrança ($PREF_DB)" \
     "$([ "$PREF_DB" = "pref-teste-1" ] && echo true || echo false)"
@@ -386,6 +393,11 @@ check "parte sem preferência cria nova e redireciona pro MP (recebido $REDIR)" 
 REDIR=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$BASE/cobranca/parte/$TOKEN_PARTE/pagar")
 check "segundo POST reaproveita a preferência (recebido $REDIR)" \
     "$([ "$REDIR" = "303 https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=pref-teste-1" ] && echo true || echo false)"
+
+# Parte de R$ 20,00: 1% seria R$ 0,20, então vale o piso de R$ 0,49.
+FEE_PARTE=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('marketplace_fee'))" "$EXT_REF.preferencia" 2>/dev/null)
+check "a parte também leva comissão, no piso de R$ 0,49 (recebido $FEE_PARTE)" \
+    "$([ "$FEE_PARTE" = "0.49" ] && echo true || echo false)"
 
 # Webhook pendente: a API do MP diz "pending", nada pode ser quitado.
 C=$(code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' \

@@ -32,6 +32,30 @@ pub struct MercadoPago {
     sandbox: bool,
 }
 
+/// Comissão do KaveliPay por transação: 1% com piso de R$ 0,49 e teto de
+/// R$ 4,90. O piso existe porque o Mercado Pago cobra por transação e um Pix de
+/// R$ 3 não paga o custo de processar; o teto, para uma cobrança grande não
+/// virar imposto. Cobrança menor que o piso não paga comissão nenhuma.
+pub fn taxa_da_transacao(valor: Decimal) -> Decimal {
+    let um_por_cento = (valor * Decimal::new(1, 2)).round_dp(2);
+    let taxa = um_por_cento.max(Decimal::new(49, 2)).min(Decimal::new(490, 2));
+    if taxa >= valor {
+        Decimal::ZERO
+    } else {
+        taxa
+    }
+}
+
+/// Única conversão para f64 do caminho de dinheiro: a API do Mercado Pago só
+/// aceita número em `unit_price`/`marketplace_fee`. O valor cobrado continua
+/// sendo o do banco (NUMERIC(19,4)) — isto aqui é a borda com terceiro.
+fn decimal_para_f64(valor: Decimal, campo: &str) -> AppResult<f64> {
+    valor
+        .to_string()
+        .parse::<f64>()
+        .map_err(|e| AppError::InvalidAmount(format!("{campo} inválido para o pagamento: {e}")))
+}
+
 /// Preferência criada: o app abre `init_point` no navegador para pagar.
 pub struct Preferencia {
     pub id: String,
@@ -162,6 +186,9 @@ impl MercadoPago {
     /// pública da parte para quem paga no navegador sem ter o app.
     /// `referencia` é o `external_reference` que volta no webhook: o id da
     /// cobrança, ou `parte:<id>` quando o que se cobra é a cota de uma divisão.
+    /// `taxa` é a comissão do KaveliPay: o Mercado Pago desconta do vendedor e
+    /// deposita na nossa conta (split). Só vale com o token do dono — com a
+    /// credencial da aplicação não existe vendedor de quem descontar.
     pub async fn criar_preferencia(
         &self,
         referencia: &str,
@@ -170,14 +197,9 @@ impl MercadoPago {
         moeda: &str,
         volta: &str,
         dono: Option<&str>,
+        taxa: Option<Decimal>,
     ) -> AppResult<Preferencia> {
-        // Única conversão para f64 do caminho de dinheiro: a API do Mercado
-        // Pago só aceita número em `unit_price`. O valor cobrado continua
-        // sendo o do banco (NUMERIC(19,4)) — isto aqui é a borda com terceiro.
-        let unit_price = valor
-            .to_string()
-            .parse::<f64>()
-            .map_err(|e| AppError::InvalidAmount(format!("valor inválido para o pagamento: {e}")))?;
+        let unit_price = decimal_para_f64(valor, "valor")?;
 
         let mut corpo = json!({
             "items": [{
@@ -192,6 +214,9 @@ impl MercadoPago {
         });
         if let Some(url) = &self.notification_url {
             corpo["notification_url"] = json!(url);
+        }
+        if let Some(taxa) = taxa {
+            corpo["marketplace_fee"] = json!(decimal_para_f64(taxa, "comissão")?);
         }
 
         let resposta = self
@@ -257,6 +282,18 @@ mod testes {
 
     fn cliente(sandbox: bool) -> MercadoPago {
         MercadoPago::new(None, BASE_URL_PADRAO.into(), None, None, sandbox).unwrap()
+    }
+
+    #[test]
+    fn comissao_tem_piso_e_teto() {
+        // 1% de 10,00 = 0,10: o piso protege a transação pequena.
+        assert_eq!(taxa_da_transacao(Decimal::new(1000, 2)), Decimal::new(49, 2));
+        // 1% de 100,00 = 1,00: dentro da faixa, é só a porcentagem.
+        assert_eq!(taxa_da_transacao(Decimal::new(10000, 2)), Decimal::new(100, 2));
+        // 1% de 1.000,00 = 10,00: o teto impede a comissão de virar imposto.
+        assert_eq!(taxa_da_transacao(Decimal::new(100000, 2)), Decimal::new(490, 2));
+        // Cobrança menor que o piso não paga comissão: melhor zero que negativo.
+        assert_eq!(taxa_da_transacao(Decimal::new(30, 2)), Decimal::ZERO);
     }
 
     #[test]

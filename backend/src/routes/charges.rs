@@ -453,6 +453,7 @@ pub async fn pagar_pela_pagina(
             &c.currency,
             &format!("kavelipay://cobranca/{token}"),
             crate::routes::mp_conta::token_do_dono(&state, c.dono).await?.as_deref(),
+            Some(crate::mercadopago::taxa_da_transacao(c.amount)),
         )
         .await?;
 
@@ -669,6 +670,7 @@ pub async fn link_pagamento(
             &currency,
             &format!("kavelipay://cobranca/{token}"),
             Some(&dono),
+            Some(crate::mercadopago::taxa_da_transacao(amount)),
         )
         .await?;
 

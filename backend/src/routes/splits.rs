@@ -505,6 +505,7 @@ pub async fn pagar_pela_parte(
             "BRL",
             &format!("{}/cobranca/parte/{token}/pagar", state.public_base_url),
             crate::routes::mp_conta::token_do_dono(&state, p.dono).await?.as_deref(),
+            Some(crate::mercadopago::taxa_da_transacao(p.owed_amount)),
         )
         .await?;
 

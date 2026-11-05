@@ -480,6 +480,7 @@ pub async fn criar_checkout(
                 "BRL",
                 &format!("{}/assinar/{token}", state.public_base_url),
                 None,
+                None,
             )
             .await?;
         return Ok(Json(CheckoutResponse {

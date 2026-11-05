@@ -21,12 +21,12 @@ Esta é a conta que mudou com o Mercado Pago — e a que mais engana.
 | Fluxo | Para onde vai o dinheiro | Taxa do MP paga por | Receita do KaveliPay |
 |---|---|---|---|
 | **Premium** (R$ 9,90/mês ou R$ 79,90/ano) | conta do KaveliPay | KaveliPay | **100% da receita própria** |
-| **Cobrança** (`/cobranca/{token}`) | conta do usuário que cobrou | usuário | **R$ 0** |
-| **Divisão** (parte da cota) | conta do usuário que dividiu | usuário | **R$ 0** |
+| **Cobrança** (`/cobranca/{token}`) | conta do usuário que cobrou | usuário | 1% (piso R$ 0,49, teto R$ 4,90) |
+| **Divisão** (parte da cota) | conta do usuário que dividiu | usuário | 1% (piso R$ 0,49, teto R$ 4,90) |
 
-Cobrança e divisão são P2P: a preferência é criada com o token OAuth **do dono**, então o dinheiro cai na conta dele e a taxa do MP sai do bolso dele. O KaveliPay não custodia, não intermedeia e — hoje — **não cobra nada por isso**.
+Cobrança e divisão são P2P: a preferência é criada com o token OAuth **do dono**, então o dinheiro cai na conta dele e a taxa do MP sai do bolso dele. O KaveliPay não custodia nem intermedeia: só desconta a comissão de 1% via `marketplace_fee` (ver "Se quiser cobrar pelo P2P").
 
-Consequência prática: **hoje o único real que entra no caixa é assinatura**. Divulgar cobrança e divisão traz usuário, suporte e risco de contestação sem receita direta. Serve como aquisição (quem usa para cobrar abre o app toda semana), mas não paga a conta sozinho.
+Consequência prática: a assinatura é a receita previsível (recorrente, sem depender de volume) e a comissão é a receita que cresce com o uso — mas só com volume alto: 1.000 cobranças de R$ 100 dão R$ 1.000/mês; 1.000 de R$ 20 dão R$ 490. Sem usuário ativo, comissão é zero, então divulgar cobrança e divisão continua valendo como aquisição (quem usa para cobrar abre o app toda semana).
 
 ### Se quiser cobrar pelo P2P
 
@@ -43,7 +43,11 @@ Modelo de referência: **1% por cobrança recebida**, com piso de R$ 0,49 e teto
 | R$ 100 | R$ 1,00 | R$ 1.000 |
 | R$ 500 | R$ 4,90 (teto) | R$ 4.900 |
 
-Esse 1% só vale a pena depois de: (a) o usuário já usar o app de graça e ver o valor; (b) a taxa ser anunciada antes do pagamento; (c) o MP aprovar a aplicação como marketplace. Antes disso é atrito para quem ainda nem confia no produto. **Não implementado — decisão pendente.**
+Esse 1% só vale a pena depois de: (a) o usuário já usar o app de graça e ver o valor; (b) a taxa ser anunciada antes do pagamento; (c) o MP aprovar a aplicação como marketplace. Antes disso é atrito para quem ainda nem confia no produto.
+
+**Implementado** (`MercadoPago::taxa_da_transacao`, `marketplace_fee` em toda preferência de cobrança e de parte de divisão): 1% com piso de R$ 0,49 e teto de R$ 4,90, calculado no servidor a partir do valor do banco — nunca do app. Cobrança de valor igual ou menor que a comissão sai sem taxa. O valor é descontado do vendedor e o Mercado Pago deposita na conta da aplicação; não existe etapa manual.
+
+Ressalvas: (a) sem a conta do Mercado Pago conectada não há vendedor de quem descontar, então o link nem aceita pagamento; (b) o premium passa sem comissão — seria cobrar de nós mesmos; (c) a taxa é cobrada no pagamento, não por assinatura, então o Pix pequeno é o que paga a operação.
 
 ## 1. Infra: Render + Neon (estado real, hoje)
 

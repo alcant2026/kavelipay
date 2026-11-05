@@ -47,7 +47,8 @@ handler.
   `mp_preference_id`) a preferência da parte e responde 303 para o checkout. A
   preferência leva `external_reference = parte:<id>`; o webhook do MP consulta o
   pagamento na API deles e só então quita a parte, gravando `mp_payment_id`. Quem
-  confirma o pagamento é o MP, não o clique do dono
+  confirma o pagamento é o MP, não o clique do dono. Também leva
+  `marketplace_fee` de 1% (piso R$ 0,49, teto R$ 4,90)
 - `POST /charges` — cria cobrança e devolve o QR. **NÃO gera lançamento**
 - `GET /charges`, `GET /charges/{id}/qr` — o QR é
   `kavelipay://cobranca/<token>` (deep link do app, **nunca** BR Code/EMV); o
@@ -69,7 +70,9 @@ handler.
 - `POST /charges/{id}/pagamento` — **Mercado Pago**: gera a preferência do
   Checkout Pro e devolve `{preference_id, init_point}`. Só cobrança `PENDING` do
   dono (409 caso contrário). Sem `MP_ACCESS_TOKEN` é 503. A cobrança NÃO muda de
-  status aqui
+  status aqui. A preferência leva `marketplace_fee` = 1% do valor (piso R$ 0,49,
+  teto R$ 4,90, calculado do banco): o Mercado Pago desconta do vendedor e
+  deposita na conta do KaveliPay
 - `POST /webhooks/mercadopago` — público. O corpo **não é fonte de verdade**:
   o status vem da consulta autenticada a `/v1/payments/{id}` e o valor vem do
   banco. Só `approved` credita; o crédito entra como `ChargeReceived` com
