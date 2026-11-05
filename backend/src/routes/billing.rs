@@ -667,3 +667,68 @@ mod tests {
         assert_eq!(h, hash_codigo("KPL-ABCD-EFGH-JKLM-NPQR"));
     }
 }
+
+/// GET / — página de apresentação do produto.
+///
+/// Existe por um motivo burocrático: o Mercado Pago exige a URL de um site
+/// para liberar as credenciais de produção. Sem esta página, o cadastro pede
+/// um endereço e não há o que informar. Também é o mínimo que alguém espera
+/// ao encontrar o domínio: o que é isto, para quem é, com quem falar.
+pub async fn raiz() -> Html<String> {
+    Html(format!(
+        r#"<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KaveliPay · seu dinheiro do mês, sem planilha</title>
+<meta name="description" content="Organize saldo, contas a pagar, cobranças e divisões de conta num app Android só para pessoa física. Não é banco, não guarda dinheiro.">
+<style>
+:root{{color-scheme:light dark}}
+body{{margin:0;background:#f5f5f7;color:#111;
+font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5}}
+main{{max-width:640px;margin:0 auto;padding:56px 24px}}
+h1{{font-size:34px;letter-spacing:-1px;margin:0 0 8px}}
+.tag{{font-size:19px;color:#555;margin:0 0 32px}}
+h2{{font-size:16px;text-transform:uppercase;letter-spacing:.08em;color:#666;margin:36px 0 12px}}
+ul{{margin:0;padding-left:20px}} li{{margin:6px 0}}
+.card{{background:#fff;border-radius:18px;padding:24px;margin:24px 0;
+box-shadow:0 6px 24px rgba(0,0,0,.06)}}
+a{{color:#7b2ff7}}
+footer{{margin-top:40px;font-size:13px;color:#888}}
+@media(prefers-color-scheme:dark){{body{{background:#0e0e10;color:#f2f2f2}}
+.card{{background:#1b1b1f;box-shadow:none}} .tag,h2,footer{{color:#a1a1aa}}}}
+</style></head>
+<body><main>
+<h1>KaveliPay</h1>
+<p class="tag">Seu dinheiro do mês, sem planilha.</p>
+
+<p>App Android de organização financeira para <strong>pessoa física</strong>: saldo,
+contas a pagar, cobranças e — o que mais falta nos outros — dividir a conta
+com quem estava junto.</p>
+
+<div class="card">
+<h2>Aplicativo</h2>
+<ul>
+<li>Saldo e extrato que fecham sempre (as contas são um livro-razão, não um número que alguém digita)</li>
+<li>Contas a pagar, com vencimento e alerta</li>
+<li>Dividir uma despesa e mandar o link de pagamento para cada pessoa</li>
+<li>Relatório mensal por categoria</li>
+</ul>
+<p style="margin-bottom:0"><a href="https://kavelipay-backend.onrender.com/health">Status do serviço</a></p>
+</div>
+
+<div class="card">
+<h2>O que o KaveliPay não é</h2>
+<p style="margin-bottom:0">Não é banco, não é financeira, não é provedor de PIX e
+<strong>não guarda dinheiro de ninguém</strong>. O saldo mostrado é demonstrativo,
+calculado a partir dos lançamentos. Pagamentos são processados pelo Mercado Pago,
+direto na conta de quem cobrou.</p>
+</div>
+
+<footer>
+Dúvidas, suporte e privacidade: <a href="mailto:{email}">{email}</a><br>
+KaveliPay · feito no Brasil
+</footer>
+</main></body></html>"#,
+        email = "josiassm701@gmail.com"
+    ))
+}

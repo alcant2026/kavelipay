@@ -99,6 +99,8 @@ pub fn router(state: AppState) -> Router {
         .route("/debts/{id}/confirm", post(debts::confirm_debt))
         .route("/debts/{id}", patch(debts::update_debt))
         .route("/debts/{id}", delete(debts::delete_debt))
+        // apresentação do produto (o Mercado Pago exige uma URL de site)
+        .route("/", get(billing::raiz))
         // cobranças
         .route("/charges", post(charges::create_charge))
         .route("/charges", get(charges::list_charges))
