@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.kavelipay.app.ui.components.KpAvisoConexaoMp
 import com.kavelipay.app.data.ItemSplit
 import com.kavelipay.app.data.ItemSplitParte
 import com.kavelipay.app.ui.AppViewModel
@@ -81,6 +82,7 @@ fun KpSplitsScreen(
 
     LaunchedEffect(Unit) {
         vm.carregarSplits()
+        vm.carregarContaMp()
     }
 
     Scaffold(topBar = { CabecalhoComVoltar("Divisão de despesa", aoVoltar) }) { padding ->
@@ -100,6 +102,12 @@ fun KpSplitsScreen(
             // "Paguei" repetido falharia em silêncio.
             if (estado.erro != null) {
                 item { KpMensagemErro(estado.erro.orEmpty()) }
+            }
+
+            // Sem conta conectada o link da parte abre mas ninguém consegue
+            // pagar — avisar aqui evita mandar link morto no WhatsApp.
+            if (estado.contaMp?.conectado == false) {
+                item { KpAvisoConexaoMp(aoConectar = { vm.abrirConexaoMp() }) }
             }
 
             item {

@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.Brightness7
@@ -291,6 +292,42 @@ fun KpLinhaResumo(
 // ========================================================================
 // Aviso de saldo demonstrativo
 // ========================================================================
+@Composable
+fun KpAvisoConexaoMp(
+    modifier: Modifier = Modifier,
+    aoConectar: () -> Unit,
+) {
+    val sem = KpTheme.semanticas
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(RaioCard))
+            .background(sem.avisoFundo)
+            .padding(Spacing.md),
+    ) {
+        Text(
+            "Falta conectar sua conta",
+            style = MaterialTheme.typography.labelSmall,
+            color = sem.aviso,
+        )
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            "Os links que você manda abrem, mas ninguém consegue pagar: o dinheiro "
+                + "precisa de uma conta do Mercado Pago para cair. Conecte a sua e o "
+                + "valor dos pagamentos vai direto para você.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(Spacing.sm))
+        KpBotaoSecundario(
+            texto = "Conectar Mercado Pago",
+            onClick = aoConectar,
+            icone = Icons.Default.AccountBalanceWallet,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
 @Composable
 fun KpAvisoSaldoDemonstrativo(
     modifier: Modifier = Modifier,

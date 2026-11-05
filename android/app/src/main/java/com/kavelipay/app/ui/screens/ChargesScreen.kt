@@ -57,6 +57,7 @@ import com.kavelipay.app.ui.components.KpEtiqueta
 import com.kavelipay.app.ui.components.KpEstruturaAba
 import com.kavelipay.app.ui.components.KpLinhaResumo
 import com.kavelipay.app.ui.components.KpQrCode
+import com.kavelipay.app.ui.components.KpAvisoConexaoMp
 import com.kavelipay.app.ui.components.KpVazio
 import com.kavelipay.app.ui.components.Money
 import com.kavelipay.app.ui.theme.KpSemanticas
@@ -78,6 +79,7 @@ fun KpChargesScreen(
 
     LaunchedEffect(Unit) {
         vm.carregarCharges()
+        vm.carregarContaMp()
     }
 
     KpEstruturaAba(
@@ -95,6 +97,12 @@ fun KpChargesScreen(
         ) {
             if (estado.enviando) {
                 item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            }
+
+            // Sem conta conectada o link abre mas ninguém consegue pagar —
+            // avisar antes de a pessoa mandar o link para alguém.
+            if (estado.contaMp?.conectado == false) {
+                item { KpAvisoConexaoMp(aoConectar = { vm.abrirConexaoMp() }) }
             }
 
             item {
@@ -201,6 +209,7 @@ fun KpChargeQrScreen(vm: AppViewModel, chargeId: String, aoVoltar: () -> Unit) {
 
     LaunchedEffect(chargeId) {
         vm.carregarChargeQr(chargeId)
+        vm.carregarContaMp()
     }
 
     Scaffold(topBar = { CabecalhoComVoltar("QR Code", aoVoltar) }) { padding ->
@@ -211,6 +220,12 @@ fun KpChargeQrScreen(vm: AppViewModel, chargeId: String, aoVoltar: () -> Unit) {
         ) {
             if (estado.enviando) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+
+            // É aqui que se copia o link. Avisar antes evita mandar para alguém
+            // um link que abre mas não aceita pagamento.
+            if (estado.contaMp?.conectado == false) {
+                KpAvisoConexaoMp(aoConectar = { vm.abrirConexaoMp() })
             }
 
             val cobranca = charge

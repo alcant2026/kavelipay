@@ -44,12 +44,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.ui.unit.dp
 import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpBotaoPrimario
@@ -317,39 +311,6 @@ fun KpPerfilScreen(
                 KpBotaoSecundario("Fechar", onClick = { dialogoMp = false })
             },
         )
-    }
-
-    // ── WebView: autorização do Mercado Pago ─────────────────────────────────
-    estado.mpUrl?.let { url ->
-        Dialog(
-            onDismissRequest = { vm.fecharConexaoMp() },
-            properties = DialogProperties(usePlatformDefaultWidth = false),
-        ) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        // O callback do backend devolve `kavelipay://...`: é o
-                        // sinal de que a conta foi conectada, não uma página.
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView,
-                                request: WebResourceRequest,
-                            ): Boolean {
-                                if (request.url.scheme == "kavelipay") {
-                                    vm.fecharConexaoMp()
-                                    return true
-                                }
-                                return false
-                            }
-                        }
-                        loadUrl(url)
-                    }
-                },
-            )
-        }
     }
 
     // ── Dialog: editar nome ──────────────────────────────────────────────────

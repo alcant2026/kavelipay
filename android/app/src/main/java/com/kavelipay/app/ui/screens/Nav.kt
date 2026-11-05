@@ -1,5 +1,8 @@
 package com.kavelipay.app.ui.screens
 
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -22,6 +25,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -311,5 +317,46 @@ fun KpRaiz(
             KpPlanoScreen(vm, aoVoltar = { nav.popBackStack() })
         }
 
+    }
+
+    // A conexão da conta do Mercado Pago é uma só, então o WebView mora na raiz:
+    // cobranças, divisões e perfil pedem daqui e todos abrem o mesmo diálogo.
+    KpDialogoConexaoMp(vm)
+}
+
+/** WebView com a autorização do Mercado Pago; `kavelipay://` fecha e recarrega. */
+@Composable
+private fun KpDialogoConexaoMp(vm: AppViewModel) {
+    val estado by vm.estado.collectAsState()
+    val url = estado.mpUrl ?: return
+
+    Dialog(
+        onDismissRequest = { vm.fecharConexaoMp() },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    // O callback do backend devolve `kavelipay://...`: é o sinal de
+                    // que a conta foi conectada, não uma página para carregar.
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView,
+                            request: WebResourceRequest,
+                        ): Boolean {
+                            if (request.url.scheme == "kavelipay") {
+                                vm.fecharConexaoMp()
+                                return true
+                            }
+                            return false
+                        }
+                    }
+                    loadUrl(url)
+                }
+            },
+        )
     }
 }
