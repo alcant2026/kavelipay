@@ -441,7 +441,7 @@ pub async fn pagar_pela_pagina(
     .fetch_one(&state.db)
     .await?;
     if let Some(id) = existente {
-        return Ok(Redirect::to(&state.mp.checkout_url(&id)));
+        return Ok(Redirect::to(&state.mp.checkout_url(&id, false)));
     }
 
     let preferencia = state

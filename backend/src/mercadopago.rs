@@ -93,8 +93,13 @@ impl MercadoPago {
 
     /// Link do Checkout Pro para uma preferência. Produção e sandbox têm hosts
     /// diferentes e o mesmo parâmetro — sandbox só aceita cartão de teste.
-    pub fn checkout_url(&self, preferencia: &str) -> String {
-        let host = if self.sandbox {
+    ///
+    /// `da_aplicacao` diz com qual token a preferência foi criada: só a
+    /// credencial de teste da própria aplicação vive no sandbox. Preferência do
+    /// dono (OAuth) é sempre de produção, e mandar para o sandbox daria
+    /// "preferência não encontrada".
+    pub fn checkout_url(&self, preferencia: &str, da_aplicacao: bool) -> String {
+        let host = if self.sandbox && da_aplicacao {
             "https://sandbox.mercadopago.com.br"
         } else {
             "https://www.mercadopago.com.br"
@@ -218,7 +223,7 @@ impl MercadoPago {
         // (cartão de teste só é aceito no sandbox) o link tem de ser outro.
         Ok(Preferencia {
             id: id.to_string(),
-            init_point: self.checkout_url(id),
+            init_point: self.checkout_url(id, dono.is_none()),
         })
     }
 
@@ -259,11 +264,16 @@ mod testes {
         // Cartão de teste só é aceito no host de sandbox: trocar o host é o que
         // separa testar de cobrar dinheiro de verdade.
         assert!(cliente(false)
-            .checkout_url("p1")
+            .checkout_url("p1", true)
             .starts_with("https://www.mercadopago.com.br/checkout"));
         assert!(cliente(true)
-            .checkout_url("p1")
+            .checkout_url("p1", true)
             .starts_with("https://sandbox.mercadopago.com.br/checkout"));
-        assert!(cliente(true).checkout_url("p1").ends_with("pref_id=p1"));
+        assert!(cliente(true).checkout_url("p1", true).ends_with("pref_id=p1"));
+        // Preferência criada com o token do dono é de produção mesmo em teste:
+        // mandar para o sandbox daria preferência inexistente.
+        assert!(cliente(true)
+            .checkout_url("p1", false)
+            .starts_with("https://www.mercadopago.com.br/checkout"));
     }
 }

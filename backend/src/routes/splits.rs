@@ -485,7 +485,7 @@ pub async fn pagar_pela_parte(
         return Ok(Redirect::to(&format!("/cobranca/parte/{token}/pagar")));
     }
 
-    let existente = |id: String| Ok(Redirect::to(&state.mp.checkout_url(&id)));
+    let existente = |id: String| Ok(Redirect::to(&state.mp.checkout_url(&id, false)));
     let salva = sqlx::query_scalar::<_, Option<String>>(
         "SELECT mp_preference_id FROM expense_split_parts WHERE id = $1",
     )
