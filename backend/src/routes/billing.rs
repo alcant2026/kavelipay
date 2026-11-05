@@ -26,15 +26,18 @@
 //! não pode ficar atrás de paywall.
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
+use axum::response::Html;
 use axum::http::HeaderMap;
 use chrono::{DateTime, Duration, Utc};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::auth::admin::exigir_admin;
+use crate::routes::charges::escapar;
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -188,32 +191,14 @@ pub async fn ativar(
     .execute(&mut *tx)
     .await?;
 
-    // Base = fim atual se ainda vigente; senão agora. Evita perder dias
-    // pagos numa renovação antecipada.
-    let base = assinatura_vigente(&state.db, auth.user_id())
-        .await?
-        .map(|(_, fim)| fim)
-        .filter(|fim| *fim > Utc::now())
-        .unwrap_or_else(Utc::now);
-    let periodo_fim = base + Duration::days(i64::from(dias));
-
-    sqlx::query(
-        "INSERT INTO assinaturas
-             (user_id, provider, provider_sub_id, plano, status, periodo_fim)
-         VALUES ($1, 'codigo', $2, $3, 'ACTIVE', $4)
-         ON CONFLICT (user_id) DO UPDATE SET
-             provider = 'codigo',
-             provider_sub_id = EXCLUDED.provider_sub_id,
-             plano = EXCLUDED.plano,
-             status = 'ACTIVE',
-             periodo_fim = EXCLUDED.periodo_fim,
-             atualizado_em = now()",
+    let periodo_fim = periodo_e_upsert(
+        &mut tx,
+        auth.user_id(),
+        "codigo",
+        &codigo_id.to_string(),
+        &plano,
+        i64::from(dias),
     )
-    .bind(auth.user_id())
-    .bind(codigo_id.to_string())
-    .bind(&plano)
-    .bind(periodo_fim)
-    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -223,6 +208,116 @@ pub async fn ativar(
     let mut resposta = montar_plano(Some((plano, periodo_fim)));
     resposta.access_token = Some(state.tokens.issue_access(auth.user_id(), true)?);
     Ok(Json(resposta))
+}
+
+/// Dias que cada plano compra. Fonte única: o código de ativação e o
+/// pagamento pelo Mercado Pago não podem discordar sobre quanto dura o mês.
+pub(crate) fn dias_do_plano(plano: &str) -> Option<i64> {
+    match plano {
+        "mensal" => Some(30),
+        "anual" => Some(365),
+        _ => None,
+    }
+}
+
+fn valor_do_plano(plano: &str) -> Option<Decimal> {
+    match plano {
+        "mensal" => PRECO_MENSAL.parse().ok(),
+        "anual" => PRECO_ANUAL.parse().ok(),
+        _ => None,
+    }
+}
+
+/// Grava o período comprado. Base = fim vigente (renovação antecipada não
+/// perde dias) ou agora. Usada pelo código de ativação e pelo Mercado Pago:
+/// duas versões disso divergiriam na primeira correção de preço.
+async fn periodo_e_upsert(
+    conn: &mut sqlx::PgConnection,
+    user_id: Uuid,
+    provider: &str,
+    provider_sub_id: &str,
+    plano: &str,
+    dias: i64,
+) -> AppResult<DateTime<Utc>> {
+    let vigente = sqlx::query_as::<_, (String, DateTime<Utc>)>(
+        "SELECT plano, periodo_fim FROM assinaturas
+          WHERE user_id = $1 AND status = 'ACTIVE' AND periodo_fim > now()
+          FOR UPDATE",
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    let base = vigente
+        .map(|(_, fim)| fim)
+        .filter(|fim| *fim > Utc::now())
+        .unwrap_or_else(Utc::now);
+    let periodo_fim = base + Duration::days(dias);
+
+    sqlx::query(
+        "INSERT INTO assinaturas
+             (user_id, provider, provider_sub_id, plano, status, periodo_fim)
+         VALUES ($1, $2, $3, $4, 'ACTIVE', $5)
+         ON CONFLICT (user_id) DO UPDATE SET
+             provider = EXCLUDED.provider,
+             provider_sub_id = EXCLUDED.provider_sub_id,
+             plano = EXCLUDED.plano,
+             status = 'ACTIVE',
+             periodo_fim = EXCLUDED.periodo_fim,
+             atualizado_em = now()",
+    )
+    .bind(user_id)
+    .bind(provider)
+    .bind(provider_sub_id)
+    .bind(plano)
+    .bind(periodo_fim)
+    .execute(&mut *conn)
+    .await?;
+
+    Ok(periodo_fim)
+}
+
+/// Marca o checkout como pago e ativa o período — as duas coisas na mesma
+/// transação. Quem chama é o Brick (pagamento aprovado na hora) e o webhook
+/// (Pix aprovado depois); `concluido_em` é o que torna a segunda chamada inócua.
+pub(crate) async fn concluir_checkout(
+    db: &PgPool,
+    checkout_id: Uuid,
+    user_id: Uuid,
+    plano: &str,
+    pagamento_id: &str,
+) -> AppResult<()> {
+    let dias = dias_do_plano(plano).unwrap_or(30);
+
+    let mut tx = db.begin().await?;
+    let marcado = sqlx::query(
+        "UPDATE premium_checkouts
+            SET concluido_em = now(), mp_payment_id = $2
+          WHERE id = $1 AND concluido_em IS NULL",
+    )
+    .bind(checkout_id)
+    .bind(pagamento_id)
+    .execute(&mut *tx)
+    .await?;
+
+    if marcado.rows_affected() == 0 {
+        // Já concluído (webhook chegou depois do Brick): nada a fazer.
+        tx.rollback().await?;
+        return Ok(());
+    }
+
+    periodo_e_upsert(
+        &mut tx,
+        user_id,
+        "mercadopago",
+        pagamento_id,
+        plano,
+        dias,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
 }
 
 fn hash_codigo(codigo: &str) -> String {
@@ -315,6 +410,230 @@ pub(crate) fn gerar_codigo_legivel() -> String {
         out.push(ALFABETO[(*b as usize) % ALFABETO.len()] as char);
     }
     out
+}
+
+// ── Pagamento do premium pelo Mercado Pago ──────────────────────────────────
+//
+// O app abre `GET /assinar/{token}` num WebView; a página renderiza o Payment
+// Brick com a NOSSA chave pública. O cartão é tokenizado no aparelho pelo SDK,
+// então o número nunca passa por este backend — aqui chega só o token de
+// pagamento. O valor, porém, NÃO vem do aparelho: é lido de
+// `premium_checkouts`, igual ao resto do dinheiro do sistema.
+
+#[derive(Deserialize)]
+pub struct CheckoutRequest {
+    pub plano: String,
+}
+
+#[derive(Serialize)]
+pub struct CheckoutResponse {
+    pub url: String,
+}
+
+struct Checkout {
+    id: Uuid,
+    user_id: Uuid,
+    plano: String,
+    valor: Decimal,
+    email: String,
+    concluido: bool,
+}
+
+/// `POST /billing/checkout` — devolve o link da tela de pagamento. Cada clique
+/// cria um checkout novo: o anterior pode ter sido abandonado, e reaproveitar
+/// link velho confunde quem paga duas vezes.
+pub async fn criar_checkout(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<CheckoutRequest>,
+) -> AppResult<Json<CheckoutResponse>> {
+    if state.mp.public_key().is_none() {
+        return Err(AppError::Unavailable);
+    }
+    let plano = req.plano.trim().to_lowercase();
+    let valor = valor_do_plano(&plano).ok_or_else(|| {
+        AppError::Validation("plano deve ser mensal ou anual".to_string())
+    })?;
+
+    let token = sqlx::query_scalar::<_, String>(
+        "INSERT INTO premium_checkouts (user_id, plano, valor)
+         VALUES ($1, $2, $3) RETURNING token",
+    )
+    .bind(auth.user_id())
+    .bind(&plano)
+    .bind(valor)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(CheckoutResponse {
+        url: format!("{}/assinar/{token}", state.public_base_url),
+    }))
+}
+
+/// Token de 128 bits do banco, 32 hex. Malformado e inexistente dão o mesmo
+/// 404 — diferenciar transformaria a rota num oráculo de tokens.
+async fn checkout_por_token(state: &AppState, token: &str) -> AppResult<Checkout> {
+    let token = token.trim().to_ascii_lowercase();
+    if token.len() != 32 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AppError::NotFound("assinatura"));
+    }
+
+    let row = sqlx::query_as::<_, (Uuid, Uuid, String, Decimal, String, bool)>(
+        "SELECT c.id, c.user_id, c.plano, c.valor, u.email, c.concluido_em IS NOT NULL
+           FROM premium_checkouts c
+           JOIN users u ON u.id = c.user_id
+          WHERE c.token = $1",
+    )
+    .bind(&token)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("assinatura"))?;
+
+    Ok(Checkout {
+        id: row.0,
+        user_id: row.1,
+        plano: row.2,
+        valor: row.3,
+        email: row.4,
+        concluido: row.5,
+    })
+}
+
+const PAGINA_ASSINATURA: &str = r#"<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>KaveliPay Premium</title>
+<script src="https://sdk.mercadopago.com/js/v2"></script>
+<style>
+:root{color-scheme:light dark}
+body{margin:0;min-height:100vh;background:#f5f5f7;
+font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111}
+main{background:#fff;max-width:440px;margin:0 auto;min-height:100vh;padding:24px 20px 32px;
+box-sizing:border-box}
+h1{font-size:15px;font-weight:600;color:#666;margin:0 0 4px;text-align:center}
+.valor{font-size:34px;font-weight:700;margin:6px 0 2px;letter-spacing:-1px;text-align:center}
+.desc{font-size:15px;color:#666;margin:0 0 20px;text-align:center}
+#ok{margin-top:24px;padding:16px;border-radius:14px;background:#e8f6ee;color:#1a6b3c;text-align:center}
+#ok p{margin:0 0 14px;font-size:15px}
+.voltar{display:block;padding:15px;border-radius:14px;background:#7b2ff7;color:#fff;
+text-decoration:none;font-weight:600}
+.rodape{margin-top:22px;font-size:12px;color:#999;text-align:center}
+@media(prefers-color-scheme:dark){body{background:#0e0e10;color:#f2f2f2}
+main{background:#111114}#ok{background:#15301f;color:#8fdcae}}
+</style></head><body><main>
+<h1>KaveliPay Premium</h1>
+<p class="valor">R$ __VALOR__</p>
+<p class="desc">Plano __PLANO__</p>
+<div id="brick"></div>
+<div id="ok" hidden>
+<p>Pagamento confirmado. O Premium já está liberado.</p>
+<a class="voltar" href="kavelipay://premium/ok">Voltar ao app</a>
+</div>
+<p class="rodape">Pagamento processado pelo Mercado Pago.</p>
+</main>
+<script>
+const mp = new MercadoPago("__CHAVE__", {locale: "pt-BR"});
+mp.bricks().create("payment", "brick", {
+  initialization: {amount: __VALOR_NUM__, payer: {email: "__EMAIL__"}},
+  customization: {paymentMethods: {creditCard: "all", debitCard: "all", pix: "all"}},
+  callbacks: {
+    onSubmit: function (dados) {
+      return fetch("__PAGAR__", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(dados.formData),
+      }).then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error(j.erro || "Não deu para pagar agora.");
+          if (j.status === "approved") {
+            document.getElementById("brick").hidden = true;
+            document.getElementById("ok").hidden = false;
+          }
+          return j;
+        });
+      });
+    },
+  },
+});
+</script></body></html>"#;
+
+/// `GET /assinar/{token}` — tela de pagamento do premium. Pública: o token é
+/// o segredo. Quem já pagou vê o aviso em vez do formulário — a mesma página
+/// nunca oferece cobrança repetida.
+pub async fn pagina_assinatura(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> AppResult<Html<String>> {
+    let chave = state.mp.public_key().ok_or(AppError::Unavailable)?;
+    let c = checkout_por_token(&state, &token).await?;
+
+    if c.concluido {
+        return Ok(crate::routes::charges::pagina(
+            "KAVELIPAY PREMIUM",
+            c.valor,
+            &format!("Plano {}", c.plano),
+            None,
+            "",
+            "<p class=\"aviso ok\">Pagamento confirmado.</p>",
+        ));
+    }
+
+    let valor_num = c
+        .valor
+        .to_string()
+        .parse::<f64>()
+        .map_err(|e| AppError::InvalidAmount(format!("valor inválido: {e}")))?;
+
+    Ok(Html(
+        PAGINA_ASSINATURA
+            .replace("__VALOR__", &format!("{:.2}", c.valor).replace('.', ","))
+            .replace("__VALOR_NUM__", &valor_num.to_string())
+            .replace("__PLANO__", &escapar(&c.plano))
+            .replace("__CHAVE__", &escapar(chave))
+            .replace("__EMAIL__", &escapar(&c.email))
+            .replace("__PAGAR__", &format!("/assinar/{token}/pagar")),
+    ))
+}
+
+/// `POST /assinar/{token}/pagar` — recebe o `formData` do Brick (já com o
+/// cartão tokenizado), cria o pagamento na API do Mercado Pago e, se ele veio
+/// aprovado, libera o período na hora. Devolve o JSON cru porque é ele que o
+/// Brick usa para desenhar o resultado (Pix inclusive).
+pub async fn pagar_assinatura(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    Json(mut corpo): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    let c = checkout_por_token(&state, &token).await?;
+    if c.concluido {
+        return Err(AppError::Conflict(
+            "este pagamento já foi concluído".to_string(),
+        ));
+    }
+
+    // Fronteira de confiança: o aparelho manda o meio de pagamento, nunca o
+    // preço nem a quem o dinheiro se refere.
+    corpo["transaction_amount"] = serde_json::json!(
+        c.valor
+            .to_string()
+            .parse::<f64>()
+            .map_err(|e| AppError::InvalidAmount(format!("valor inválido: {e}")))?
+    );
+    corpo["description"] = serde_json::json!(format!("KaveliPay Premium ({})", c.plano));
+    corpo["external_reference"] = serde_json::json!(format!("plano:{}", c.id));
+    corpo["payer"]["email"] = serde_json::json!(c.email);
+
+    let pago = state.mp.criar_pagamento(corpo).await?;
+
+    if pago.get("status").and_then(|v| v.as_str()) == Some("approved") {
+        let pagamento_id = pago
+            .get("id")
+            .map(|v| v.to_string().trim_matches('"').to_string())
+            .unwrap_or_default();
+        concluir_checkout(&state.db, c.id, c.user_id, &c.plano, &pagamento_id).await?;
+    }
+
+    Ok(Json(pago))
 }
 
 #[cfg(test)]

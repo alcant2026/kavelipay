@@ -207,6 +207,10 @@ pub fn router(state: AppState) -> Router {
         // Leitura e ativação são do usuário; emissão de código é do admin.
         .route("/billing/plano", get(billing::plano))
         .route("/billing/ativar", post(billing::ativar))
+        .route("/billing/checkout", post(billing::criar_checkout))
+        // Tela de pagamento do premium: pública, o token é o segredo.
+        .route("/assinar/{token}", get(billing::pagina_assinatura))
+        .route("/assinar/{token}/pagar", post(billing::pagar_assinatura))
         .route("/admin/assinaturas/codigos", post(billing::gerar_codigo))
         // LGPD
         .route("/lgpd/export.csv", get(lgpd::export_csv))

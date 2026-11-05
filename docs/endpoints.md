@@ -218,6 +218,20 @@ handler.
   preco_anual}`; `plano`/`periodo_fim` são `null` sem assinatura vigente. Os
   preços são **string** (`"9.90"` mensal, `"79.90"` anual): dinheiro nunca é
   float, nem na resposta. `access_token` **não** vem neste GET — só em `ativar`.
+- `POST /billing/checkout` — abre a compra do Premium. Corpo `{plano}` (`mensal`
+  ou `anual`). Exige login. Resposta `{url}`: a página de pagamento
+  (`/assinar/<token>`) que o app abre num WebView. O preço **não** vem do app —
+  a URL guarda o valor lido de `preco_mensal`/`preco_anual` no banco. `503`
+  quando o Mercado Pago não está configurado (`MP_PUBLIC_KEY` ausente).
+- `GET /assinar/{token}` — página pública do Payment Brick (cartão e Pix), com
+  o valor e o e-mail de quem vai pagar. Token de 32 hex; malformado e
+  inexistente dão o mesmo `404`. Já paga, mostra "pagamento confirmado" e não
+  oferece pagar de novo.
+- `POST /assinar/{token}/pagar` — o Brick manda o `formData` para cá; o backend
+  **sobrescreve** `transaction_amount` com o valor do banco, manda
+  `external_reference = plano:<id>` e cria o pagamento no Mercado Pago.
+  `approved` libera o período na hora; Pix (`pending`) só libera quando o
+  webhook confirmar. `409` se o checkout já foi concluído.
 - `POST /billing/ativar` — troca o código de ativação por período de acesso.
   Corpo `{codigo}` (8–40 caracteres após normalizar espaços e maiúsculas).
   Exige login. O código é **uso único**, gerado com validade de 30 dias a

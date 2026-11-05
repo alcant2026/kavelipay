@@ -55,6 +55,9 @@ pub struct Config {
     /// URL pública que o Mercado Pago chama no webhook. `None` = preferência
     /// criada sem notificação (só pagamento manual de teste).
     pub mp_notification_url: Option<String>,
+    /// Chave pública do Mercado Pago: vai para o HTML do Brick (o cartão é
+    /// tokenizado no aparelho, o número nunca passa por aqui).
+    pub mp_public_key: Option<String>,
     /// Base pública do backend, sem barra no fim. É o que vira link de
     /// pagamento para quem não tem o app (`{base}/cobranca/{token}/pagar`).
     pub public_base_url: String,
@@ -173,6 +176,10 @@ impl Config {
                 .filter(|k| !k.is_empty()),
             mp_base_url: env::var("MP_BASE_URL")
                 .unwrap_or_else(|_| crate::mercadopago::BASE_URL_PADRAO.to_string()),
+            mp_public_key: env::var("MP_PUBLIC_KEY")
+                .ok()
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty()),
             mp_notification_url: env::var("MP_NOTIFICATION_URL")
                 .ok()
                 .map(|u| u.trim().to_string())

@@ -65,6 +65,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 EXT_REF = sys.argv[1]
 PORTA = int(sys.argv[2])
+ULTIMO = {}
 
 class H(BaseHTTPRequestHandler):
     def _json(self, corpo, status=200):
@@ -76,12 +77,41 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(dados)
 
     def do_POST(self):
+        global ULTIMO
         tam = int(self.headers.get("content-length") or 0)
-        self.rfile.read(tam)
+        corpo = self.rfile.read(tam)
         if self.path == "/checkout/preferences":
             if not (self.headers.get("authorization") or "").startswith("Bearer "):
                 self._json({"message": "sem token"}, 401); return
             self._json({"id": "pref-teste-1", "init_point": "https://mp.teste/pref-teste-1"})
+        elif self.path == "/v1/payments":
+            if not (self.headers.get("authorization") or "").startswith("Bearer "):
+                self._json({"message": "sem token"}, 401); return
+            dados = json.loads(corpo or b"{}")
+            ULTIMO = dados
+            # O backend tem de mandar o preço do banco, nunca o do aparelho.
+            open(EXT_REF + ".pagamento", "w").write(json.dumps(dados))
+            meio = dados.get("payment_method_id") or ""
+            if meio == "recusado":
+                self._json({"message": "o cartão foi recusado"}, 400); return
+            if meio.startswith("pix"):
+                self._json({
+                    "id": "brick-pix",
+                    "status": "pending",
+                    "external_reference": dados.get("external_reference"),
+                    "transaction_amount": dados.get("transaction_amount"),
+                    "point_of_interaction": {"transaction_data": {
+                        "qr_code": "00020126580014br.gov.bcb.pix",
+                        "qr_code_base64": "iVBORw0KGgo=",
+                    }},
+                })
+            else:
+                self._json({
+                    "id": "brick-1",
+                    "status": "approved",
+                    "external_reference": dados.get("external_reference"),
+                    "transaction_amount": dados.get("transaction_amount"),
+                })
         else:
             self._json({"message": "rota"}, 404)
 
@@ -93,7 +123,11 @@ class H(BaseHTTPRequestHandler):
             ref = open(EXT_REF).read().strip()
         except Exception:
             ref = ""
-        if pid == "pend":
+        if pid in ("brick-1", "brick-pix"):
+            # Pix nasce pendente e é confirmado depois: o webhook é quem quita.
+            self._json({"status": "approved", "transaction_amount": ULTIMO.get("transaction_amount"),
+                        "external_reference": ULTIMO.get("external_reference")})
+        elif pid == "pend":
             self._json({"status": "pending", "external_reference": ref})
         elif pid == "outro":
             self._json({"status": "approved", "external_reference": "00000000-0000-0000-0000-000000000000"})
@@ -118,7 +152,7 @@ python3 "$TMP_MOCK" "$EXT_REF" "$MP_PORTA" & MOCK_PID=$!
 echo "subindo servidor"
 DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DB}" \
 JWT_SECRET="$SECRET" BIND_ADDR="127.0.0.1:${E2E_PORTA}" RUST_LOG=error \
-MP_ACCESS_TOKEN="TEST-fake-$$" MP_BASE_URL="$MOCK" MP_NOTIFICATION_URL="$BASE/webhooks/mercadopago" \
+PUBLIC_BASE_URL="$BASE" MP_ACCESS_TOKEN="TEST-fake-$$" MP_PUBLIC_KEY="TEST-chave-publica-$$" MP_BASE_URL="$MOCK" MP_NOTIFICATION_URL="$BASE/webhooks/mercadopago" \
 "$BIN" &
 SERVER_PID=$!
 for i in $(seq 1 40); do
@@ -365,6 +399,87 @@ PENDENTE=$(curl -s -X POST "$BASE/splits/$ID_SPLIT/parts/$("${PSQL[@]}" -t -A -d
 SALDO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
 check "quitar no clique do dono ainda funciona (pendente $PENDENTE, saldo $SALDO)" \
     "$([ "$PENDENTE" = "0.00" ] && [ "$SALDO" = "50.00" ] && echo true || echo false)"
+
+
+echo
+echo "premium pago pelo Mercado Pago (Payment Brick)"
+
+PLANO=$(curl -s "$BASE/billing/plano" -H "$AUTH")
+check "conta nova não é premium" \
+    "$([ "$(get premium <<<"$PLANO")" = "False" ] && echo true || echo false)"
+
+CHECKOUT=$(curl -s -X POST "$BASE/billing/checkout" -H "$AUTH" \
+    -H 'content-type: application/json' -d '{"plano":"mensal"}')
+URL=$(get url <<<"$CHECKOUT")
+TOKEN_ASSIN=$(basename "$URL")
+check "checkout devolve link público da tela de pagamento ($URL)" \
+    "$(grep -Eq '^http://127\.0\.0\.1:[0-9]+/assinar/[0-9a-f]{32}$' <<<"$URL" && echo true || echo false)"
+
+PAG=$(curl -s "$URL")
+check "página tem o Payment Brick com a chave pública" \
+    "$(grep -q 'TEST-chave-publica' <<<"$PAG" && grep -q 'bricks().create' <<<"$PAG" && echo true || echo false)"
+check "página mostra o preço vindo do banco (R\$ 9,90)" \
+    "$(grep -q 'R\$ 9,90' <<<"$PAG" && echo true || echo false)"
+check "página não confia em preço do cliente (sem 0.01 no HTML)" \
+    "$(grep -q '0\.01' <<<"$PAG" && echo false || echo true)"
+
+PGTO=$(curl -s -X POST "$BASE/assinar/$TOKEN_ASSIN/pagar" -H 'content-type: application/json' \
+    -d '{"payment_method_id":"master","token":"tok-teste","transaction_amount":0.01,"installments":1}')
+check "pagamento aprovado libera o Premium na hora" \
+    "$([ "$(get status <<<"$PGTO")" = "approved" ] && echo true || echo false)"
+check "valor enviado ao MP é o do banco, não o do aparelho (mandou 0.01)" \
+    "$(python3 -c 'import json,sys;print("true" if json.load(open(sys.argv[1]))["transaction_amount"] == 9.9 else "false")' "${EXT_REF}.pagamento")"
+
+PLANO=$(curl -s "$BASE/billing/plano" -H "$AUTH")
+check "plano virou premium com período" \
+    "$([ "$(get premium <<<"$PLANO")" = "True" ] && [ -n "$(get periodo_fim <<<"$PLANO")" ] && echo true || echo false)"
+FIM1=$(get periodo_fim <<<"$PLANO")
+
+check "link já pago mostra confirmação em vez do formulário" \
+    "$(grep -q 'Pagamento confirmado.' <<<"$(curl -s "$URL")" && echo true || echo false)"
+CODE_A=$(code -X POST "$BASE/assinar/$TOKEN_ASSIN/pagar" -H 'content-type: application/json' \
+    -d '{"payment_method_id":"master","token":"x"}')
+check "link já pago não aceita segundo pagamento (recebido $CODE_A)" \
+    "$([ "$CODE_A" = "409" ] && echo true || echo false)"
+
+# O webhook do MP pode chegar depois do Brick: não pode estender o período.
+code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' \
+    -d '{"type":"payment","data":{"id":"brick-1"}}' >/dev/null
+FIM2=$(curl -s "$BASE/billing/plano" -H "$AUTH" | get periodo_fim)
+check "webhook repetido do cartão não estende o período ($FIM1)" \
+    "$([ "$FIM1" = "$FIM2" ] && echo true || echo false)"
+
+# Pix: o Brick recebe o QR, o pagamento nasce pendente e o webhook confirma.
+CHECKOUT=$(curl -s -X POST "$BASE/billing/checkout" -H "$AUTH" \
+    -H 'content-type: application/json' -d '{"plano":"anual"}')
+URL2=$(get url <<<"$CHECKOUT")
+TOKEN_ANUAL=$(basename "$URL2")
+PIX=$(curl -s -X POST "$BASE/assinar/$TOKEN_ANUAL/pagar" -H 'content-type: application/json' \
+    -d '{"payment_method_id":"pix","transaction_amount":1}')
+check "pix volta pendente com o QR para o Brick desenhar" \
+    "$([ "$(get status <<<"$PIX")" = "pending" ] && [ -n "$(get id <<<"$PIX")" ] && echo true || echo false)"
+check "pix pendente não libera o plano antes da confirmação" \
+    "$([ "$(curl -s "$BASE/billing/plano" -H "$AUTH" | get periodo_fim)" = "$FIM1" ] && echo true || echo false)"
+
+ID_PIX=$("${PSQL[@]}" -t -A -d "$DB" \
+    -c "SELECT id FROM premium_checkouts ORDER BY criado_em DESC LIMIT 1")
+echo "plano:$ID_PIX" > "$EXT_REF"
+code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' \
+    -d '{"type":"payment","data":{"id":"brick-pix"}}' >/dev/null
+FIM3=$(curl -s "$BASE/billing/plano" -H "$AUTH" | get periodo_fim)
+check "webhook do pix confirma e soma o período anual ($FIM3)" \
+    "$([ "$FIM3" != "$FIM1" ] && echo true || echo false)"
+
+VAL=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["transaction_amount"])' "${EXT_REF}.pagamento")
+check "pix anual cobrou 79.90 do banco (recebido $VAL)" \
+    "$([ "$VAL" = "79.9" ] && echo true || echo false)"
+
+check "premium não mexe no saldo da carteira" \
+    "$([ "$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)" = "50.00" ] && echo true || echo false)"
+
+TRANS=$(code -X POST "$BASE/assinar/naoexiste/pagar" -H 'content-type: application/json' -d '{}')
+check "token de assinatura inválido dá 404 (recebido $TRANS)" \
+    "$([ "$TRANS" = "404" ] && echo true || echo false)"
 
 echo
 echo "--------------------------------------------"

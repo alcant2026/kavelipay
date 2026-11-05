@@ -24,6 +24,9 @@ pub struct MercadoPago {
     /// URL pública que o Mercado Pago chama quando o pagamento muda de status.
     /// `None` = preferência criada sem webhook; serve só para teste manual.
     notification_url: Option<String>,
+    /// Chave pública: só o HTML do Payment Brick usa. Não é segredo — ela
+    /// identifica a conta para o SDK no navegador; quem cobra é o token.
+    public_key: Option<String>,
 }
 
 /// Preferência criada: o app abre `init_point` no navegador para pagar.
@@ -45,6 +48,7 @@ impl MercadoPago {
         token: Option<String>,
         base_url: String,
         notification_url: Option<String>,
+        public_key: Option<String>,
     ) -> AppResult<Self> {
         let http = reqwest::Client::builder()
             // Sem timeout o handler fica pendurado se o Mercado Pago não
@@ -58,11 +62,57 @@ impl MercadoPago {
             token: token.filter(|t| !t.trim().is_empty()),
             base_url,
             notification_url: notification_url.filter(|u| !u.trim().is_empty()),
+            public_key: public_key.filter(|k| !k.trim().is_empty()),
         })
     }
 
     fn token(&self) -> AppResult<&str> {
         self.token.as_deref().ok_or(AppError::Unavailable)
+    }
+
+    /// Chave pública do Payment Brick. `None` = sem Mercado Pago configurado.
+    pub fn public_key(&self) -> Option<&str> {
+        self.public_key.as_deref()
+    }
+
+    /// Cria o pagamento direto na API (Payment Brick): o cartão foi
+    /// tokenizado no aparelho pelo SDK, então aqui chega só o token.
+    /// Devolve o JSON cru porque é ele que o Brick precisa para desenhar a
+    /// tela de resultado (Pix inclusive, com o QR).
+    pub async fn criar_pagamento(
+        &self,
+        mut corpo: serde_json::Value,
+    ) -> AppResult<serde_json::Value> {
+        if let Some(url) = &self.notification_url {
+            corpo["notification_url"] = json!(url);
+        }
+
+        let resposta = self
+            .http
+            .post(format!("{}/v1/payments", self.base_url))
+            .bearer_auth(self.token()?)
+            .json(&corpo)
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("mercadopago: {e}")))?;
+
+        let status = resposta.status();
+        let texto = resposta.text().await.unwrap_or_default();
+        let json: serde_json::Value = serde_json::from_str(&texto)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("mercadopago: resposta inválida: {e}")))?;
+
+        if !status.is_success() {
+            // 4xx é recusa de negócio (cartão recusado, valor inválido): o
+            // app precisa mostrar o motivo, então a mensagem deles vai junto.
+            return Err(AppError::Validation(format!(
+                "o Mercado Pago recusou o pagamento: {}",
+                json.pointer("/message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("tente outro meio de pagamento")
+            )));
+        }
+
+        Ok(json)
     }
 
     /// Cria a preferência de Checkout Pro. `volta` é para onde o Mercado Pago

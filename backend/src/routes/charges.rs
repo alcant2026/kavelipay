@@ -748,6 +748,38 @@ pub async fn webhook(
         return Ok(StatusCode::OK);
     }
 
+    // Premium (`plano:<checkout>`): a compra é receita do KaveliPay, não do
+    // usuário — ativa o período e nunca toca o ledger da carteira.
+    if let Some(resto) = referencia.strip_prefix("plano:") {
+        let Ok(checkout_id) = resto.parse::<Uuid>() else {
+            return Ok(StatusCode::OK);
+        };
+        let linha = sqlx::query_as::<_, (Uuid, String, bool)>(
+            "SELECT user_id, plano, concluido_em IS NOT NULL
+               FROM premium_checkouts WHERE id = $1",
+        )
+        .bind(checkout_id)
+        .fetch_optional(&state.db)
+        .await?;
+
+        if let Some((user_id, plano, concluido)) = linha {
+            if !concluido {
+                if let Err(e) = crate::routes::billing::concluir_checkout(
+                    &state.db,
+                    checkout_id,
+                    user_id,
+                    &plano,
+                    pagamento_id,
+                )
+                .await
+                {
+                    tracing::warn!(%checkout_id, "premium: falha ao ativar pelo webhook: {e}");
+                }
+            }
+        }
+        return Ok(StatusCode::OK);
+    }
+
     let Ok(charge_id) = referencia.parse::<Uuid>() else {
         return Ok(StatusCode::OK);
     };
