@@ -225,7 +225,7 @@ LINK=$(curl -s -X POST "$BASE/charges/$ID_CH/pagamento" -H "$AUTH")
 check "link responde com preferência do MP (recebido $(get preference_id <<<"$LINK"))" \
     "$([ "$(get preference_id <<<"$LINK")" = "pref-teste-1" ] && echo true || echo false)"
 check "link devolve init_point do MP" \
-    "$(case "$(get init_point <<<"$LINK")" in https://mp.teste/pref-teste-1) echo true;; *) echo false;; esac)"
+    "$([ "$(get init_point <<<"$LINK")" = "https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=pref-teste-1" ] && echo true || echo false)"
 BEARER=$(cat "$EXT_REF.bearer" 2>/dev/null)
 check "a preferência sai com o token do VENDEDOR, não da aplicação (recebido $BEARER)" \
     "$([ "$BEARER" = "Bearer tok-vendedor" ] && echo true || echo false)"
@@ -259,7 +259,7 @@ CH2=$(curl -s -X POST "$BASE/charges" -H "$AUTH" -H 'content-type: application/j
 TOKEN2=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT share_token FROM charges WHERE id='$(get id <<<"$CH2")'")
 REDIR=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$BASE/cobranca/$TOKEN2/pagar")
 check "página cria preferência nova quando não existe (recebido $REDIR)" \
-    "$([ "$REDIR" = "303 https://mp.teste/pref-teste-1" ] && echo true || echo false)"
+    "$([ "$REDIR" = "303 https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=pref-teste-1" ] && echo true || echo false)"
 
 echo
 echo "webhook não confia no corpo: só no status devolvido pela API"
@@ -382,7 +382,7 @@ check "token malformado de parte devolve 404 (recebido $(code "$BASE/cobranca/pa
 
 REDIR=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$BASE/cobranca/parte/$TOKEN_PARTE/pagar")
 check "parte sem preferência cria nova e redireciona pro MP (recebido $REDIR)" \
-    "$([ "$REDIR" = "303 https://mp.teste/pref-teste-1" ] && echo true || echo false)"
+    "$([ "$REDIR" = "303 https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=pref-teste-1" ] && echo true || echo false)"
 REDIR=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$BASE/cobranca/parte/$TOKEN_PARTE/pagar")
 check "segundo POST reaproveita a preferência (recebido $REDIR)" \
     "$([ "$REDIR" = "303 https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=pref-teste-1" ] && echo true || echo false)"

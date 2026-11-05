@@ -171,7 +171,7 @@ async fn subir_app_com(ai: AiClient, cotacao: CotacaoClient) -> String {
         .unwrap();
     let tokens = TokenService::new("segredo-de-teste-com-32-bytes-no-minimo!!", 15, 30);
 
-    let app = kavelipay_backend::routes::router(AppState { db, tokens, ai, cotacao, mp: kavelipay_backend::mercadopago::MercadoPago::new(None, kavelipay_backend::mercadopago::BASE_URL_PADRAO.into(), None, None).unwrap(), public_base_url: "http://localhost:3000".into(), mp_oauth: None, admin_token: None, login_gate: Default::default(), mailer: None, reset_gate: Default::default(), limite_global: Default::default() });
+    let app = kavelipay_backend::routes::router(AppState { db, tokens, ai, cotacao, mp: kavelipay_backend::mercadopago::MercadoPago::new(None, kavelipay_backend::mercadopago::BASE_URL_PADRAO.into(), None, None, false).unwrap(), public_base_url: "http://localhost:3000".into(), mp_oauth: None, admin_token: None, login_gate: Default::default(), mailer: None, reset_gate: Default::default(), limite_global: Default::default() });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {

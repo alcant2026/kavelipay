@@ -65,6 +65,9 @@ pub struct Config {
     /// Chave simétrica dos tokens do Mercado Pago guardados no banco. Sem ela
     /// a conexão falha em vez de gravar segredo de terceiro em claro.
     pub mp_token_key: Option<String>,
+    /// Modo de teste do Mercado Pago: em vez do checkout de produção, o link
+    /// de pagamento aponta para o sandbox, onde cartão de teste é aceito.
+    pub mp_sandbox: bool,
     /// Base pública do backend, sem barra no fim. É o que vira link de
     /// pagamento para quem não tem o app (`{base}/cobranca/{token}/pagar`).
     pub public_base_url: String,
@@ -187,6 +190,9 @@ impl Config {
                 .ok()
                 .map(|k| k.trim().to_string())
                 .filter(|k| !k.is_empty()),
+            mp_sandbox: env::var("MP_SANDBOX")
+                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "sim"))
+                .unwrap_or(false),
             mp_client_id: env::var("MP_CLIENT_ID")
                 .ok()
                 .map(|k| k.trim().to_string())

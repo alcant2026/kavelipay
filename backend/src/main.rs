@@ -83,6 +83,7 @@ async fn main() -> Result<(), AppError> {
         config.mp_base_url.clone(),
         config.mp_notification_url.clone(),
         config.mp_public_key.clone(),
+        config.mp_sandbox,
     )?;
 
     let state = AppState {

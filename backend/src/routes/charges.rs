@@ -441,7 +441,7 @@ pub async fn pagar_pela_pagina(
     .fetch_one(&state.db)
     .await?;
     if let Some(id) = existente {
-        return Ok(Redirect::to(&init_point(&id)));
+        return Ok(Redirect::to(&state.mp.checkout_url(&id)));
     }
 
     let preferencia = state
@@ -465,12 +465,6 @@ pub async fn pagar_pela_pagina(
     .await?;
 
     Ok(Redirect::to(&preferencia.init_point))
-}
-
-/// URL do Checkout Pro a partir da preferência. Usada quando a preferência já
-/// existe (o `init_point` só é devolvido na criação).
-pub(crate) fn init_point(preferencia: &str) -> String {
-    format!("https://www.mercadopago.com.br/checkout/v1/redirect?pref_id={preferencia}")
 }
 
 /// POST /charges/{id}/receive

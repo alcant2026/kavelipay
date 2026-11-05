@@ -27,6 +27,9 @@ pub struct MercadoPago {
     /// Chave pública: só o HTML do Payment Brick usa. Não é segredo — ela
     /// identifica a conta para o SDK no navegador; quem cobra é o token.
     public_key: Option<String>,
+    /// Modo de teste: o link de pagamento aponta para o sandbox, único lugar
+    /// onde cartão de teste é aceito. Ligado por `MP_SANDBOX`.
+    sandbox: bool,
 }
 
 /// Preferência criada: o app abre `init_point` no navegador para pagar.
@@ -49,6 +52,7 @@ impl MercadoPago {
         base_url: String,
         notification_url: Option<String>,
         public_key: Option<String>,
+        sandbox: bool,
     ) -> AppResult<Self> {
         let http = reqwest::Client::builder()
             // Sem timeout o handler fica pendurado se o Mercado Pago não
@@ -63,6 +67,7 @@ impl MercadoPago {
             base_url,
             notification_url: notification_url.filter(|u| !u.trim().is_empty()),
             public_key: public_key.filter(|k| !k.trim().is_empty()),
+            sandbox,
         })
     }
 
@@ -81,6 +86,17 @@ impl MercadoPago {
     }
 
     /// Base da API — para o OAuth montar `{base}/oauth/token`.
+    /// Link do Checkout Pro para uma preferência. Produção e sandbox têm hosts
+    /// diferentes e o mesmo parâmetro — sandbox só aceita cartão de teste.
+    pub fn checkout_url(&self, preferencia: &str) -> String {
+        let host = if self.sandbox {
+            "https://sandbox.mercadopago.com.br"
+        } else {
+            "https://www.mercadopago.com.br"
+        };
+        format!("{host}/checkout/v1/redirect?pref_id={preferencia}")
+    }
+
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
@@ -191,16 +207,12 @@ impl MercadoPago {
             .get("id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::Internal(anyhow::anyhow!("mercadopago: preferência sem id")))?;
-        let init_point = json
-            .get("init_point")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                AppError::Internal(anyhow::anyhow!("mercadopago: preferência sem init_point"))
-            })?;
-
+        // O link é montado aqui em vez de lido da resposta: o `init_point` que
+        // o Mercado Pago devolve é sempre o de produção, e em modo de teste
+        // (cartão de teste só é aceito no sandbox) o link tem de ser outro.
         Ok(Preferencia {
             id: id.to_string(),
-            init_point: init_point.to_string(),
+            init_point: self.checkout_url(id),
         })
     }
 
@@ -225,5 +237,27 @@ impl MercadoPago {
 
         serde_json::from_str(&texto)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("mercadopago: resposta inválida: {e}")))
+    }
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    fn cliente(sandbox: bool) -> MercadoPago {
+        MercadoPago::new(None, BASE_URL_PADRAO.into(), None, None, sandbox).unwrap()
+    }
+
+    #[test]
+    fn sandbox_troca_o_host_do_checkout() {
+        // Cartão de teste só é aceito no host de sandbox: trocar o host é o que
+        // separa testar de cobrar dinheiro de verdade.
+        assert!(cliente(false)
+            .checkout_url("p1")
+            .starts_with("https://www.mercadopago.com.br/checkout"));
+        assert!(cliente(true)
+            .checkout_url("p1")
+            .starts_with("https://sandbox.mercadopago.com.br/checkout"));
+        assert!(cliente(true).checkout_url("p1").ends_with("pref_id=p1"));
     }
 }
