@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,6 +40,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -92,6 +96,17 @@ fun KpPerfilScreen(
     LaunchedEffect(Unit) {
         vm.carregarPerfilESessoes()
         vm.carregarContaMp()
+    }
+
+    // A conexão da conta do Mercado Pago acontece no navegador: quando a pessoa
+    // volta para o app, o status pode ter mudado sem nenhuma ação aqui dentro.
+    val ciclo = LocalLifecycleOwner.current
+    DisposableEffect(ciclo) {
+        val observador = LifecycleEventObserver { _, evento ->
+            if (evento == Lifecycle.Event.ON_RESUME) vm.carregarContaMp()
+        }
+        ciclo.lifecycle.addObserver(observador)
+        onDispose { ciclo.lifecycle.removeObserver(observador) }
     }
 
     var dialogoNome by remember { mutableStateOf(false) }

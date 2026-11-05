@@ -1,9 +1,8 @@
 package com.kavelipay.app.ui.screens
 
-import android.webkit.CookieManager
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -25,10 +24,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -325,45 +322,25 @@ fun KpRaiz(
     KpDialogoConexaoMp(vm)
 }
 
-/** WebView com a autorização do Mercado Pago; `kavelipay://` fecha e recarrega. */
+/**
+ * Manda a autorização do Mercado Pago para o navegador do sistema.
+ *
+ * Não pode ser WebView: a página deles é um interstitial de anti-fraude que
+ * fica girando para sempre quando o user-agent diz que é WebView. No navegador
+ * a pessoa já está (ou faz) o login, e o callback do backend mostra a
+ * confirmação — ao voltar para o app, o perfil recarrega sozinho.
+ */
 @Composable
 private fun KpDialogoConexaoMp(vm: AppViewModel) {
     val estado by vm.estado.collectAsState()
     val url = estado.mpUrl ?: return
+    val contexto = LocalContext.current
 
-    Dialog(
-        onDismissRequest = { vm.fecharConexaoMp() },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    // A página de autorização do Mercado Pago é um interstitial de
-                    // anti-fraude que se recusa a renderizar para WebView: ela lê o
-                    // "; wv" do user-agent e devolve tela branca. Mentir o UA e
-                    // aceitar cookie de terceiro é o que a faz carregar.
-                    settings.userAgentString = settings.userAgentString.replace("; wv", "")
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                    // O callback do backend devolve `kavelipay://...`: é o sinal de
-                    // que a conta foi conectada, não uma página para carregar.
-                    webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(
-                            view: WebView,
-                            request: WebResourceRequest,
-                        ): Boolean {
-                            if (request.url.scheme == "kavelipay") {
-                                vm.fecharConexaoMp()
-                                return true
-                            }
-                            return false
-                        }
-                    }
-                    loadUrl(url)
-                }
-            },
-        )
+    LaunchedEffect(url) {
+        val abrir = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        if (runCatching { contexto.startActivity(abrir) }.isFailure) {
+            Toast.makeText(contexto, "Nenhum navegador instalado.", Toast.LENGTH_LONG).show()
+        }
+        vm.fecharConexaoMp()
     }
 }
