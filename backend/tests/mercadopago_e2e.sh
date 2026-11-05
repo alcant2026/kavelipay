@@ -195,16 +195,20 @@ check "sem conta conectada o POST não manda ninguém pro Mercado Pago" \
 
 AUTORIZACAO=$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/mercadopago/conectar" -H "$AUTH")
 check "conectar manda pro OAuth do MP com o client_id da aplicação" \
-    "$(grep -q 'auth.mercadopago.com/authorization?client_id=client-teste' <<<"$AUTORIZACAO" && echo true || echo false)"
+    "$(grep -q 'auth.mercadopago.com.br/authorization?client_id=client-teste' <<<"$AUTORIZACAO" && echo true || echo false)"
 STATE=$(python3 -c 'import sys, urllib.parse as u; print(u.parse_qs(u.urlparse(sys.argv[1]).query)["state"][0])' "$AUTORIZACAO")
-VOLTA=$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/mercadopago/callback?code=codigo-teste&state=$STATE")
+PAGINA_CONECTADO=$(curl -s "$BASE/mercadopago/callback?code=codigo-teste&state=$STATE")
 # O app não manda header num WebView: busca o link pronto, em JSON. (Depois do
 # callback de propósito: cada pedido de link invalida o state anterior.)
 LINK_JSON=$(curl -s "$BASE/mercadopago/link" -H "$AUTH")
 check "o app pega a mesma URL em JSON, sem header no WebView" \
-    "$(grep -q 'auth.mercadopago.com/authorization' <<<"$LINK_JSON" && echo true || echo false)"
-check "callback troca o código e devolve o app (recebido $VOLTA)" \
-    "$([ "$VOLTA" = "kavelipay://mercadopago/conectado" ] && echo true || echo false)"
+    "$(grep -q 'auth.mercadopago.com.br/authorization' <<<"$LINK_JSON" && echo true || echo false)"
+check "callback troca o código e mostra a confirmação" \
+    "$(grep -q 'Conta conectada' <<<"$PAGINA_CONECTADO" && echo true || echo false)"
+# A autorização do MP não abre em WebView: o app manda para o navegador, então a
+# volta é uma página, não um redirect para o esquema do app.
+check "a confirmação oferece o link que reabre o app" \
+    "$(grep -q 'kavelipay://mercadopago/conectado' <<<"$PAGINA_CONECTADO" && echo true || echo false)"
 check "status passa a mostrar a conta conectada" \
     "$(curl -s "$BASE/mercadopago/status" -H "$AUTH" | boolv conectado)"
 check "o mesmo state não serve duas vezes (recebido $(code "$BASE/mercadopago/callback?code=codigo-teste&state=$STATE"))" \

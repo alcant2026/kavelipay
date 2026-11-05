@@ -20,7 +20,7 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
-use axum::response::Redirect;
+use axum::response::{Html, Redirect};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -38,7 +38,10 @@ pub struct OAuth {
     pub chave: String,
 }
 
-const AUTORIZACAO: &str = "https://auth.mercadopago.com/authorization";
+// Domínio com `.br` de propósito: `auth.mercadopago.com` (sem `.br`) entrega o
+// seletor "crossite" do Mercado Livre, que fica girando para sempre dentro de
+// WebView. O `.br` manda direto para o login, que é o fluxo de verdade.
+const AUTORIZACAO: &str = "https://auth.mercadopago.com.br/authorization";
 
 /// O código de autorização vale 10 minutos; o state daqui vale o mesmo.
 const VALIDADE_STATE_MINUTOS: i64 = 10;
@@ -125,7 +128,7 @@ pub struct Callback {
 pub async fn callback(
     State(state): State<AppState>,
     Query(q): Query<Callback>,
-) -> AppResult<Redirect> {
+) -> AppResult<Html<String>> {
     let oauth = oauth(&state)?;
     let falha = || AppError::Validation("conexão com o Mercado Pago expirou — tente de novo".into());
 
@@ -156,8 +159,36 @@ pub async fn callback(
 
     guardar(&state, oauth, user_id, &tokens).await?;
 
-    // Deep link: o app intercepta e fecha o WebView (mesmo truque do premium).
-    Ok(Redirect::to("kavelipay://mercadopago/conectado"))
+    Ok(pagina_conectado())
+}
+
+/// A autorização do Mercado Pago só abre no navegador (a página deles é um
+/// interstitial de anti-fraude que não renderiza dentro de WebView), então a
+/// volta é uma tela de navegador: confirma e oferece o link que reabre o app.
+fn pagina_conectado() -> Html<String> {
+    Html(r#"<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conta conectada · KaveliPay</title>
+<style>
+:root{color-scheme:light dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#f5f5f7;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111}
+main{background:#fff;border-radius:20px;padding:32px 24px;max-width:380px;width:100%;
+box-shadow:0 8px 30px rgba(0,0,0,.08);text-align:center}
+h1{font-size:18px;margin:0 0 8px}
+p{font-size:15px;color:#666;margin:0 0 20px}
+a{display:block;padding:16px;border-radius:14px;background:#7b2ff7;color:#fff;
+text-decoration:none;font-weight:600;font-size:17px}
+@media(prefers-color-scheme:dark){body{background:#0e0e10;color:#f2f2f2}
+main{background:#1b1b1f;box-shadow:none}p{color:#aaa}}
+</style></head>
+<body><main>
+<h1>Conta conectada</h1>
+<p>Os pagamentos das suas cobranças vão cair direto nela.</p>
+<a href="kavelipay://mercadopago/conectado">Voltar ao KaveliPay</a>
+</main></body></html>"#
+        .to_string())
 }
 
 /// POST /mercadopago/desconectar — para de receber na própria conta.

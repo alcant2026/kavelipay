@@ -1,5 +1,6 @@
 package com.kavelipay.app.ui.screens
 
+import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -340,6 +341,12 @@ private fun KpDialogoConexaoMp(vm: AppViewModel) {
                 WebView(ctx).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
+                    // A página de autorização do Mercado Pago é um interstitial de
+                    // anti-fraude que se recusa a renderizar para WebView: ela lê o
+                    // "; wv" do user-agent e devolve tela branca. Mentir o UA e
+                    // aceitar cookie de terceiro é o que a faz carregar.
+                    settings.userAgentString = settings.userAgentString.replace("; wv", "")
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                     // O callback do backend devolve `kavelipay://...`: é o sinal de
                     // que a conta foi conectada, não uma página para carregar.
                     webViewClient = object : WebViewClient() {
