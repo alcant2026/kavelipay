@@ -24,6 +24,9 @@ pub struct AppState {
     /// Cliente do Mercado Pago (Checkout Pro). Mesmo motivo do `ai`: um pool
     /// TLS só, não um por cobrança.
     pub mp: crate::mercadopago::MercadoPago,
+    /// OAuth do Mercado Pago: id/segredo da aplicação e a chave que cifra os
+    /// tokens dos usuários. `None` = ninguém pode conectar a conta.
+    pub mp_oauth: Option<crate::routes::mp_conta::OAuth>,
     /// Base pública do backend, sem barra no fim. É o que vira link de pagamento
     /// para quem não tem o app (`{base}/cobranca/{token}/pagar`).
     pub public_base_url: String,

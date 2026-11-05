@@ -95,6 +95,22 @@ async fn main() -> Result<(), AppError> {
         ai,
         cotacao,
         mp,
+        mp_oauth: match (
+            config.mp_client_id.clone(),
+            config.mp_client_secret.clone(),
+            config.mp_token_key.clone(),
+        ) {
+            (Some(id), Some(segredo), Some(chave)) => {
+                Some(kavelipay_backend::routes::mp_conta::OAuth { id, segredo, chave })
+            }
+            _ => {
+                tracing::warn!(
+                    "MP_CLIENT_ID/MP_CLIENT_SECRET/MP_TOKEN_KEY ausentes: conectar conta do \
+                     Mercado Pago desligado (GET /mercadopago/conectar devolve 503)"
+                );
+                None
+            }
+        },
         public_base_url: config.public_base_url.clone(),
         admin_token: config.admin_token.clone(),
         login_gate: kavelipay_backend::rate_limit::LoginGate::default(),

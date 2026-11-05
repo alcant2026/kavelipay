@@ -70,6 +70,21 @@ impl MercadoPago {
         self.token.as_deref().ok_or(AppError::Unavailable)
     }
 
+    /// Quem recebe: o token do dono da cobrança quando ele conectou a própria
+    /// conta, senão a credencial da aplicação (receita própria, como o
+    /// premium). Nunca o contrário — dinheiro de terceiro não passa por aqui.
+    fn token_de<'a>(&'a self, dono: Option<&'a str>) -> AppResult<&'a str> {
+        match dono {
+            Some(t) => Ok(t),
+            None => self.token(),
+        }
+    }
+
+    /// Base da API — para o OAuth montar `{base}/oauth/token`.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     /// Chave pública do Payment Brick. `None` = sem Mercado Pago configurado.
     pub fn public_key(&self) -> Option<&str> {
         self.public_key.as_deref()
@@ -127,6 +142,7 @@ impl MercadoPago {
         valor: Decimal,
         moeda: &str,
         volta: &str,
+        dono: Option<&str>,
     ) -> AppResult<Preferencia> {
         // Única conversão para f64 do caminho de dinheiro: a API do Mercado
         // Pago só aceita número em `unit_price`. O valor cobrado continua
@@ -154,7 +170,7 @@ impl MercadoPago {
         let resposta = self
             .http
             .post(format!("{}/checkout/preferences", self.base_url))
-            .bearer_auth(self.token()?)
+            .bearer_auth(self.token_de(dono)?)
             .json(&corpo)
             .send()
             .await
@@ -190,11 +206,11 @@ impl MercadoPago {
 
     /// Consulta o pagamento na fonte. É esta resposta que decide se a cobrança
     /// foi paga — nunca o corpo do webhook.
-    pub async fn pagamento(&self, id: &str) -> AppResult<Pagamento> {
+    pub async fn pagamento(&self, id: &str, dono: Option<&str>) -> AppResult<Pagamento> {
         let resposta = self
             .http
             .get(format!("{}/v1/payments/{id}", self.base_url))
-            .bearer_auth(self.token()?)
+            .bearer_auth(self.token_de(dono)?)
             .send()
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("mercadopago: {e}")))?;

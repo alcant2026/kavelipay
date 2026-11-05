@@ -254,6 +254,9 @@ pub async fn cobranca_publica(
 /// página precisa dele para gerar a preferência.
 struct Publica {
     id: Uuid,
+    /// Quem recebe. O token do Mercado Pago dele é o que cria a preferência —
+    /// dinheiro de terceiro não passa pela conta da aplicação.
+    dono: Uuid,
     description: String,
     amount: Decimal,
     currency: String,
@@ -282,8 +285,10 @@ async fn por_token(state: &AppState, token: &str) -> AppResult<Publica> {
         String,
         Option<chrono::NaiveDate>,
         Option<String>,
+        Uuid,
     )>(
-        "SELECT c.id, c.description, c.amount, c.currency, c.status, c.due_date, u.display_name
+        "SELECT c.id, c.description, c.amount, c.currency, c.status, c.due_date,
+                u.display_name, w.user_id
            FROM charges c
            JOIN wallets w ON w.id = c.wallet_id
            JOIN users u ON u.id = w.user_id
@@ -296,6 +301,7 @@ async fn por_token(state: &AppState, token: &str) -> AppResult<Publica> {
 
     Ok(Publica {
         id: row.0,
+        dono: row.7,
         description: row.1,
         amount: row.2,
         currency: row.3,
@@ -383,7 +389,11 @@ pub async fn pagina_pagamento(
 ) -> AppResult<Html<String>> {
     let c = por_token(&state, &token).await?;
 
-    let acao = if c.status == "PENDING" {
+    let conectada = crate::routes::mp_conta::conectada(&state, c.dono).await;
+    let acao = if c.status == "PENDING" && !conectada {
+        "<p class=\"aviso\">Quem cobrou ainda não conectou a conta do Mercado Pago. \
+         Peça o Pix direto ou avise que o link volta a funcionar depois da conexão.</p>"
+    } else if c.status == "PENDING" {
         "<form method=\"post\"><button type=\"submit\">Pagar com Mercado Pago</button></form>
          <p class=\"pe\">Pix ou cartão, na página do Mercado Pago.</p>"
     } else {
@@ -418,7 +428,7 @@ pub async fn pagar_pela_pagina(
 ) -> AppResult<Redirect> {
     let token = normalizar_token(&token)?;
     let c = por_token(&state, &token).await?;
-    if c.status != "PENDING" {
+    if c.status != "PENDING" || !crate::routes::mp_conta::conectada(&state, c.dono).await {
         return Ok(Redirect::to(&format!("/cobranca/{token}/pagar")));
     }
 
@@ -442,6 +452,7 @@ pub async fn pagar_pela_pagina(
             c.amount,
             &c.currency,
             &format!("kavelipay://cobranca/{token}"),
+            crate::routes::mp_conta::token_do_dono(&state, c.dono).await?.as_deref(),
         )
         .await?;
 
@@ -645,6 +656,16 @@ pub async fn link_pagamento(
     let token = share_token
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("cobrança {id} sem share_token")))?;
 
+    // Sem conta conectada não há para onde mandar o dinheiro: pedir a
+    // conexão é melhor que cobrar na conta errada.
+    let dono = crate::routes::mp_conta::token_do_dono(&state, auth.user_id())
+        .await?
+        .ok_or_else(|| {
+            AppError::Validation(
+                "conecte sua conta do Mercado Pago para receber por link".to_string(),
+            )
+        })?;
+
     let preferencia = state
         .mp
         .criar_preferencia(
@@ -653,6 +674,7 @@ pub async fn link_pagamento(
             amount,
             &currency,
             &format!("kavelipay://cobranca/{token}"),
+            Some(&dono),
         )
         .await?;
 
@@ -692,7 +714,18 @@ pub async fn webhook(
         return Ok(StatusCode::OK);
     };
 
-    let pagamento = state.mp.pagamento(pagamento_id).await?;
+    // O pagamento pode estar na conta do vendedor que conectou o Mercado
+    // Pago; consultar com a credencial errada dá 404 e a cobrança nunca
+    // confirmaria. O `user_id` do corpo diz de quem é.
+    let token_dono = match corpo.get("user_id").and_then(|v| v.as_i64()) {
+        Some(mp_user) => match crate::routes::mp_conta::dono_por_mp_user(&state, mp_user).await {
+            Some(dono) => crate::routes::mp_conta::token_do_dono(&state, dono).await?,
+            None => None,
+        },
+        None => None,
+    };
+
+    let pagamento = state.mp.pagamento(pagamento_id, token_dono.as_deref()).await?;
     if pagamento.status != "approved" {
         return Ok(StatusCode::OK);
     }

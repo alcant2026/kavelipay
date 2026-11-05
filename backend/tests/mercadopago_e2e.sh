@@ -39,7 +39,7 @@ MOCK_PID=""
 cleanup() {
     [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
     [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null || true
-    rm -f "$EXT_REF" "$TMP_MOCK"
+    rm -f "$EXT_REF" "$EXT_REF.bearer" "$EXT_REF.pagamento" "$TMP_MOCK"
     "${PSQL[@]}" -d postgres -c "DROP DATABASE IF EXISTS \"$DB\";" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -80,9 +80,15 @@ class H(BaseHTTPRequestHandler):
         global ULTIMO
         tam = int(self.headers.get("content-length") or 0)
         corpo = self.rfile.read(tam)
-        if self.path == "/checkout/preferences":
+        if self.path == "/oauth/token":
+            # Troca de código e renovação: o backend guarda estes tokens cifrados.
+            self._json({"access_token": "tok-vendedor", "refresh_token": "ref-vendedor",
+                        "expires_in": 15552000, "user_id": 777001})
+        elif self.path == "/checkout/preferences":
             if not (self.headers.get("authorization") or "").startswith("Bearer "):
                 self._json({"message": "sem token"}, 401); return
+            # Quem recebe é o vendedor: a preferência tem de sair com o token dele.
+            open(EXT_REF + ".bearer", "w").write(self.headers.get("authorization") or "")
             self._json({"id": "pref-teste-1", "init_point": "https://mp.teste/pref-teste-1"})
         elif self.path == "/v1/payments":
             if not (self.headers.get("authorization") or "").startswith("Bearer "):
@@ -152,7 +158,8 @@ python3 "$TMP_MOCK" "$EXT_REF" "$MP_PORTA" & MOCK_PID=$!
 echo "subindo servidor"
 DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DB}" \
 JWT_SECRET="$SECRET" BIND_ADDR="127.0.0.1:${E2E_PORTA}" RUST_LOG=error \
-PUBLIC_BASE_URL="$BASE" MP_ACCESS_TOKEN="TEST-fake-$$" MP_PUBLIC_KEY="TEST-chave-publica-$$" MP_BASE_URL="$MOCK" MP_NOTIFICATION_URL="$BASE/webhooks/mercadopago" \
+PUBLIC_BASE_URL="$BASE" MP_ACCESS_TOKEN="TEST-fake-$$" MP_PUBLIC_KEY="TEST-chave-publica-$$" \
+MP_CLIENT_ID="client-teste" MP_CLIENT_SECRET="segredo-teste" MP_TOKEN_KEY="chave-de-teste-32-bytes-aleatoria" MP_BASE_URL="$MOCK" MP_NOTIFICATION_URL="$BASE/webhooks/mercadopago" \
 "$BIN" &
 SERVER_PID=$!
 for i in $(seq 1 40); do
@@ -165,6 +172,36 @@ curl -s -o /dev/null -X POST "$BASE/auth/register" -H 'content-type: application
     -d '{"email":"alice@teste.com","password":"senha-forte-123"}'
 AUTH="Authorization: Bearer $(curl -s -X POST "$BASE/auth/login" -H 'content-type: application/json' \
     -d '{"email":"alice@teste.com","password":"senha-forte-123"}' | get access_token)"
+
+echo
+echo "conectar a conta do Mercado Pago (o dinheiro vai para o dono, não para o app)"
+
+boolv() { python3 -c 'import sys,json; print("true" if json.load(sys.stdin).get(sys.argv[1]) else "false")' "$1"; }
+
+CONECTADO=$(curl -s "$BASE/mercadopago/status" -H "$AUTH" | boolv conectado)
+check "conta nova ainda não conectou o Mercado Pago (recebido $CONECTADO)" \
+    "$([ "$CONECTADO" = "false" ] && echo true || echo false)"
+
+SEM_CONTA=$(curl -s -X POST "$BASE/charges" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"description":"Sem conta conectada","amount":"10.00","debtor_name":"Carla"}')
+TOKEN_SEM=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT share_token FROM charges WHERE id='$(get id <<<"$SEM_CONTA")'")
+PAGINA_SEM=$(curl -s "$BASE/cobranca/$TOKEN_SEM/pagar")
+check "sem conta conectada a página avisa em vez de oferecer pagamento" \
+    "$(grep -q 'não conectou a conta do Mercado Pago' <<<"$PAGINA_SEM" && ! grep -q '>Pagar com Mercado Pago<' <<<"$PAGINA_SEM" && echo true || echo false)"
+check "sem conta conectada o POST não manda ninguém pro Mercado Pago" \
+    "$(curl -s -o /dev/null -w '%{redirect_url}' -X POST "$BASE/cobranca/$TOKEN_SEM/pagar" | grep -q 'mercadopago.com.br/checkout' && echo false || echo true)"
+
+AUTORIZACAO=$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/mercadopago/conectar" -H "$AUTH")
+check "conectar manda pro OAuth do MP com o client_id da aplicação" \
+    "$(grep -q 'auth.mercadopago.com/authorization?client_id=client-teste' <<<"$AUTORIZACAO" && echo true || echo false)"
+STATE=$(python3 -c 'import sys, urllib.parse as u; print(u.parse_qs(u.urlparse(sys.argv[1]).query)["state"][0])' "$AUTORIZACAO")
+VOLTA=$(curl -s -o /dev/null -w '%{redirect_url}' "$BASE/mercadopago/callback?code=codigo-teste&state=$STATE")
+check "callback troca o código e devolve o app (recebido $VOLTA)" \
+    "$([ "$VOLTA" = "kavelipay://mercadopago/conectado" ] && echo true || echo false)"
+check "status passa a mostrar a conta conectada" \
+    "$(curl -s "$BASE/mercadopago/status" -H "$AUTH" | boolv conectado)"
+check "o mesmo state não serve duas vezes (recebido $(code "$BASE/mercadopago/callback?code=codigo-teste&state=$STATE"))" \
+    "$([ "$(code "$BASE/mercadopago/callback?code=codigo-teste&state=$STATE")" != "200" ] && echo true || echo false)"
 
 CH=$(curl -s -X POST "$BASE/charges" -H "$AUTH" -H 'content-type: application/json' \
     -d '{"description":"Aluguel do sobrinho","amount":"50.00","debtor_name":"Bruno"}')
@@ -184,6 +221,9 @@ check "link responde com preferência do MP (recebido $(get preference_id <<<"$L
     "$([ "$(get preference_id <<<"$LINK")" = "pref-teste-1" ] && echo true || echo false)"
 check "link devolve init_point do MP" \
     "$(case "$(get init_point <<<"$LINK")" in https://mp.teste/pref-teste-1) echo true;; *) echo false;; esac)"
+BEARER=$(cat "$EXT_REF.bearer" 2>/dev/null)
+check "a preferência sai com o token do VENDEDOR, não da aplicação (recebido $BEARER)" \
+    "$([ "$BEARER" = "Bearer tok-vendedor" ] && echo true || echo false)"
 PREF_DB=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT mp_preference_id FROM charges WHERE id='$ID_CH'")
 check "preferência gravada na cobrança ($PREF_DB)" \
     "$([ "$PREF_DB" = "pref-teste-1" ] && echo true || echo false)"

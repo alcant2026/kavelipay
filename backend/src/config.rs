@@ -58,6 +58,13 @@ pub struct Config {
     /// Chave pública do Mercado Pago: vai para o HTML do Brick (o cartão é
     /// tokenizado no aparelho, o número nunca passa por aqui).
     pub mp_public_key: Option<String>,
+    /// OAuth do Mercado Pago. `None` desliga "conectar minha conta": a rota
+    /// devolve 503 e ninguém recebe dinheiro em nome de outro.
+    pub mp_client_id: Option<String>,
+    pub mp_client_secret: Option<String>,
+    /// Chave simétrica dos tokens do Mercado Pago guardados no banco. Sem ela
+    /// a conexão falha em vez de gravar segredo de terceiro em claro.
+    pub mp_token_key: Option<String>,
     /// Base pública do backend, sem barra no fim. É o que vira link de
     /// pagamento para quem não tem o app (`{base}/cobranca/{token}/pagar`).
     pub public_base_url: String,
@@ -177,6 +184,18 @@ impl Config {
             mp_base_url: env::var("MP_BASE_URL")
                 .unwrap_or_else(|_| crate::mercadopago::BASE_URL_PADRAO.to_string()),
             mp_public_key: env::var("MP_PUBLIC_KEY")
+                .ok()
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty()),
+            mp_client_id: env::var("MP_CLIENT_ID")
+                .ok()
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty()),
+            mp_client_secret: env::var("MP_CLIENT_SECRET")
+                .ok()
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty()),
+            mp_token_key: env::var("MP_TOKEN_KEY")
                 .ok()
                 .map(|k| k.trim().to_string())
                 .filter(|k| !k.is_empty()),

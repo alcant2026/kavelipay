@@ -397,6 +397,9 @@ pub(crate) async fn quitar_parte(
 
 struct PartePublica {
     id: Uuid,
+    /// Quem recebe a cota: o dono da carteira. É o token dele que cria a
+    /// preferência, então o dinheiro cai na conta dele, não na da aplicação.
+    dono: Uuid,
     name: String,
     owed_amount: Decimal,
     settled: bool,
@@ -409,9 +412,18 @@ async fn por_token_parte(state: &AppState, token: &str) -> AppResult<PartePublic
     if token.len() != 32 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(AppError::NotFound("divisão"));
     }
-    let row = sqlx::query_as::<_, (Uuid, Uuid, String, Decimal, bool, String, Option<String>)>(
+    let row = sqlx::query_as::<_, (
+        Uuid,
+        Uuid,
+        String,
+        Decimal,
+        bool,
+        String,
+        Option<String>,
+        Uuid,
+    )>(
         "SELECT p.id, p.split_id, p.participant_name, p.owed_amount, p.settled_at IS NOT NULL,
-                s.description, u.display_name
+                s.description, u.display_name, w.user_id
            FROM expense_split_parts p
            JOIN expense_splits s ON s.id = p.split_id
            JOIN wallets w ON w.id = s.wallet_id
@@ -425,6 +437,7 @@ async fn por_token_parte(state: &AppState, token: &str) -> AppResult<PartePublic
 
     Ok(PartePublica {
         id: row.0,
+        dono: row.7,
         name: row.2,
         owed_amount: row.3,
         settled: row.4,
@@ -440,8 +453,12 @@ pub async fn pagina_parte(
 ) -> AppResult<Html<String>> {
     let p = por_token_parte(&state, &token).await?;
 
+    let conectada = crate::routes::mp_conta::conectada(&state, p.dono).await;
     let acao = if p.settled {
         "<p class=\"aviso ok\">Pagamento confirmado.</p>"
+    } else if !conectada {
+        "<p class=\"aviso\">Quem dividiu ainda não conectou a conta do Mercado Pago. \
+         Combine o Pix direto — o link volta a funcionar depois da conexão.</p>"
     } else {
         "<form method=\"post\"><button type=\"submit\">Pagar com Mercado Pago</button></form>
          <p class=\"pe\">Pix ou cartão, na página do Mercado Pago.</p>"
@@ -464,7 +481,7 @@ pub async fn pagar_pela_parte(
     Path(token): Path<String>,
 ) -> AppResult<Redirect> {
     let p = por_token_parte(&state, &token).await?;
-    if p.settled {
+    if p.settled || !crate::routes::mp_conta::conectada(&state, p.dono).await {
         return Ok(Redirect::to(&format!("/cobranca/parte/{token}/pagar")));
     }
 
@@ -487,6 +504,7 @@ pub async fn pagar_pela_parte(
             p.owed_amount,
             "BRL",
             &format!("{}/cobranca/parte/{token}/pagar", state.public_base_url),
+            crate::routes::mp_conta::token_do_dono(&state, p.dono).await?.as_deref(),
         )
         .await?;
 
