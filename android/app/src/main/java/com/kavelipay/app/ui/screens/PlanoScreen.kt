@@ -33,6 +33,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.Fornecedor
 import com.kavelipay.app.ui.components.KpBotaoPrimario
@@ -50,16 +56,20 @@ import com.kavelipay.app.ui.theme.TituloSecao
 /**
  * Plano do KaveliPay — tela própria.
  *
- * O app **não processa pagamento**: não existe botão "comprar" aqui. A compra
- * acontece fora e chega um código de ativação; a tela só troca esse código
- * pelo período de acesso. Prometer um checkout que o app não tem seria
- * inventar uma função — e o KaveliPay não é banco nem provedor de pagamento.
+ * A compra acontece no Mercado Pago, dentro de um WebView: o app pede a URL
+ * ao backend (`POST /billing/checkout`) e abre a página de pagamento. O app
+ * nunca vê nem guarda número de cartão, e o preço vem do backend — o aparelho
+ * não decide quanto custa o plano.
+ *
+ * O código de ativação continua disponível, escondido, para quem comprou por
+ * fora.
  */
 @Composable
 fun KpPlanoScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
     val estado by vm.estado.collectAsState()
     val sem = KpTheme.semanticas
     var codigo by remember { mutableStateOf("") }
+    var comCodigo by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.carregarPlano() }
 
@@ -170,7 +180,7 @@ fun KpPlanoScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
 
                 item {
                     Text(
-                        text = if (premium) "Renovar acesso" else "Ativar acesso",
+                        text = if (premium) "Renovar acesso" else "Assinar o Premium",
                         style = TituloSecao,
                     )
                 }
@@ -178,36 +188,67 @@ fun KpPlanoScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                 item {
                     KpCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(Spacing.md)) {
-                            OutlinedTextField(
-                                value = codigo,
-                                onValueChange = { codigo = it.uppercase() },
-                                label = { Text("Código de ativação") },
-                                // O formato na tela: o código é lido do e-mail
-                                // e copiado; sem o exemplo, o padrão de quatro
-                                // blocos parece erro de digitação.
-                                supportingText = { Text("Ex.: KPL-ABCD-EFGH-JKLM-NPQR") },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(
-                                    capitalization = KeyboardCapitalization.Characters,
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Spacer(Modifier.height(Spacing.md))
                             KpBotaoPrimario(
-                                texto = "Ativar",
-                                onClick = { vm.ativarPlano(codigo) },
+                                texto = "Assinar mensal · R$ ${brl(plano.precoMensal)}",
+                                onClick = { vm.iniciarCheckout("mensal") },
                                 modifier = Modifier.fillMaxWidth(),
-                                habilitado = codigo.isNotBlank(),
                                 carregando = estado.enviando,
                             )
                             Spacer(Modifier.height(Spacing.sm))
+                            KpBotaoSecundario(
+                                texto = "Assinar anual · R$ ${brl(plano.precoAnual)}",
+                                onClick = { vm.iniciarCheckout("anual") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(Spacing.sm))
                             Text(
-                                text = "O código chega depois da compra. O KaveliPay " +
-                                    "não processa pagamento: o app só troca o código " +
-                                    "pelo período de acesso.",
+                                text = "Pix ou cartão, na tela do Mercado Pago. Os dados do " +
+                                    "cartão não passam pelo KaveliPay. Nada renova sozinho: " +
+                                    "quando o período acabar, a conta volta ao plano grátis.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                    }
+                }
+
+                // Código de ativação continua existindo, mas escondido: é o
+                // caminho de quem comprou por fora, não o normal.
+                item {
+                    KpBotaoSecundario(
+                        texto = if (comCodigo) "Ocultar código" else "Tenho um código de ativação",
+                        onClick = { comCodigo = !comCodigo },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                if (comCodigo) {
+                    item {
+                        KpCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(Spacing.md)) {
+                                OutlinedTextField(
+                                    value = codigo,
+                                    onValueChange = { codigo = it.uppercase() },
+                                    label = { Text("Código de ativação") },
+                                    // O formato na tela: o código é lido do e-mail
+                                    // e copiado; sem o exemplo, o padrão de quatro
+                                    // blocos parece erro de digitação.
+                                    supportingText = { Text("Ex.: KPL-ABCD-EFGH-JKLM-NPQR") },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(
+                                        capitalization = KeyboardCapitalization.Characters,
+                                    ),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Spacer(Modifier.height(Spacing.md))
+                                KpBotaoPrimario(
+                                    texto = "Ativar",
+                                    onClick = { vm.ativarPlano(codigo) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    habilitado = codigo.isNotBlank(),
+                                    carregando = estado.enviando,
+                                )
+                            }
                         }
                     }
                 }
@@ -252,6 +293,41 @@ fun KpPlanoScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+
+    // Checkout aberto: o pagamento acontece na página do Mercado Pago, mas
+    // dentro do app — ninguém precisa sair para o navegador.
+    estado.checkoutUrl?.let { url ->
+        Dialog(
+            onDismissRequest = { vm.fecharCheckout() },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        webViewClient = object : WebViewClient() {
+                            // O botão "Voltar ao app" da página de confirmação
+                            // é um link `kavelipay://`; sem tratar, o WebView
+                            // mostra erro de página não encontrada.
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView,
+                                request: WebResourceRequest,
+                            ): Boolean {
+                                if (request.url.scheme == "kavelipay") {
+                                    vm.fecharCheckout()
+                                    return true
+                                }
+                                return false
+                            }
+                        }
+                        loadUrl(url)
+                    }
+                },
+            )
         }
     }
 }

@@ -116,6 +116,12 @@ data class EstadoApp(
     val avisoPlano: String? = null,
     val avisoPlanoFalhou: Boolean = false,
 
+    /**
+     * URL do checkout do Mercado Pago aberto num WebView. Fica no estado para
+     * sobreviver à recomposição da tela; `null` = nenhum checkout aberto.
+     */
+    val checkoutUrl: String? = null,
+
     // Notificações (tela dedicada; o contador `naoLidas` existe desde o início)
     val notificacoes: List<Notificacao>? = null,
 
@@ -1088,6 +1094,37 @@ fun carregarChargeQr(chargeId: String) {
                     }
                 }
         }
+    }
+
+    /**
+     * Abre o checkout do Mercado Pago para o plano escolhido.
+     *
+     * A página é servida pelo backend (`/assinar/<token>`), que é quem manda
+     * o preço para o Mercado Pago — o app nunca decide quanto custa o plano.
+     */
+    fun iniciarCheckout(plano: String) {
+        viewModelScope.launch {
+            _estado.update { it.copy(enviando = true, avisoPlano = null, avisoPlanoFalhou = false) }
+            runCatching { api.checkoutPlano(plano) }
+                .onSuccess { url ->
+                    _estado.update { it.copy(enviando = false, checkoutUrl = url) }
+                }
+                .onFailure { e ->
+                    _estado.update {
+                        it.copy(
+                            enviando = false,
+                            avisoPlano = mensagemDe(e),
+                            avisoPlanoFalhou = true,
+                        )
+                    }
+                }
+        }
+    }
+
+    /** Fecha o checkout e relê o plano: o pagamento pode ter confirmado. */
+    fun fecharCheckout() {
+        _estado.update { it.copy(checkoutUrl = null) }
+        carregarPlano()
     }
 
     // ── LGPD ──────────────────────────────────────────────────────────────────

@@ -564,6 +564,17 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
         return plano
     }
 
+    /**
+     * `POST /billing/checkout` — devolve a URL da página de pagamento.
+     *
+     * Quem decide o preço é o backend (o app só diz qual plano). O pagamento
+     * em si acontece na página do Mercado Pago, aberta num WebView.
+     */
+    suspend fun checkoutPlano(plano: String): String {
+        val resposta = ApiClient.post("/billing/checkout", JSONObject().put("plano", plano), token)
+        return resposta.getString("url")
+    }
+
     // ── Investimentos ─────────────────────────────────────────────────────────
 
     suspend fun investimentos(): CarteiraInvestimentos =
