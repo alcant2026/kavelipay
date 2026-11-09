@@ -8,6 +8,12 @@
 //! `ledger::postar*` — o saldo da carteira não muda em nenhuma operação, e o
 //! e2e prova conferindo `GET /wallet` do dono e do membro do começo ao fim.
 //!
+//! **Sem vitrine pública.** Entrada só por convite entre conhecidos: captar
+//! de credores desconhecidos com rendimento fixo é oferta pública de Contrato
+//! de Investimento Coletivo (valor mobiliário, Lei 6.385/76) e exigiria CVM.
+//! A coluna `publica` fica sempre `false` (constraint no banco); o endpoint
+//! da vitrine não existe.
+//!
 //! Fronteira de confiança:
 //!  - Identidade SEMPRE do token (`AuthUser`); `user_id` nunca do body.
 //!  - Quem não é dono nem membro: a caixinha não existe para ele → 404
@@ -60,7 +66,6 @@ pub struct NovaCaixinha {
     pub taxa_mensal: Taxa,
     pub previsao_quitacao: Option<String>,
     pub telefone: Option<String>,
-    pub publica: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -140,7 +145,6 @@ pub struct CaixinhaDetalhe {
     /// "dono" | "membro"
     pub papel: String,
     pub dono: DonoInfo,
-    pub publica: bool,
     pub valor_pedido: Money,
     pub taxa_mensal: Taxa,
     pub previsao_quitacao: Option<String>,
@@ -166,7 +170,6 @@ pub struct MinhaCaixinha {
     pub id: Uuid,
     pub nome: String,
     pub papel: String,
-    pub publica: bool,
     pub valor_pedido: Money,
     pub taxa_mensal: Taxa,
     pub arrecadado: Money,
@@ -174,21 +177,6 @@ pub struct MinhaCaixinha {
     pub media_avaliacoes: Option<String>,
     pub total_avaliacoes: i64,
     pub criado_em: DateTime<Utc>,
-}
-
-#[derive(Serialize)]
-pub struct CaixinhaPublica {
-    pub id: Uuid,
-    pub nome: String,
-    pub dono_nome: String,
-    pub taxa_mensal: Taxa,
-    pub valor_pedido: Money,
-    pub arrecadado: Money,
-    pub falta: Money,
-    pub media_avaliacoes: Option<String>,
-    pub total_avaliacoes: i64,
-    pub telefone_dono: Option<String>,
-    pub entrou: bool,
 }
 
 // ── POST /caixinhas — criar ──────────────────────────────────────────────────
@@ -230,8 +218,8 @@ pub async fn criar(
     let mut tx = state.db.begin().await?;
     let id = sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO caixinhas
-             (dono_user_id, nome, valor_pedido, taxa_mensal, previsao_quitacao, telefone_dono, publica)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+             (dono_user_id, nome, valor_pedido, taxa_mensal, previsao_quitacao, telefone_dono)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id",
     )
     .bind(auth.user_id())
@@ -240,7 +228,6 @@ pub async fn criar(
     .bind(taxa)
     .bind(previsao)
     .bind(telefone)
-    .bind(req.publica.unwrap_or(false))
     .fetch_one(&mut *tx)
     .await?;
 
@@ -260,7 +247,7 @@ pub async fn minhas(
     let user = auth.user_id();
 
     let rows = sqlx::query_as::<_, MinhaRow>(
-        "SELECT c.id, c.nome, c.dono_user_id, c.publica, c.valor_pedido, c.taxa_mensal, c.criado_em,
+        "SELECT c.id, c.nome, c.dono_user_id, c.valor_pedido, c.taxa_mensal, c.criado_em,
                 COALESCE(m.aportes, 0), COALESCE(a.total, 0), a.media
            FROM caixinhas c
            LEFT JOIN (SELECT caixinha_id, SUM(valor) AS aportes
@@ -285,72 +272,13 @@ pub async fn minhas(
             id: r.0,
             nome: r.1,
             papel: if r.2 == user { "dono" } else { "membro" }.to_string(),
-            publica: r.3,
-            valor_pedido: Money::new(r.4),
-            taxa_mensal: Taxa::new(r.5),
-            arrecadado: Money::new(modelo::duas_casas(r.7)),
-            progresso: modelo::progresso(modelo::duas_casas(r.7), r.4),
-            media_avaliacoes: modelo::media_texto(r.9),
-            total_avaliacoes: r.8,
-            criado_em: r.6,
-        })
-        .collect();
-
-    Ok(Json(itens))
-}
-
-// ── GET /caixinhas/publicas — vitrine ────────────────────────────────────────
-
-/// Vitrine do dono que MARCOU `publica: true`. Sem a marca, entra somente
-/// quem recebeu o código. A vitrine não esconde as que eu já entrei — a tela
-/// mostra "Você entrou" (`entrou`).
-pub async fn publicas(
-    State(state): State<AppState>,
-    auth: crate::auth::AuthUser,
-) -> AppResult<Json<Vec<CaixinhaPublica>>> {
-    let user = auth.user_id();
-
-    let rows = sqlx::query_as::<_, PublicaRow>(
-        "SELECT c.id, c.nome,
-                COALESCE(u.display_name, split_part(u.email, '@', 1)),
-                c.taxa_mensal, c.valor_pedido, c.telefone_dono,
-                COALESCE(m.aportes, 0), COALESCE(a.total, 0), a.media,
-                (c.dono_user_id = $1 OR EXISTS (SELECT 1 FROM caixinha_membros cm
-                                                WHERE cm.caixinha_id = c.id
-                                                  AND cm.user_id = $1))
-           FROM caixinhas c
-           JOIN users u ON u.id = c.dono_user_id
-           LEFT JOIN (SELECT caixinha_id, SUM(valor) AS aportes
-                        FROM caixinha_movimentos
-                       WHERE tipo = 'APORTE' AND status = 'CONFIRMADO'
-                       GROUP BY caixinha_id) m ON m.caixinha_id = c.id
-           LEFT JOIN (SELECT caixinha_id, COUNT(*) AS total, AVG(estrelas) AS media
-                        FROM caixinha_avaliacoes
-                       GROUP BY caixinha_id) a ON a.caixinha_id = c.id
-          WHERE c.publica = TRUE
-          ORDER BY c.criado_em DESC",
-    )
-    .bind(user)
-    .fetch_all(&state.db)
-    .await?;
-
-    let itens = rows
-        .into_iter()
-        .map(|r| {
-            let arrecadado = modelo::duas_casas(r.6);
-            CaixinhaPublica {
-                id: r.0,
-                nome: r.1,
-                dono_nome: r.2,
-                taxa_mensal: Taxa::new(r.3),
-                valor_pedido: Money::new(r.4),
-                arrecadado: Money::new(arrecadado),
-                falta: Money::new(modelo::falta_vitrine(r.4, arrecadado)),
-                media_avaliacoes: modelo::media_texto(r.8),
-                total_avaliacoes: r.7,
-                telefone_dono: r.5,
-                entrou: r.9,
-            }
+            valor_pedido: Money::new(r.3),
+            taxa_mensal: Taxa::new(r.4),
+            arrecadado: Money::new(modelo::duas_casas(r.6)),
+            progresso: modelo::progresso(modelo::duas_casas(r.6), r.3),
+            media_avaliacoes: modelo::media_texto(r.8),
+            total_avaliacoes: r.7,
+            criado_em: r.5,
         })
         .collect();
 
@@ -861,46 +789,10 @@ pub async fn meu_telefone(
     Ok(Json(carregar_detalhe(&state, id, auth.user_id(), mes).await?))
 }
 
-// ── PATCH /caixinhas/{id}/publica ───────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct PublicaRequest {
-    pub publica: bool,
-}
-
-/// `PATCH /caixinhas/{id}/publica` — dono decide se a caixinha aparece na vitrine.
-///
-/// A criação já pergunta, mas consentimento se revoga: quem publicou precisa
-/// sair da vitrine sozinho, sem abrir pedido de suporte. Só o dono muda — membro
-/// que tenta recebe 403 e a vitrine não muda para ele.
-pub async fn definir_publica(
-    State(state): State<AppState>,
-    auth: crate::auth::AuthUser,
-    Path(id): Path<Uuid>,
-    Query(q): Query<MesQuery>,
-    Json(req): Json<PublicaRequest>,
-) -> AppResult<Json<CaixinhaDetalhe>> {
-    let mes = mes_da_query(&q)?;
-
-    let mut tx = state.db.begin().await?;
-    let (_, eh_dono) = acesso(&mut tx, id, auth.user_id()).await?;
-    if !eh_dono {
-        return Err(AppError::Forbidden);
-    }
-    sqlx::query("UPDATE caixinhas SET publica = $2 WHERE id = $1")
-        .bind(id)
-        .bind(req.publica)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
-
-    Ok(Json(carregar_detalhe(&state, id, auth.user_id(), mes).await?))
-}
-
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /// Linha de `caixinhas`: id, dono, nome, valor_pedido, taxa_mensal,
-/// previsao_quitacao, telefone_dono, publica, criado_em.
+/// previsao_quitacao, telefone_dono, criado_em.
 type CaixinhaRow = (
     Uuid,
     Uuid,
@@ -909,7 +801,6 @@ type CaixinhaRow = (
     Decimal,
     Option<String>,
     Option<String>,
-    bool,
     DateTime<Utc>,
 );
 
@@ -931,34 +822,18 @@ type MovRow = (
 /// Movimento travado (sem nome — os verbos de resolver não precisam).
 type MovLockRow = (Uuid, String, Uuid, Decimal, Option<NaiveDate>, String, Uuid);
 
-/// Linha de `GET /caixinhas`: id, nome, dono, publica, valor_pedido,
-/// taxa_mensal, criado_em, arrecadado, total_avaliacoes, media.
+/// Linha de `GET /caixinhas`: id, nome, dono, valor_pedido, taxa_mensal,
+/// criado_em, arrecadado, total_avaliacoes, media.
 type MinhaRow = (
     Uuid,
     String,
     Uuid,
-    bool,
     Decimal,
     Decimal,
     DateTime<Utc>,
     Decimal,
     i64,
     Option<Decimal>,
-);
-
-/// Linha da vitrine: id, nome, dono_nome, taxa, valor_pedido, telefone_dono,
-/// arrecadado, total_avaliacoes, media, entrou.
-type PublicaRow = (
-    Uuid,
-    String,
-    String,
-    Decimal,
-    Decimal,
-    Option<String>,
-    Decimal,
-    i64,
-    Option<Decimal>,
-    bool,
 );
 
 /// Membro da caixinha: user_id, nome, telefone, entrou_em.
@@ -1000,7 +875,7 @@ async fn acesso(
 ) -> AppResult<(CaixinhaRow, bool)> {
     let caixinha = sqlx::query_as::<_, CaixinhaRow>(
         "SELECT id, dono_user_id, nome, valor_pedido, taxa_mensal, previsao_quitacao,
-                telefone_dono, publica, criado_em
+                telefone_dono, criado_em
            FROM caixinhas WHERE id = $1
           FOR UPDATE",
     )
@@ -1120,7 +995,7 @@ async fn carregar_detalhe(
 ) -> AppResult<CaixinhaDetalhe> {
     let caixinha = sqlx::query_as::<_, CaixinhaRow>(
         "SELECT id, dono_user_id, nome, valor_pedido, taxa_mensal, previsao_quitacao,
-                telefone_dono, publica, criado_em
+                telefone_dono, criado_em
            FROM caixinhas WHERE id = $1",
     )
     .bind(id)
@@ -1281,7 +1156,6 @@ async fn carregar_detalhe(
             nome: dono_nome,
             telefone: caixinha.6.clone(),
         },
-        publica: caixinha.7,
         valor_pedido: Money::new(caixinha.3),
         taxa_mensal: Taxa::new(taxa),
         previsao_quitacao: caixinha.5.clone(),

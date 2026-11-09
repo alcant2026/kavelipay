@@ -81,10 +81,8 @@ import kotlinx.coroutines.launch
  * 1. TopBar (saudação + tema + notificações + ocultar saldo)
  * 2. Saldo herói (GET /wallet) com selo Demonstrativo + toggle ocultar
  * 3. Fila de ações (LazyRow horizontal): Entrada, Despesa, Cobrar, Dividir —
- *    as quatro coisas que a pessoa faz toda semana. Boleto, Caixinha,
- *    Investir e Parceiro moraram aqui até virar oito atalhos numa tela só;
- *    oito botões para quem só quer anotar "paguei 50 no mercado" é um painel
- *    de avião. Eles não sumiram: foram para o cartão "Mais".
+ *    as quatro coisas que a pessoa faz toda semana. Oito atalhos numa tela só
+ *    era um painel de avião para quem só quer anotar "paguei 50 no mercado".
  * 4. Bloco "Contas a pagar" com badges de vencido
  * 5. Cartão "Mais" (o que não cabe em atalho nem em aba)
  * 6. Últimos lançamentos (extrato resumido)

@@ -168,27 +168,6 @@ data class CobrancaPublica(
     val cobrador: String?,
 )
 
-// ── Dívidas (Eu devo) ─────────────────────────────────────────────────────────
-/**
- * Uma dívida do usuário ("eu devo"), lado inverso de `ItemSplit`.
- *
- * `amount` é STRING — dinheiro na API é sempre string (`"50.50"`), nunca
- * número JSON; o formata/mostra aqui não converte para `Double`.
- * `paidAt`/`confirmedAt` só existem a partir do pago/confirmado; em
- * `PENDING` o backend manda `null`.
- */
-data class ItemDivida(
-    val id: String,
-    val creditorName: String,
-    val description: String,
-    val amount: String,
-    val status: String,
-    val paidAt: String?,
-    val confirmedAt: String?,
-)
-
-data class ListaDividas(val itens: List<ItemDivida>)
-
 // ── Histórico ─────────────────────────────────────────────────────────────────
 data class ItemHistorico(
     val kind: String,
@@ -257,113 +236,6 @@ data class Plano(
 data class ContaMp(
     val conectado: Boolean,
     val mpUserId: Long?,
-)
-
-// ── Investimentos ─────────────────────────────────────────────────────────────
-
-/**
- * Posição de um ativo.
- *
- * [quantity], [averagePrice] e [costBasis] vêm como `String` de propósito: são
- * `Decimal` no Rust com a escala do banco (`NUMERIC(19,4)` na quantidade,
- * `NUMERIC(19,4)` no custo), então o servidor devolve "10.00000000" e
- * "351.5000". Converter para `Double` no cliente reintroduziria a perda de
- * precisão que a regra do projeto proíbe — e o preço médio já vem
- * arredondado em 4 casas, que é o que a corretora mostra.
- */
-data class Ativo(
-    val id: String,
-    val symbol: String,
-    val nome: String,
-    val kind: String,
-    val notas: String?,
-    val resumo: String?,
-    val proximoDividendo: String?,
-    /**
-     * Preço unitário atual, digitado pelo usuário.
-     *
-     * `null` = desconhecido, e a tela diz isso em vez de mostrar R$ 0,00.
-     * Não é cotação automática: no Brasil, exibir preço de ativo para ajudar
-     * a decidir é assessor de investimento (CVM).
-     */
-    val precoAtual: String?,
-    /** Preço atual × quantidade. `null` quando o preço é desconhecido. */
-    val valorAtual: String?,
-    /** Valor atual − custo. `null` quando o preço é desconhecido. */
-    val ganhoNaoRealizado: String?,
-    /** Retorno em fração (0,0810 = 8,10%). `null` quando custo é zero. */
-    val retornoNaoRealizado: String?,
-    val quantidade: String,
-    val precoMedio: String,
-    val custoTotal: String,
-    val ganhoRealizado: String,
-    val custosTotais: String,
-    val dividendosTotais: String,
-    val movimentosCount: Long,
-)
-
-/**
- * Resposta de `POST /investments/lookup`: a IA identificou (ou não) o código.
- *
- * `achou = false` é resposta, não erro — ativo inexistente faz o app não
- * preencher nada. `nome`/`resumo` só vêm preenchidos quando `achou` é true, e
- * `resumo` pode ser null mesmo assim: o backend descarta resumo com valor
- * monetário (a IA pode inventar "vale R$ 35,00"; o trigger da migration 0007
- * recusaria o INSERT na hora de salvar).
- *
- * `proximoDividendo` NÃO vem da IA — vem do mercado (brapi pra ação,
- * statusinvest pra FII e como reserva de ação). A IA barata inventa data de
- * dividendo com convicção; o calendário é fato verificável, e a data devolvida
- * é a de PAGAMENTO (não a data-ex). Sem data futura declarada, vem null.
- */
-data class PesquisaAtivo(
-    val achou: Boolean,
-    val nome: String?,
-    val resumo: String?,
-    /** Próxima data de pagamento, se o ativo paga. Vai como o cliente
-     *  digitou (dd/mm/aaaa ou AAAA-MM-DD) — o backend aceita os dois. */
-    val proximoDividendo: String? = null,
-)
-
-/**
- * Sugestão de preço de `POST /investments/quote` (brapi/Yahoo).
- *
- * `preco` é STRING (`"56.00"`) — dinheiro na API nunca é número JSON, e aqui
- * também não vira `Double`: a tela só preenche se virar `BigDecimal` limpo.
- * `preco: null` = sem sugestão (renda fixa, ticker não listado, provedor
- * fora) — a tela continua dizendo "não informado".
- */
-data class SugestaoPreco(val preco: String?, val fonte: String?)
-
-data class MovimentoInvestimento(
-    val id: String,
-    val investimentoId: String,
-    val tipo: String,
-    val quantidade: String,
-    val precoUnitario: String?,
-    val valor: String,
-    val custos: String,
-    val data: String,
-    val nota: String?,
-)
-
-data class CarteiraInvestimentos(
-    val itens: List<Ativo>,
-    val custoTotal: String,
-    val ganhoRealizado: String,
-    val dividendosTotais: String,
-    val custosTotais: String,
-    val posicoesCount: Long,
-)
-
-data class ResumoInvestimentos(
-    val custoTotal: String,
-    val ganhoRealizado: String,
-    val dividendosTotais: String,
-    val custosTotais: String,
-    val posicoesCount: Long,
-    /** Por que o app não mostra ganho não realizado — dito na tela, não escondido. */
-    val notaGanhoNaoRealizado: String,
 )
 
 // ── Conversão ───────────────────────────────────────────────────────────────
@@ -501,26 +373,6 @@ fun JSONObject.paraCobrancaPublica() = CobrancaPublica(
     cobrador = if (isNull("cobrador")) null else optString("cobrador").takeIf { it.isNotBlank() },
 )
 
-// ── Dívidas (Eu devo) ─────────────────────────────────────────────────────────
-// `GET /debts` devolve array solto (`Json<Vec<DebtResponse>>`), como
-// `/splits` — `dividas()` embrulha com `getItens` e lê `items` aqui.
-fun JSONObject.paraListaDividas() = ListaDividas(
-    itens = optJSONArray("items").paraObjetos { it.paraItemDivida() }
-)
-
-// Mesmo formato de `paraItemSplit`: chaves do backend em snake_case
-// (`creditor_name`, `paid_at`, `confirmed_at`), opt* em tudo para parse que
-// estoura não derrubar a tela inteira.
-fun JSONObject.paraItemDivida() = ItemDivida(
-    id = optString("id"),
-    creditorName = optString("creditor_name"),
-    description = optString("description"),
-    amount = optString("amount", "0.00"),
-    status = optString("status"),
-    paidAt = anulavel("paid_at"),
-    confirmedAt = anulavel("confirmed_at"),
-)
-
 // ── Histórico ──────────────────────────────────────────────────────────────────
 fun JSONObject.paraHistorico() = Historico(
     itens = optJSONArray("items").paraObjetos { it.paraItemHistorico() },
@@ -582,87 +434,6 @@ fun JSONObject.paraPlano(): Plano {
     )
 }
 
-// ── Investimentos: conversão ──────────────────────────────────────────────────
-
-// `Decimal` no Rust serializa como STRING (ver `money::Money::serialize`).
-// Os campos numéricos da posição são `Decimal` direto, não `Money`, então
-// chegam com a escala do banco: "10.00000000", "351.5000". `optString`
-// converte os dois casos (string e número), então o cliente não quebra se o
-// servidor mudar a escala.
-fun JSONObject.paraAtivo() = Ativo(
-    id = getString("id"),
-    symbol = getString("symbol"),
-    nome = getString("name"),
-    kind = optString("kind", "STOCK"),
-    notas = anulavel("notes"),
-    resumo = anulavel("summary"),
-    proximoDividendo = anulavel("next_dividend_at"),
-    // `Decimal` do Rust serializa como string com a escala do banco:
-    // "38.0000". `anulavel` devolve null quando o preço não foi preenchido —
-    // é essa distinção que impede a tela de mostrar R$ 0,00 para "não sei".
-    precoAtual = anulavel("current_price"),
-    valorAtual = anulavel("market_value"),
-    ganhoNaoRealizado = anulavel("unrealized_pnl"),
-    retornoNaoRealizado = anulavel("unrealized_return"),
-    quantidade = optString("quantity", "0"),
-    precoMedio = optString("average_price", "0"),
-    custoTotal = optString("cost_basis", "0"),
-    ganhoRealizado = optString("realized_pnl", "0"),
-    custosTotais = optString("fees_total", "0"),
-    dividendosTotais = optString("dividends_total", "0"),
-    movimentosCount = optLong("movements_count", 0),
-)
-
-fun JSONObject.paraPesquisaAtivo() = PesquisaAtivo(
-    // `found` ausente é false: resposta malformada vira "não achei", que o
-    // app ignora — nunca vira prefill errado.
-    achou = optBoolean("found", false),
-    nome = anulavel("name"),
-    resumo = anulavel("summary"),
-    // Data do mercado (brapi), não da IA. Ausente/null = não toque no campo.
-    proximoDividendo = anulavel("next_dividend"),
-)
-
-/**
- * Sugestão de preço de `POST /investments/quote`. `preco` vem como string com
- * 2 casas ("56.00"); `null`/ausente = sem sugestão. A tela só preenche se a
- * string virar `BigDecimal` limpo — `R$ 56,00abc` não preenche nada.
- */
-fun JSONObject.paraSugestaoPreco() = SugestaoPreco(
-    preco = anulavel("price"),
-    fonte = anulavel("source"),
-)
-
-fun JSONObject.paraMovimentoInvestimento() = MovimentoInvestimento(
-    id = getString("id"),
-    investimentoId = getString("investment_id"),
-    tipo = getString("kind"),
-    quantidade = optString("quantity", "0"),
-    precoUnitario = anulavel("price_per_unit"),
-    valor = optString("amount", "0.00"),
-    custos = optString("fees", "0.00"),
-    data = optString("traded_at"),
-    nota = anulavel("note"),
-)
-
-fun JSONObject.paraCarteiraInvestimentos() = CarteiraInvestimentos(
-    itens = optJSONArray("items").paraObjetos { it.paraAtivo() },
-    custoTotal = optString("total_cost_basis", "0"),
-    ganhoRealizado = optString("total_realized_pnl", "0"),
-    dividendosTotais = optString("total_dividends", "0"),
-    custosTotais = optString("total_fees", "0"),
-    posicoesCount = optLong("positions_count", 0),
-)
-
-fun JSONObject.paraResumoInvestimentos() = ResumoInvestimentos(
-    custoTotal = optString("total_cost_basis", "0.00"),
-    ganhoRealizado = optString("total_realized_pnl", "0.00"),
-    dividendosTotais = optString("total_dividends", "0.00"),
-    custosTotais = optString("total_fees", "0.00"),
-    posicoesCount = optLong("positions_count", 0),
-    notaGanhoNaoRealizado = optString("unrealized_note"),
-)
-
 /**
  * `optString` numa chave ausente devolve **""**, não null — `isNull` só é true
  * para JSON null explícito. Sem esta distinção, `display_name: null` viraria
@@ -682,59 +453,6 @@ internal fun <T> JSONArray?.paraObjetos(transform: (JSONObject) -> T): List<T> {
         optJSONObject(i)?.let(transform)
     }
 }
-/**
- * Oferta da vitrine de parceiros (`GET /parceiros`).
- *
- * NÃO TEM PREÇO, e a ausência é deliberada — ver o cabeçalho de
- * `migrations/0011_parceiros.sql`. O Mercado Livre bloqueia leitura
- * automática (403 na API, bot-block na página), então preço só existiria
- * digitado à mão; preço digitado à mão envelhece calado, e num app de
- * dinheiro número velho é pior que número ausente. A tela diz "ver preço na
- * loja" e o valor verdadeiro fica no destino.
- *
- * `destinoUrl` já vem com os parâmetros de rastreio gerados pela loja — o app
- * NÃO mexe neles (reescrever seria adulterar a atribuição de comissão).
- */
-data class OfertaParceiro(
-    val id: String,
-    val loja: String,
-    val titulo: String,
-    val imagemUrl: String,
-    val destinoUrl: String,
-)
-
-internal fun JSONObject.paraOfertaParceiro() = OfertaParceiro(
-    id = getString("id"),
-    loja = optString("loja"),
-    titulo = optString("titulo"),
-    // `optString` num campo JSON `null` devolve o TEXTO "null" em algumas
-    // versões do org.json — e "null" não começa com https, então viraria
-    // placeholder. A checagem explícita evita o card com imagem "carregando"
-    // para sempre por causa de uma string inventada.
-    imagemUrl = if (isNull("imagem_url")) "" else optString("imagem_url"),
-    destinoUrl = optString("destino_url"),
-)
-
-/**
- * Uma página da vitrine.
- *
- * `total` é o que permite dizer "fim" com honestidade: sem ele, o app só
- * saberia que a última página veio menor que 10 — e uma página cheia de 10
- * seguida de nada pareceria erro de rede.
- */
-data class PaginaParceiros(
-    val itens: List<OfertaParceiro>,
-    val total: Int,
-    val limit: Int,
-    val offset: Int,
-)
-
-internal fun JSONObject.paraPaginaParceiros() = PaginaParceiros(
-    itens = optJSONArray("itens").paraObjetos { it.paraOfertaParceiro() },
-    total = optInt("total"),
-    limit = optInt("limit", 10),
-    offset = optInt("offset"),
-)
 
 fun JSONObject.paraContaMp(): ContaMp = ContaMp(
     conectado = optBoolean("conectado", false),

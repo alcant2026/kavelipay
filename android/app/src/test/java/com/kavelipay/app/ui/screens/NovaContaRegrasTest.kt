@@ -11,7 +11,7 @@ import org.junit.Test
  * YYYY-MM-DD" fora do formato), mas o campo do app pede `dd/mm/aaaa` — o
  * formato em que o cliente digita. Quem faz a ponte é [dataParaIso], e uma
  * conversão errada aqui vira 422 no meio do cadastro da conta. Regra pura,
- * sem rede: testa como as outras (`DividaRegrasTest`).
+ * sem rede: testa como as outras regras puras.
  */
 class NovaContaRegrasTest {
 

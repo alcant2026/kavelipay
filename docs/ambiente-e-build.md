@@ -8,7 +8,7 @@
 cd android
 ./gradlew :app:assembleRelease      # APK assinado em app/build/outputs/apk/release/
 ./gradlew :app:assembleDebug
-./gradlew :app:testDebugUnitTest    # JUnit das regras puras (103 testes, sem emulador)
+./gradlew :app:testDebugUnitTest    # JUnit das regras puras (56 testes, sem emulador)
 ```
 
 Saída: `android/app/build/outputs/apk/release/KaveliPay-release.apk`
@@ -223,7 +223,8 @@ em `127.0.0.1` e lê o código do e-mail entregue — o fluxo inteiro de "esquec
 senha" roda sem internet e sem provedor. `caixinhas_e2e.sh` (porta dinâmica — antes fixa em 3324) é a jornada da Caixinha
 (criação → convite de uso único com rotação → fronteira 404 → aporte /
 rendimento / devolução sob "quem paga propõe, quem recebe confirma" →
-avaliação → telefone → vitrine → derivações do mês) e prova a decisão
+avaliação → telefone → derivações do mês; vitrine não existe — entrada só
+por convite) e prova a decisão
 central: `GET /wallet` dos quatro envolvidos fica `0.00` do começo ao fim —
 a caixinha é FORA do ledger. `simulacao.sh` é a **jornada completa** de um usuário (cadastro →
 entradas → contas → pagar → despesas → divisão → cobrança + QR → lembretes →

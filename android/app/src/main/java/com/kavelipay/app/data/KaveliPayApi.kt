@@ -4,7 +4,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.time.YearMonth
 
 /**
  * Falas da tela para a API. Um método por operação, sem abstração genérica:
@@ -171,20 +170,6 @@ class KaveliPayApi(private val sessao: SessionStore) {
 
     // ── Categorias e relatórios ──────────────────────────────────────────────
 
-    /**
-     * `GET /parceiros?limit=&offset=` — vitrine de indicações de loja.
-     *
-     * Lista vazia quando não há oferta ativa: o app NÃO inventa card. Inventar
-     * seria mostrar produto que não existe, com link que não leva a lugar
-     * nenhum — e a vitrine é propaganda, então ela precisa ser verdadeira.
-     *
-     * A ordem vem do servidor (`criado_em DESC`): o que o admin cadastrou por
-     * último aparece primeiro. Ordenar no app por `id` ou por título seria
-     * outra ordem, e a vitrine passaria a discordar do que foi cadastrado.
-     */
-    suspend fun parceiros(limit: Int = 10, offset: Int = 0): PaginaParceiros =
-        ApiClient.get("/parceiros?limit=$limit&offset=$offset", token).paraPaginaParceiros()
-
     suspend fun categorias(kind: String? = null): List<Categoria> {
             val caminho = if (kind == null) "/categories" else "/categories?kind=$kind"
             val arr = ApiClient.getArray(caminho, token)
@@ -332,164 +317,6 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
     suspend fun cancelarCharge(chargeId: String) =
         runCatching { ApiClient.delete("/charges/$chargeId", null, token) }
 
-    // ── Dívidas (Eu devo) ─────────────────────────────────────────────────────
-    // `GET /debts` devolve array solto, como `/splits`. `user_id` não vai em
-    // corpo nenhum: o backend lê do token.
-    suspend fun dividas(): ListaDividas =
-        ApiClient.getItens("/debts", token).paraListaDividas()
-
-    /** `amount` vai como STRING (igual `novaSplit`); float é 422 no backend. */
-    suspend fun novaDivida(credor: String, valor: String, descricao: String): ItemDivida {
-        val corpo = JSONObject()
-            .put("creditor_name", credor)
-            .put("amount", valor)
-            .put("description", descricao)
-        return ApiClient.post("/debts", corpo, token).paraItemDivida()
-    }
-
-    /**
-     * `PATCH /debts/{id}` — edição parcial no backend, mas a tela manda os
-     * três campos juntos (os que mudaram); campos ausentes ficam como estão.
-     * Só `PENDING`: pago é histórico e o backend responde 409.
-     */
-    suspend fun editarDivida(id: String, credor: String, valor: String, descricao: String): ItemDivida {
-        val corpo = JSONObject()
-            .put("creditor_name", credor)
-            .put("amount", valor)
-            .put("description", descricao)
-        return ApiClient.patch("/debts/$id", corpo, token).paraItemDivida()
-    }
-
-    /** Declara o pagamento — debita o ledger no servidor. Corpo nulo, como `quitarParte`. */
-    suspend fun pagarDivida(id: String): ItemDivida =
-        ApiClient.post("/debts/$id/pay", null, token).paraItemDivida()
-
-    /** O credor confirmou o recebimento: muda só status, sem ledger. */
-    suspend fun confirmarDivida(id: String): ItemDivida =
-        ApiClient.post("/debts/$id/confirm", null, token).paraItemDivida()
-
-    /** Apaga só `PENDING` (sem estorno: pendente nunca tocou o ledger). Devolve a linha apagada. */
-    suspend fun apagarDivida(id: String): ItemDivida =
-        ApiClient.delete("/debts/$id", null, token).paraItemDivida()
-
-    // ── Caixinha ─────────────────────────────────────────────────────────────
-    // Contrato: docs/caixinha-api.md. `GET /caixinhas` e `GET /caixinhas/publicas`
-    // devolvem array solto (`Json<Vec<T>>`), como `/debts`. Todo endpoint que
-    // devolve detalhe recebe `?mes=` com o ano-mês LOCAL do aparelho — o mês é
-    // coisa de gente, não de servidor — e toda mutação já devolve o detalhe
-    // atualizado: o ViewModel aplica a resposta em vez de reabrir o GET.
-
-    /** Ano-mês local ("2026-10") que as chamadas de detalhe mandam em `?mes=`. */
-    private fun mesLocal(): String = YearMonth.now().toString()
-
-    suspend fun caixinhas(): List<CaixinhaResumo> =
-        ApiClient.getArray("/caixinhas", token).paraObjetos { it.paraCaixinhaResumo() }
-
-    suspend fun caixinhasPublicas(): List<CaixinhaPublica> =
-        ApiClient.getArray("/caixinhas/publicas", token).paraObjetos { it.paraCaixinhaPublica() }
-
-    suspend fun caixinha(id: String): DetalheCaixinha =
-        ApiClient.get("/caixinhas/$id?mes=${mesLocal()}", token).paraDetalheCaixinha()
-
-    /**
-     * `POST /caixinhas` — criar.
-     *
-     * `valor_pedido` e `taxa_mensal` vão como STRING (o `Money` do backend
-     * recusa float com 422). `telefone` já vem só com dígitos (10 ou 11); o
-     * servidor guarda como está e recusa o resto.
-     */
-    suspend fun criarCaixinha(
-        nome: String,
-        valorPedido: String,
-        taxaMensal: String,
-        previsaoQuitacao: String?,
-        telefone: String?,
-        publica: Boolean,
-    ): DetalheCaixinha {
-        val corpo = JSONObject()
-            .put("nome", nome)
-            .put("valor_pedido", valorPedido)
-            .put("taxa_mensal", taxaMensal)
-            .put("publica", publica)
-        previsaoQuitacao?.takeIf { it.isNotBlank() }?.let { corpo.put("previsao_quitacao", it) }
-        telefone?.takeIf { it.isNotBlank() }?.let { corpo.put("telefone", it) }
-        return ApiClient.post("/caixinhas?mes=${mesLocal()}", corpo, token).paraDetalheCaixinha()
-    }
-
-    /** `POST /caixinhas/entrar` — a chave vai como o usuário digitou; o servidor normaliza. */
-    suspend fun entrarCaixinha(chave: String): DetalheCaixinha =
-        ApiClient.post(
-            "/caixinhas/entrar?mes=${mesLocal()}",
-            JSONObject().put("chave", chave),
-            token,
-        ).paraDetalheCaixinha()
-
-    /** `POST /caixinhas/{id}/aportes` — membro propõe; `amount` vai como STRING. */
-    suspend fun proporAporte(caixinhaId: String, amount: String): DetalheCaixinha =
-        ApiClient.post(
-            "/caixinhas/$caixinhaId/aportes?mes=${mesLocal()}",
-            JSONObject().put("amount", amount),
-            token,
-        ).paraDetalheCaixinha()
-
-    /**
-     * `POST /caixinhas/{id}/rendimentos` — responsável propõe; SEM valor no
-     * body: o servidor calcula (base × taxa) e propõe o rendimento devido do
-     * mês inteiro.
-     */
-    suspend fun proporRendimento(caixinhaId: String, membroId: String, competencia: String): DetalheCaixinha =
-        ApiClient.post(
-            "/caixinhas/$caixinhaId/rendimentos?mes=${mesLocal()}",
-            JSONObject().put("membro_id", membroId).put("competencia", competencia),
-            token,
-        ).paraDetalheCaixinha()
-
-    /** `POST /caixinhas/{id}/devolucoes` — responsável propõe; `amount` vai como STRING. */
-    suspend fun proporDevolucao(caixinhaId: String, membroId: String, amount: String): DetalheCaixinha =
-        ApiClient.post(
-            "/caixinhas/$caixinhaId/devolucoes?mes=${mesLocal()}",
-            JSONObject().put("membro_id", membroId).put("amount", amount),
-            token,
-        ).paraDetalheCaixinha()
-
-    /** Confirmar é da contraparte ("quem paga propõe, quem recebe confirma"). */
-    suspend fun confirmarMovimento(caixinhaId: String, movimentoId: String): DetalheCaixinha =
-        ApiClient.post("/caixinhas/$caixinhaId/movimentos/$movimentoId/confirmar?mes=${mesLocal()}", null, token)
-            .paraDetalheCaixinha()
-
-    suspend fun recusarMovimento(caixinhaId: String, movimentoId: String): DetalheCaixinha =
-        ApiClient.post("/caixinhas/$caixinhaId/movimentos/$movimentoId/recusar?mes=${mesLocal()}", null, token)
-            .paraDetalheCaixinha()
-
-    /** Cancelar é de quem propôs — o servidor recusa o resto com 409. */
-    suspend fun cancelarMovimento(caixinhaId: String, movimentoId: String): DetalheCaixinha =
-        ApiClient.post("/caixinhas/$caixinhaId/movimentos/$movimentoId/cancelar?mes=${mesLocal()}", null, token)
-            .paraDetalheCaixinha()
-
-    /** `POST /caixinhas/{id}/avaliacao` — membro avalia 1–5, uma vez. */
-    suspend fun avaliarCaixinha(caixinhaId: String, estrelas: Int): DetalheCaixinha =
-        ApiClient.post(
-            "/caixinhas/$caixinhaId/avaliacao?mes=${mesLocal()}",
-            JSONObject().put("estrelas", estrelas),
-            token,
-        ).paraDetalheCaixinha()
-
-    /** `PATCH /caixinhas/{id}/meu-telefone` — dono grava o da caixinha, membro o próprio. */
-    suspend fun salvarTelefoneCaixinha(caixinhaId: String, telefone: String): DetalheCaixinha =
-        ApiClient.patch(
-            "/caixinhas/$caixinhaId/meu-telefone?mes=${mesLocal()}",
-            JSONObject().put("telefone", telefone),
-            token,
-        ).paraDetalheCaixinha()
-
-    /** `PATCH /caixinhas/{id}/publica` — só o dono; o servidor devolve 403 para membro. */
-    suspend fun definirCaixinhaPublica(caixinhaId: String, publica: Boolean): DetalheCaixinha =
-        ApiClient.patch(
-            "/caixinhas/$caixinhaId/publica?mes=${mesLocal()}",
-            JSONObject().put("publica", publica),
-            token,
-        ).paraDetalheCaixinha()
-
     // ── Histórico unificado ───────────────────────────────────────────────────
     suspend fun historico(limite: Int = 50, kind: String? = null): Historico {
         // `?` e `&` decide se isto monta `/history?kind=BILL&limit=50` ou
@@ -592,124 +419,6 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
         ApiClient.delete("/mercadopago/conta", null, token)
     }
 
-    // ── Investimentos ─────────────────────────────────────────────────────────
-
-    suspend fun investimentos(): CarteiraInvestimentos =
-        ApiClient.get("/investments", token).paraCarteiraInvestimentos()
-
-    suspend fun resumoInvestimentos(): ResumoInvestimentos =
-        ApiClient.get("/investments/summary", token).paraResumoInvestimentos()
-
-    /**
-     * Pergunta à IA sobre o código antes de criar o ativo. A chave da
-     * OpenRouter é do servidor — ela nunca passa pelo app.
-     *
-     * `achou = false` (ativo não existe) é resposta válida, não erro: o app
-     * não preenche nada e a pessoa segue o cadastro na mão. Falha de verdade
-     * (rede, 503 da feature desligada) o caller trata como "não preencha".
-     */
-    suspend fun pesquisarAtivo(symbol: String, kind: String): PesquisaAtivo {
-        val corpo = JSONObject()
-            .put("symbol", symbol)
-            .put("kind", kind)
-        return ApiClient.post("/investments/lookup", corpo, token).paraPesquisaAtivo()
-    }
-
-    /**
-     * Sugestão de preço de `POST /investments/quote` (brapi para ação, Yahoo
-     * para FII). Silenciosa como a IA: provedor fora, 503 ou rede morta
-     * devolvem `SugestaoPreco(null, null)` e a tela não preenche nada.
-     */
-    suspend fun sugerirPreco(symbol: String, kind: String): SugestaoPreco {
-        val corpo = JSONObject()
-            .put("symbol", symbol)
-            .put("kind", kind)
-        return ApiClient.post("/investments/quote", corpo, token).paraSugestaoPreco()
-    }
-
-    suspend fun ativo(id: String): Ativo =
-        ApiClient.get("/investments/$id", token).paraAtivo()
-
-    suspend fun movimentosInvestimento(id: String): List<MovimentoInvestimento> {
-        // Uma chamada só: chamar `getArray` dentro do `mapNotNull` faria N+1
-        // requisições, e o `length()` viria de outra resposta.
-        val arr = ApiClient.getArray("/investments/$id/movements", token)
-        return (0 until arr.length()).mapNotNull { i ->
-            arr.optJSONObject(i)?.paraMovimentoInvestimento()
-        }
-    }
-
-    /**
-     * [quantidade], [precoUnitario], [valor] e [custos] vão como STRING.
-     *
-     * O `Money` do backend recusa float com 422, e `quantity` é um `Decimal`
-     * com 8 casas (ação fracionária). Converter para `Double` no cliente
-     * reintroduziria a perda que a regra do projeto existe para impedir.
-     */
-    suspend fun novoInvestimento(
-        symbol: String,
-        nome: String,
-        kind: String,
-        notas: String? = null,
-        resumo: String? = null,
-        proximoDividendo: String? = null,
-    ): Ativo {
-        val corpo = JSONObject()
-            .put("symbol", symbol)
-            .put("name", nome)
-            .put("kind", kind)
-        notas?.takeIf { it.isNotBlank() }?.let { corpo.put("notes", it) }
-        resumo?.takeIf { it.isNotBlank() }?.let { corpo.put("summary", it) }
-        proximoDividendo?.takeIf { it.isNotBlank() }?.let { corpo.put("next_dividend_at", it) }
-        return ApiClient.post("/investments", corpo, token).paraAtivo()
-    }
-
-    suspend fun atualizarInvestimento(
-        id: String,
-        nome: String? = null,
-        resumo: String? = null,
-        proximoDividendo: String? = null,
-        precoAtual: String? = null,
-    ): Ativo {
-        val corpo = JSONObject()
-        nome?.takeIf { it.isNotBlank() }?.let { corpo.put("name", it) }
-        resumo?.takeIf { it.isNotBlank() }?.let { corpo.put("summary", it) }
-        // String vazia LIMPA o campo: é assim que o usuário apaga a data que
-        // digitou, ou o preço que não vale mais. Ausente = não mexe.
-        proximoDividendo?.let { corpo.put("next_dividend_at", it) }
-        precoAtual?.let { corpo.put("current_price", it) }
-        return ApiClient.patch("/investments/$id", corpo, token).paraAtivo()
-    }
-
-    /**
-     * Registra compra, venda ou dividendo.
-     *
-     * `precoUnitario` é obrigatório em BUY e SELL e proibido em DIVIDEND — o
-     * backend recusa com 422, então a tela precisa mandar o certo.
-     */
-    suspend fun registrarMovimento(
-        investimentoId: String,
-        tipo: String,
-        quantidade: String,
-        precoUnitario: String?,
-        valor: String,
-        custos: String?,
-        data: String,
-        nota: String? = null,
-    ): MovimentoInvestimento {
-        val corpo = JSONObject()
-            .put("kind", tipo)
-            .put("quantity", quantidade)
-            .put("amount", valor)
-            .put("traded_at", data)
-        precoUnitario?.takeIf { it.isNotBlank() }?.let { corpo.put("price_per_unit", it) }
-        custos?.takeIf { it.isNotBlank() }?.let { corpo.put("fees", it) }
-        nota?.takeIf { it.isNotBlank() }?.let { corpo.put("note", it) }
-        return ApiClient
-            .post("/investments/$investimentoId/movements", corpo, token)
-            .paraMovimentoInvestimento()
-    }
-
     // ── LGPD ──────────────────────────────────────────────────────────────────
     suspend fun lgpdExportCsv(): String =
         ApiClient.getText("/lgpd/export.csv", token)
@@ -719,12 +428,6 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
             ApiClient.delete("/lgpd/account",
                 JSONObject().put("password", senha).put("confirm", true), token)
         }
-
-    // ── Contas recorrentes ────────────────────────────────────────────────────
-    suspend fun gerarRecorrentes(monthsAhead: Int = 12): Int =
-        ApiClient.post("/bills/generate-recurring",
-            JSONObject().put("months_ahead", monthsAhead), token)
-            .optInt("created", 0)
 
     // ── Categorias: classificar transação ──────────────────────────────────────
     suspend fun classificarTransacao(transactionId: String, categoryId: String) =

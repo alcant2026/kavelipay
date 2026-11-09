@@ -3,7 +3,8 @@
 # convite de uso único, entrada com chave (case/whitespace, uso único,
 # rotação do código na mesma transação), fronteira 404 para não-membro,
 # aporte/rendimento/devolução sob "quem paga propõe, quem recebe confirma",
-# derivações do mês, avaliação, telefone e vitrine pública.
+# derivações do mês, avaliação e telefone. Vitrine pública não existe: o
+# empréstimo é só por convite entre conhecidos.
 #
 # A prova central do contrato: a caixinha é FORA do ledger — o `GET /wallet`
 # do dono e do membro fica `0.00` do começo ao fim, em cada etapa da jornada.
@@ -88,7 +89,7 @@ try:
 except Exception:
     print('')" "$1" "$2" "$3" "${4:-id}"; }
 
-# Campo de um item achado pelo nome em listas (minhas, vitrine).
+# Campo de um item achado pelo nome em listas (minhas).
 acha() { python3 -c "
 import sys, json
 try:
@@ -120,7 +121,7 @@ for i in $(seq 1 40); do
     sleep 0.25
 done
 
-# Quatro contas: alice (dono, nome para a vitrine), bob (membro), carol
+# Quatro contas: alice (dono), bob (membro), carol
 # (membro que entra depois, sem aporte no começo), dave (nunca entra).
 curl -s -o /dev/null -X POST "$BASE/auth/register" -H 'content-type: application/json' \
     -d '{"email":"alice@teste.com","password":"senha-forte-123","display_name":"Alice Silva"}'
@@ -153,7 +154,7 @@ echo
 echo "criar caixinha: 201, papel dono, convite já gerado"
 
 RESPOSTA=$(req -X POST "$BASE/caixinhas" -H "$AUTH_A" -H 'content-type: application/json' \
-    -d '{"nome":"Viagem da família","valor_pedido":"1000.00","taxa_mensal":"3","previsao_quitacao":"dezembro","telefone":"11999990000","publica":true}')
+    -d '{"nome":"Viagem da família","valor_pedido":"1000.00","taxa_mensal":"3","previsao_quitacao":"dezembro","telefone":"11999990000"}')
 C_CRIAR="${RESPOSTA##*$'\n'}"
 NOVA="${RESPOSTA%$'\n'*}"
 
@@ -200,11 +201,11 @@ N_MEMB0=$(qtd_de membros <<<"$NOVA")
 check "caixinha nasce sem membros (recebido ${N_MEMB0:-vazio})" \
     "$([ "$N_MEMB0" = "0" ] && echo true || echo false)"
 
-# Segunda caixinha NÃO pública: é a que não pode aparecer na vitrine.
+# Segunda caixinha: a lista "minhas" tem mais de um item.
 RESPOSTA_R=$(req -X POST "$BASE/caixinhas" -H "$AUTH_A" -H 'content-type: application/json' \
-    -d '{"nome":"Caixa reserva","valor_pedido":"500.00","taxa_mensal":"2.5","publica":false}')
+    -d '{"nome":"Caixa reserva","valor_pedido":"500.00","taxa_mensal":"2.5"}')
 C_RESERVA="${RESPOSTA_R##*$'\n'}"
-check "criar caixinha não-pública devolve 201 (recebido $C_RESERVA)" \
+check "criar segunda caixinha devolve 201 (recebido $C_RESERVA)" \
     "$([ "$C_RESERVA" = "201" ] && echo true || echo false)"
 
 echo
@@ -856,89 +857,16 @@ check "mensagem é 'O valor pedido já foi alcançado.' (recebido ${MSG:-vazio})
 
 curl -s -o /dev/null -X POST "$BASE/caixinhas/$CAIXINHA/movimentos/$MOV_C2/cancelar" -H "$AUTH_C"
 echo
-echo "vitrine: só a pública aparece — com entrou e contato do dono"
+echo "vitrine pública removida: empréstimo só por convite, sem captação pública"
 
-VITRINE_D=$(curl -s "$BASE/caixinhas/publicas" -H "$AUTH_D")
-N_VITRINE=$(qtd_de '' <<<"$VITRINE_D")
-check "dave vê 1 caixinha pública, sem a não-pública (recebido ${N_VITRINE:-vazio})" \
-    "$([ "$N_VITRINE" = "1" ] && echo true || echo false)"
+C_VITRINE=$(code "$BASE/caixinhas/publicas" -H "$AUTH_D")
+check "GET /caixinhas/publicas não roteia mais (400: publicas não é UUID; recebido $C_VITRINE)" \
+    "$([ "$C_VITRINE" = "400" ] && echo true || echo false)"
 
-DONO_NOME=$(acha "Viagem da família" dono_nome <<<"$VITRINE_D")
-check "vitrine mostra o nome do dono: Alice Silva (recebido ${DONO_NOME:-vazio})" \
-    "$([ "$DONO_NOME" = "Alice Silva" ] && echo true || echo false)"
-
-TAXA_V=$(acha "Viagem da família" taxa_mensal <<<"$VITRINE_D")
-check "taxa da vitrine é 3 (recebido ${TAXA_V:-vazio})" \
-    "$([ "$TAXA_V" = "3" ] && echo true || echo false)"
-
-PEDIDO_V=$(acha "Viagem da família" valor_pedido <<<"$VITRINE_D")
-check "valor pedido na vitrine: 1000.00 (recebido ${PEDIDO_V:-vazio})" \
-    "$([ "$PEDIDO_V" = "1000.00" ] && echo true || echo false)"
-
-ARR_V=$(acha "Viagem da família" arrecadado <<<"$VITRINE_D")
-check "arrecadado na vitrine: 700.00 (recebido ${ARR_V:-vazio})" \
-    "$([ "$ARR_V" = "700.00" ] && echo true || echo false)"
-
-FALTA_V=$(acha "Viagem da família" falta <<<"$VITRINE_D")
-check "falta na vitrine: 300.00 (recebido ${FALTA_V:-vazio})" \
-    "$([ "$FALTA_V" = "300.00" ] && echo true || echo false)"
-
-MEDIA_V=$(acha "Viagem da família" media_avaliacoes <<<"$VITRINE_D")
-check "média na vitrine: 4,5 (recebido ${MEDIA_V:-vazio})" \
-    "$([ "$MEDIA_V" = "4,5" ] && echo true || echo false)"
-
-TOTAL_V=$(acha "Viagem da família" total_avaliacoes <<<"$VITRINE_D")
-check "total de avaliações na vitrine: 2 (recebido ${TOTAL_V:-vazio})" \
-    "$([ "$TOTAL_V" = "2" ] && echo true || echo false)"
-
-FONE_V=$(acha "Viagem da família" telefone_dono <<<"$VITRINE_D")
-check "telefone do dono na vitrine: 11944442222 (recebido ${FONE_V:-vazio})" \
-    "$([ "$FONE_V" = "11944442222" ] && echo true || echo false)"
-
-ENTROU_D=$(acha "Viagem da família" entrou <<<"$VITRINE_D")
-check "dave ainda não entrou: False (recebido ${ENTROU_D:-vazio})" \
-    "$([ "$ENTROU_D" = "False" ] && echo true || echo false)"
-
-VITRINE_A=$(curl -s "$BASE/caixinhas/publicas" -H "$AUTH_A")
-ENTROU_A=$(acha "Viagem da família" entrou <<<"$VITRINE_A")
-check "para a alice (dono) entrou é True (recebido ${ENTROU_A:-vazio})" \
-    "$([ "$ENTROU_A" = "True" ] && echo true || echo false)"
-
-VITRINE_B=$(curl -s "$BASE/caixinhas/publicas" -H "$AUTH_B")
-ENTROU_B=$(acha "Viagem da família" entrou <<<"$VITRINE_B")
-check "para o bob (membro) entrou é True (recebido ${ENTROU_B:-vazio})" \
-    "$([ "$ENTROU_B" = "True" ] && echo true || echo false)"
-
-echo
-echo "vitrine: só o dono muda — e dá para sair dela (consentimento revogável)"
-
-C_PUB_MEMBRO=$(code -X PATCH "$BASE/caixinhas/$CAIXINHA/publica" -H "$AUTH_B" \
-    -H 'Content-Type: application/json' -d '{"publica":false}')
-check "membro tentando despublicar é 403 (recebido $C_PUB_MEMBRO)" \
-    "$([ "$C_PUB_MEMBRO" = "403" ] && echo true || echo false)"
-
-DESPUB=$(curl -s -X PATCH "$BASE/caixinhas/$CAIXINHA/publica" -H "$AUTH_A" \
-    -H 'Content-Type: application/json' -d '{"publica":false}')
-PUB_DES=$(campo publica <<<"$DESPUB")
-check "dono despublica: publica=false (recebido ${PUB_DES:-vazio})" \
-    "$([ "$PUB_DES" = "False" ] && echo true || echo false)"
-
-N_APOS=$(qtd_de '' <<<"$(curl -s "$BASE/caixinhas/publicas" -H "$AUTH_D")")
-check "vitrine vazia depois de despublicar (recebido ${N_APOS:-vazio})" \
-    "$([ "$N_APOS" = "0" ] && echo true || echo false)"
-
-C_REPUB=$(code -X PATCH "$BASE/caixinhas/$CAIXINHA/publica" -H "$AUTH_A" \
+C_PUBLICAR=$(code -X PATCH "$BASE/caixinhas/$CAIXINHA/publica" -H "$AUTH_A" \
     -H 'Content-Type: application/json' -d '{"publica":true}')
-check "dono republica é 200 (recebido $C_REPUB)" \
-    "$([ "$C_REPUB" = "200" ] && echo true || echo false)"
-
-N_VOLTOU=$(qtd_de '' <<<"$(curl -s "$BASE/caixinhas/publicas" -H "$AUTH_D")")
-check "vitrine volta com 1 (recebido ${N_VOLTOU:-vazio})" \
-    "$([ "$N_VOLTOU" = "1" ] && echo true || echo false)"
-
-SALDO_A_PUB=$(saldo "$AUTH_A")
-check "saldo do dono segue 0.00 (recebido ${SALDO_A_PUB:-vazio})" \
-    "$([ "$SALDO_A_PUB" = "0.00" ] && echo true || echo false)"
+check "PATCH /caixinhas/{id}/publica não existe mais: 404 (recebido $C_PUBLICAR)" \
+    "$([ "$C_PUBLICAR" = "404" ] && echo true || echo false)"
 
 echo
 echo "minhas caixinhas: cada um vê as suas, com o papel certo"

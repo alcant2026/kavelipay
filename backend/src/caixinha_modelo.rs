@@ -261,11 +261,6 @@ pub fn disponivel_devolucao(movs: &[Movimento], membro: Uuid) -> Decimal {
     duas_casas((saldo_em_aberto(movs, membro) - proposto).max(Decimal::ZERO))
 }
 
-/// Quanto falta para completar o pedido (vitrine) — nunca negativo.
-pub fn falta_vitrine(valor_pedido: Decimal, arrecadado: Decimal) -> Decimal {
-    duas_casas((valor_pedido - arrecadado).max(Decimal::ZERO))
-}
-
 /// Totais do mês para o dono: devido e pago somam membro a membro, e a falta
 /// total é `max(Σ devido − Σ pago, 0)` — igual ao protótipo.
 pub fn totais_mes(
@@ -687,12 +682,6 @@ mod tests {
         assert_eq!(progresso(dec("50.00"), dec("100.00")), 0.5);
         assert_eq!(progresso(dec("150.00"), dec("100.00")), 1.0);
         assert_eq!(progresso(dec("50.00"), Decimal::ZERO), 0.0);
-    }
-
-    #[test]
-    fn falta_vitrine_nunca_e_negativa() {
-        assert_eq!(falta_vitrine(dec("1000.00"), dec("600.00")), dec("400.00"));
-        assert_eq!(falta_vitrine(dec("1000.00"), dec("1200.00")), dec("0.00"));
     }
 
     #[test]

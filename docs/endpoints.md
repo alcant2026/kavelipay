@@ -123,14 +123,17 @@ conectada a página pública avisa e não oferece pagar.
 > nem membro recebe **404** `Caixinha não encontrada.`, nunca 403. Dinheiro é
 > **string** (float é 422); toda resposta de detalhe deriva o mês do
 > `?mes=YYYY-MM` (default: mês atual UTC; o app manda o mês LOCAL dele).
+>
+> **Sem vitrine pública.** Entrada só por convite (`KAV-XXXXXX`): captar de
+> credores desconhecidos com rendimento fixo é oferta pública de CIC (valor
+> mobiliário, Lei 6.385/76) — exigiria CVM. `/caixinhas/publicas` e
+> `/caixinhas/{id}/publica` não existem (404); o banco recusa `publica = true`.
 
 - `POST /caixinhas` — `{nome, valor_pedido, taxa_mensal, previsao_quitacao?,
-  telefone?, publica?}`. Cria a caixinha **e o primeiro convite na mesma
+  telefone?}`. Cria a caixinha **e o primeiro convite na mesma
   transação**; `201` com o `CaixinhaDetalhe` (papel `dono`).
 - `GET /caixinhas` — as minhas (dono OU membro), `criado_em DESC`, com papel,
   arrecadado, progresso, média de avaliações.
-- `GET /caixinhas/publicas` — vitrine: só `publica = true`, para todo usuário
-  logado, com `dono_nome`, `falta` e `entrou` (sou dono/membro desta).
 - `POST /caixinhas/entrar` — `{chave}`; normaliza `trim().to_uppercase()`.
   Transação única: trava o convite (`FOR UPDATE`), não o consome em erro,
   marca `usado_em`, insere o membro e **gera o próximo código** na mesma
@@ -158,8 +161,6 @@ conectada a página pública avisa e não oferece pagar.
 - `PATCH /caixinhas/{id}/meu-telefone` — cada um grava o próprio telefone
   (dono → `caixinhas.telefone_dono`; membro → a linha dele). Só dígitos,
   10 ou 11; a formatação é da tela.
-- `PATCH /caixinhas/{id}/publica` — `{"publica": bool}`, **só o dono** (membro
-  recebe 403). Liga/desliga a vitrine; é a revogação do consentimento.
 - Erros: 404/409/422 com mensagens **literais em pt-BR** combinadas com o app
   (tabela completa em `docs/caixinha-api.md`). `NaoEncontrado`/`NaoValido` em
   `error.rs` são as variantes de mensagem literal (code `not_found` /

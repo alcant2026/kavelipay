@@ -7,9 +7,10 @@
 1. **Fora do ledger.** A caixinha registra o que cada pessoa **afirma**;
    nada aqui posta transação, move saldo ou é custodiado. O texto da tela
    continua prometendo "nada aqui mexe no seu saldo" — e o e2e prova.
-2. **Vitrine pública é opcão do dono.** Só aparece em
-   `GET /caixinhas/publicas` a caixinha criada com `publica: true`. Sem a
-   marca, entra somente quem recebeu o código.
+2. **Sem vitrine pública.** Entrada só por convite: mostrar a caixinha para
+   desconhecidos com rendimento mensal fixo é oferta pública de Contrato de
+   Investimento Coletivo (valor mobiliário, Lei 6.385/76) e exigiria CVM. Por
+   isso o endpoint da vitrine não existe e o banco recusa `publica = true`.
 3. **Código de convite é gerado pelo servidor, automaticamente, e é de uso
    único.** Formato `KAV-` + 6 hex maiúsculo (ex.: `KAV-8F3A2C`). Sempre
    existe **exatamente um** convite ativo por caixinha: quando o código é
@@ -143,7 +144,6 @@ Rotas no `routes/mod.rs` — literais **antes** de `{id}`, como investments:
 ```
 /caixinhas                     POST   criar
 /caixinhas                     GET    minhas (dono ou membro)
-/caixinhas/publicas            GET    vitrine
 /caixinhas/entrar             POST   entrar com chave
 /caixinhas/{id}                GET    detalhe
 /caixinhas/{id}/aportes       POST   propor aporte          (membro)
@@ -154,7 +154,6 @@ Rotas no `routes/mod.rs` — literais **antes** de `{id}`, como investments:
 /caixinhas/{id}/movimentos/{mov_id}/cancelar     POST       (quem propôs)
 /caixinhas/{id}/avaliacao     POST   avaliar 1–5            (membro)
 /caixinhas/{id}/meu-telefone  PATCH  salvar meu telefone
-/caixinhas/{id}/publica       PATCH  dono liga/desliga a vitrine
 ```
 
 Todo endpoint que devolve detalhe aceita `?mes=YYYY-MM` (default: mês atual
@@ -197,9 +196,9 @@ inválida.", que não casam no formato "{0} não encontrado").
 // request
 { "nome": "Viagem da família", "valor_pedido": "1000.00",
   "taxa_mensal": "3", "previsao_quitacao": "dezembro",
-  "telefone": "11999990000", "publica": true }
+  "telefone": "11999990000" }
 // valor_pedido: Money (string). taxa_mensal: string decimal > 0.
-// previsao_quitacao/telefone opcionais; publica default false.
+// previsao_quitacao/telefone opcionais.
 // telefone: servidor guarda SÓ DÍGITOS (10 ou 11), recusa o resto.
 ```
 201 → `CaixinhaDetalhe` (papel `dono`, com `convite` já gerado).
@@ -210,25 +209,10 @@ Array solto (como `/debts`), `criado_em DESC`:
 
 ```json
 [{ "id": "uuid", "nome": "Viagem da família", "papel": "dono" ,
-    "publica": true, "valor_pedido": "1000.00", "taxa_mensal": "3",
+    "valor_pedido": "1000.00", "taxa_mensal": "3",
     "arrecadado": "600.00", "progresso": 0.6,
     "media_avaliacoes": "4,5", "total_avaliacoes": 2, "criado_em": "..." }]
 ```
-
-### GET /caixinhas/publicas (vitrine)
-
-`publica = true`, `criado_em DESC`. `dono_nome` =
-`COALESCE(display_name, split_part(email, '@', 1))` (display_name é
-nullable).
-
-```json
-[{ "id": "uuid", "nome": "Viagem para a praia", "dono_nome": "Marcos",
-   "taxa_mensal": "3", "valor_pedido": "1000.00", "arrecadado": "600.00",
-   "falta": "400.00", "media_avaliacoes": "4,5", "total_avaliacoes": 2,
-   "telefone_dono": "11999990000", "entrou": false }]
-```
-`entrou`: quem pergunta é dono ou membro da caixinha. Vitrine não esconde as
-que eu já entrei — a tela mostra "Você entrou".
 
 ### POST /caixinhas/entrar
 
@@ -251,7 +235,6 @@ dono, **sempre o ativo**. `devido_mes`/`pago_mes`/`falta_mes` referem-se ao
   "id": "uuid", "nome": "Viagem da família",
   "papel": "dono",
   "dono": { "user_id": "uuid", "nome": "João", "telefone": "11999990000" },
-  "publica": true,
   "valor_pedido": "1000.00", "taxa_mensal": "3", "previsao_quitacao": null,
   "arrecadado": "600.00", "arrecadado_pendente": "200.00",
   "disponivel_aporte": "200.00", "progresso": 0.6,
@@ -321,16 +304,6 @@ Só membro com `aportado > 0`, uma vez, 1–5. 200 → detalhe
 Dono grava `telefone_dono`; membro grava o próprio `caixinha_membros.telefone`.
 Filtrar só dígitos; 10 ou 11, senão 422. 200 → detalhe.
 
-### PATCH /caixinhas/{id}/publica
-
-```json
-{ "publica": true }
-```
-
-Só o dono (membro recebe **403**). Liga/desliga a presença na vitrine
-`GET /caixinhas/publicas`. É o caminho de revogação do consentimento: quem
-publicou sai da vitrine sozinho, sem passar pelo suporte. 200 → detalhe.
-
 ## Derivações (funções puras, unidade-testáveis sem banco)
 
 Entrada: lista de movimentos do membro + `mes`. Espelham `CaixinhaModelo.kt`
@@ -353,7 +326,6 @@ falta_mes(m, mes)     = max(devido_mes − pago_mes, 0)
 rendimento_disponivel = max(falta_mes − Σ RENDIMENTO PROPOSTO de m no mes, 0)
 rendimento_pendente   = ∃ RENDIMENTO PROPOSTO de m no mes
 disponivel_devolucao  = max(saldo_em_aberto − Σ DEVOLUCAO PROPOSTO de m, 0)
-falta (vitrine)       = max(valor_pedido − arrecadado, 0)
 ```
 
 ## Testes
@@ -373,17 +345,16 @@ rendimento proposto pelo dono com valor do servidor → membro confirma →
 rendimento de novo no mês `422` → devolução total confirmada zera saldo →
 avaliação: sem aporte `422`, com aporte ok, repetida `409` → telefone
 inválido `422` e válido aparece pro dono → não-membro vê `404` e a lista
-não traz alheia → vitrine: pública aparece com `entrou`, não-pública não →
+não traz alheia → `GET /caixinhas/publicas` devolve `404` (vitrine removida) →
 **`GET /wallet` do dono e do membro com saldo `0.00` do começo ao fim**
 (prova do "fora do ledger").
 
-**JUnit (app)** — parse dos DTOs (detalhe, vitrine, movimento), regras que
+**JUnit (app)** — parse dos DTOs (detalhe, movimento), regras que
 sobrarem em `CaixinhaRegras` (`parseValor`, `formatarTelefone`).
 
 ## App Android — escopo
 
-- **Remover**: `CaixinhaModelo.exemplo()`, `VitrineCaixinhas.exemplo()`,
-  `DONO_CAIXINHA`, chips de troca de identidade ("Responsável"/"Ana",
+- **Remover**: `CaixinhaModelo.exemplo()`, `DONO_CAIXINHA`, chips de troca de identidade ("Responsável"/"Ana",
   "Carla"/"Dono"), `"KAV-4F2A"` fixo, aviso "PRÉVIA DO PROTÓTIPO".
 - **Manter**: `CaixinhaRegras.parseValor`/`formatarTelefone` (validação de
   entrada), componentes `KpCard`/`KpBotao*`/`Estrelas`, `Money.brl`,
@@ -392,19 +363,16 @@ sobrarem em `CaixinhaRegras` (`parseValor`, `formatarTelefone`).
 - **Telas**:
   1. **Minhas caixinhas** (nova; Home "Caixinha" aponta pra cá): seções
      "Como responsável" / "Como membro", card com nome, arrecadado de
-     pedido, progresso, taxa, média; botões "Nova caixinha", "Entrar com
-     código" (dialog), "Ver caixinhas públicas". Estados carregando/vazio/
-     erro completos.
+     pedido, progresso, taxa, média; botões "Nova caixinha" e "Entrar com
+     código" (dialog). Estados carregando/vazio/erro completos.
   2. **Nova caixinha** (nova): nome, valor pedido, taxa ao mês (%),
-     previsão de quitação (texto), seu telefone, switch "Aparecer na
-     vitrine pública". Validação local + mensagem do backend.
+     previsão de quitação (texto) e seu telefone. Validação local + mensagem
+     do backend.
   3. **Detalhe** (rewrite de `KpCaixinhaScreen`): papel vem do servidor;
      "Para confirmar" derivado dos movimentos `PROPOSTO`; pedido com
      convite copiável (dono); quem está dentro (dono: todos, membro: só
      ele); avaliação (membro); contato + editar meu telefone; aportar
      (membro); pagar rendimento/devolver (dono, por membro); histórico.
-  4. **Caixinhas públicas** (rewrite): lista do `GET /caixinhas/publicas`,
-     entrar com chave (dialog), estados.
 - **Regra de ouro da UI**: o servidor é a fonte da verdade — nenhum número
   é calculado/somado no app; dinheiro nunca `Double`/`Float` (string do
   servidor + `Money.brl`); toda ação que bate na rede tem carregando/vazio/

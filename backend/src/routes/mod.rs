@@ -169,12 +169,11 @@ pub fn router(state: AppState) -> Router {
         )
         // caixinhas — empréstimo registrado entre conhecidos, FORA do ledger
         // (nenhum handler chama ledger::postar*: a carteira não muda).
-        // Ordem importa (como investments): os literais /publicas e /entrar
-        // vêm ANTES de /caixinhas/{id}, senão casariam como UUID (400 de
-        // parse em vez da rota certa).
+        // Sem vitrine pública: captação pública com rendimento é CIC/CVM.
+        // Ordem importa (como investments): o literal /entrar vem ANTES de
+        // /caixinhas/{id}, senão casaria como UUID (400 em vez da rota certa).
         .route("/caixinhas", post(caixinhas::criar))
         .route("/caixinhas", get(caixinhas::minhas))
-        .route("/caixinhas/publicas", get(caixinhas::publicas))
         .route("/caixinhas/entrar", post(caixinhas::entrar))
         .route("/caixinhas/{id}", get(caixinhas::detalhe))
         .route("/caixinhas/{id}/aportes", post(caixinhas::propor_aporte))
@@ -202,10 +201,6 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/caixinhas/{id}/meu-telefone",
             patch(caixinhas::meu_telefone),
-        )
-        .route(
-            "/caixinhas/{id}/publica",
-            patch(caixinhas::definir_publica),
         )
         // vitrine de lojas parceiras (indicação de afiliado): usuário só lê;
         // cadastro é /admin com X-Admin-Token (503 se ADMIN_TOKEN não existe)
