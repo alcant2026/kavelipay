@@ -4,7 +4,7 @@ App Android de organização financeira e pagamentos para **pessoa física**, co
 
 ## Estado atual
 
-Backend Rust (`backend/`) completo: **794 testes passando** (192 Rust + 602 shell e2e) + 56 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
+Backend Rust (`backend/`) completo: **104 testes Rust** + 13 scripts e2e (`tests/*_e2e.sh`) + 63 JUnit do app. App Kotlin + Jetpack Compose (`android/`): APK release assinado e instalável no Waydroid (não emulador). Repo versionado em git.
 
 ## Comandos essenciais
 
@@ -12,7 +12,7 @@ Backend Rust (`backend/`) completo: **794 testes passando** (192 Rust + 602 shel
 # Postgres dev: Docker porta 55432, user/senha/db = kavelipay (docs/ambiente-e-build.md)
 # O dev usa VOLUME NOMEADO kavelipay-pgdata — sem ele, um docker rm apaga o banco (já aconteceu).
 cd backend
-cargo build && cargo test                        # 192 Rust, sem banco
+cargo build && cargo test                        # 104 Rust, sem banco
 PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/<nome>_e2e.sh
 DATABASE_URL=postgres://kavelipay:kavelipay@localhost:55432/kavelipay \
 JWT_SECRET=$(head -c 48 /dev/urandom | base64) BIND_ADDR=0.0.0.0:3000 \
@@ -20,12 +20,12 @@ nohup ./target/debug/kavelipay-backend > /tmp/kavelipay-backend.log 2>&1 &
 
 cd android
 ./gradlew :app:assembleRelease                  # APK assinado em app/build/outputs/apk/release/
-./gradlew :app:testDebugUnitTest                # 56 JUnit, sem emulador
+./gradlew :app:testDebugUnitTest                # 63 JUnit, sem emulador
 ```
 
 - **Depois de editar qualquer `.sql`, `cargo build` é obrigatório** — `sqlx::migrate!` embute as migrations no binário; sem rebuild o servidor sobe com a versão antiga e o teste falha parecendo bug de lógica.
 - `cargo clippy` e `cargo fmt` **não existem** neste Fedora. Não documente como se existissem.
-- Catorze scripts + `schema_test.sh` + `simulacao.sh` (ports, cobertura, jornada completa), Waydroid + adb (receita, IP muda por boot) e assinatura do APK: `docs/ambiente-e-build.md`.
+- Treze scripts `*_e2e.sh` + `schema_test.sh` + `simulacao.sh` (ports, cobertura, jornada completa), Waydroid + adb (receita, IP muda por boot) e assinatura do APK: `docs/ambiente-e-build.md`.
 
 ## Regras inegociáveis (texto completo em `docs/spec.md`)
 
@@ -62,4 +62,4 @@ Fuso/`due_date`, conflito 12B × seção 9 (app lê código de barras × backend
 
 ## Documentação detalhada (busque sob demanda — não vive mais aqui)
 
-`docs/ambiente-e-build.md` (Docker/Waydroid/adb/e2e/assinatura) · `docs/deploy-render-neon.md` (deploy do backend no Render + Neon) · `docs/ci-cd.md` (GitHub Actions: CI, release do APK, secrets) · `docs/endpoints.md` · `docs/transparencia.md` (derivation, categorias, relatórios, LGPD, recorrência) · `docs/ia-e-mercado.md` (IA OpenRouter + brapi/Yahoo + fronteira CVM) · `docs/custos.md` (custos, pró-labore, IA de dev, marketing, CAC e break-even) · `docs/notificacoes-perfil.md` · `docs/ledger.md` (sinal, splits, convenções completas, invariantes, seed) · `docs/spec.md` (regras completas, PIX, decisões, stack, lacunas, pitfalls) · `docs/ui-review.md` (gate de review de UI — checklist + referência Nubank)
+`docs/ambiente-e-build.md` (Docker/Waydroid/adb/e2e/assinatura) · `docs/deploy-render-neon.md` (deploy do backend no Render + Neon) · `docs/ci-cd.md` (GitHub Actions: CI, release do APK, secrets) · `docs/endpoints.md` · `docs/transparencia.md` (derivation, categorias, relatórios, LGPD, recorrência) · `docs/custos.md` (custos, pró-labore, IA de dev, marketing, CAC e break-even) · `docs/notificacoes-perfil.md` · `docs/ledger.md` (sinal, splits, convenções completas, invariantes, seed) · `docs/spec.md` (regras completas, PIX, decisões, stack, lacunas, pitfalls) · `docs/ui-review.md` (gate de review de UI — checklist + referência Nubank)

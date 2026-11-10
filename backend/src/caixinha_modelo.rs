@@ -74,6 +74,15 @@ impl Mes {
         }
     }
 
+    /// Até que competência o dono pode propor rendimento: o próprio mês ou o
+    /// seguinte (vence logo depois do aporte). Mais à frente seria cobrar juros
+    /// de tempo que ainda não passou; meses anteriores ficam livres para quitar
+    /// atraso.
+    pub fn competencia_permitida(&self, competencia: Mes) -> bool {
+        let limite = self.proximo();
+        (competencia.ano, competencia.mes) <= (limite.ano, limite.mes)
+    }
+
     /// Dia 1 do mês como data ingênua — é o que vai na coluna `competencia`.
     pub fn inicio_naive(&self) -> NaiveDate {
         NaiveDate::from_ymd_opt(self.ano, self.mes, 1).expect("mes validado na construção")
@@ -296,11 +305,12 @@ pub fn media_estrelas(estrelas: &[i16]) -> Option<String> {
     media_texto(Some(soma / Decimal::from(estrelas.len())))
 }
 
-/// `KAV-` + 6 hex maiúsculo, da entropia do UUID v4 (sem dependência nova).
-/// Colisão a cada ~16,7M códigos ativos: o `ON CONFLICT` + retry é defensivo.
+/// `KAV-` + 12 hex maiúsculo, da entropia do UUID v4 (sem dependência nova).
+/// 48 bits: adivinhar um convite ativo por força bruta deixa de ser viável.
+/// Colisão a cada ~2,8e14 códigos ativos: o `ON CONFLICT` + retry é defensivo.
 pub fn gerar_chave() -> String {
     let hex = Uuid::new_v4().simple().to_string(); // 32 hex minúsculo
-    format!("KAV-{}", hex[..6].to_uppercase())
+    format!("KAV-{}", hex[..12].to_uppercase())
 }
 
 // ── Taxa ao mês (serde) ───────────────────────────────────────────────────────
@@ -701,10 +711,10 @@ mod tests {
 
     #[test]
     fn chave_gera_no_formato_do_contrato() {
-        // ^KAV-[0-9A-F]{6}$ — sem regex no crate, o formato é conferido na mão.
+        // ^KAV-[0-9A-F]{12}$ — sem regex no crate, o formato é conferido na mão.
         for _ in 0..200 {
             let chave = gerar_chave();
-            assert_eq!(chave.len(), 10, "chave {chave} deveria ter 10 caracteres");
+            assert_eq!(chave.len(), 16, "chave {chave} deveria ter 16 caracteres");
             assert!(chave.starts_with("KAV-"), "chave {chave} sem prefixo KAV-");
             for c in chave[4..].chars() {
                 assert!(
@@ -713,6 +723,15 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn competencia_limitada_ao_mes_seguinte() {
+        let atual = Mes::novo(2026, 12).unwrap();
+        assert!(atual.competencia_permitida(Mes::novo(2025, 1).unwrap()));
+        assert!(atual.competencia_permitida(Mes::novo(2026, 12).unwrap()));
+        assert!(atual.competencia_permitida(Mes::novo(2027, 1).unwrap()));
+        assert!(!atual.competencia_permitida(Mes::novo(2027, 2).unwrap()));
     }
 
     #[test]

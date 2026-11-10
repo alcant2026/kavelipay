@@ -17,7 +17,7 @@
 //! Fronteira de confiança:
 //!  - Identidade SEMPRE do token (`AuthUser`); `user_id` nunca do body.
 //!  - Quem não é dono nem membro: a caixinha não existe para ele → 404
-//!    `Caixinha não encontrada.` (nunca 403 — mesmo padrão de `debts.rs`).
+//!    `Caixinha não encontrada.` (nunca 403 — mesmo padrão das outras rotas).
 //!  - Membro vê só os próprios números e movimentos; o dono vê todos. O
 //!    convite ativo é visível só ao dono, e a API nunca devolve código já
 //!    usado.
@@ -46,6 +46,16 @@ use crate::state::AppState;
 #[derive(Deserialize)]
 pub struct MesQuery {
     pub mes: Option<String>,
+}
+
+/// Quantas caixinhas um usuário pode criar. Sem teto, uma conta pode poluir a
+/// tabela e a lista de convites; 20 cobre com folga o uso de pessoa física.
+const LIMITE_CAIXINHAS: i64 = 20;
+
+/// Teto do pedido em `NUMERIC(19,4)` (4 casas): acima disso o banco estouraria
+/// como 500, então recusamos como 422 com mensagem de contrato.
+fn valor_pedido_maximo() -> Decimal {
+    Decimal::new(999_999_999_999_999, 4)
 }
 
 fn mes_da_query(q: &MesQuery) -> AppResult<Mes> {
@@ -149,7 +159,9 @@ pub struct CaixinhaDetalhe {
     pub taxa_mensal: Taxa,
     pub previsao_quitacao: Option<String>,
     pub arrecadado: Money,
-    pub arrecadado_pendente: Money,
+    /// Soma dos aportes PROPOSTOS (de todos os membros) — só o dono vê; o
+    /// membro recebe `null` (número de terceiros não é número dele).
+    pub arrecadado_pendente: Option<Money>,
     pub disponivel_aporte: Money,
     pub progresso: f32,
     pub media_avaliacoes: Option<String>,
@@ -196,8 +208,16 @@ pub async fn criar(
     if nome.is_empty() {
         return Err(AppError::NaoValido("nome é obrigatório".into()));
     }
+    if nome.chars().count() > 80 {
+        return Err(AppError::NaoValido(
+            "nome deve ter no máximo 80 caracteres".into(),
+        ));
+    }
     if !req.valor_pedido.is_positive() {
         return Err(AppError::NaoValido("valor deve ser maior que zero".into()));
+    }
+    if req.valor_pedido.amount() > valor_pedido_maximo() {
+        return Err(AppError::NaoValido("valor pedido acima do limite".into()));
     }
     // NUMERIC(5,2) no banco: acima de 999,99 a coluna não aceita. A mesma
     // mensagem da taxa cobre o caso — é a única mensagem de taxa no contrato.
@@ -213,7 +233,24 @@ pub async fn criar(
         .as_deref()
         .map(str::trim)
         .filter(|p| !p.is_empty());
+    if let Some(p) = previsao {
+        if p.chars().count() > 60 {
+            return Err(AppError::NaoValido(
+                "previsão deve ter no máximo 60 caracteres".into(),
+            ));
+        }
+    }
     let mes = mes_da_query(&q)?;
+
+    let existentes = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM caixinhas WHERE dono_user_id = $1",
+    )
+    .bind(auth.user_id())
+    .fetch_one(&state.db)
+    .await?;
+    if existentes >= LIMITE_CAIXINHAS {
+        return Err(AppError::NaoValido("limite de caixinhas atingido".into()));
+    }
 
     let mut tx = state.db.begin().await?;
     let id = sqlx::query_scalar::<_, Uuid>(
@@ -295,9 +332,20 @@ pub async fn minhas(
 pub async fn entrar(
     State(state): State<AppState>,
     auth: crate::auth::AuthUser,
+    ip_auth: crate::auth::ClientIp,
     Query(q): Query<MesQuery>,
     Json(req): Json<EntrarRequest>,
 ) -> AppResult<Json<CaixinhaDetalhe>> {
+    let ip = ip_auth.0.unwrap_or(std::net::Ipv4Addr::UNSPECIFIED.into());
+    let chave_gate = auth.user_id().to_string();
+    // A chave é curta o bastante para valer a pena adivinhar: sem este freio,
+    // uma conta autenticada testa convites alheios na velocidade da rede.
+    if let Err(espera) = state.convite_gate.aceita(ip, &chave_gate) {
+        return Err(AppError::TooManyRequests(format!(
+            "muitas tentativas de convite; tente de novo em {}s",
+            espera.as_secs().max(1)
+        )));
+    }
     let chave = req.chave.trim().to_uppercase();
     let mes = mes_da_query(&q)?;
 
@@ -305,7 +353,7 @@ pub async fn entrar(
 
     // `usado_em NULLS FIRST`: se a mesma chave existir como histórico E como
     // ativa (colisão defensiva), a ativa é a que vale.
-    let (convite_id, caixinha_id, usado_em) = sqlx::query_as::<_, (Uuid, Uuid, Option<DateTime<Utc>>)>(
+    let convite = sqlx::query_as::<_, (Uuid, Uuid, Option<DateTime<Utc>>)>(
         "SELECT id, caixinha_id, usado_em
            FROM caixinha_convites
           WHERE chave = $1
@@ -315,10 +363,14 @@ pub async fn entrar(
     )
     .bind(&chave)
     .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| AppError::NaoEncontrado("Chave inválida.".into()))?;
+    .await?;
+    let Some((convite_id, caixinha_id, usado_em)) = convite else {
+        state.convite_gate.registrar_falha(ip, &chave_gate);
+        return Err(AppError::NaoEncontrado("Chave inválida.".into()));
+    };
 
     if usado_em.is_some() {
+        state.convite_gate.registrar_falha(ip, &chave_gate);
         return Err(AppError::Conflict("Essa chave já foi usada.".into()));
     }
 
@@ -332,6 +384,7 @@ pub async fn entrar(
     .await?;
 
     if dono == auth.user_id() {
+        state.convite_gate.registrar_sucesso(ip, &chave_gate);
         return Err(AppError::Conflict(
             "Você é o responsável desta caixinha.".into(),
         ));
@@ -345,6 +398,7 @@ pub async fn entrar(
     .fetch_one(&mut *tx)
     .await?;
     if ja_membro {
+        state.convite_gate.registrar_sucesso(ip, &chave_gate);
         return Err(AppError::Conflict("Você já está nesta caixinha.".into()));
     }
 
@@ -363,6 +417,7 @@ pub async fn entrar(
     // existe exatamente um convite ativo por caixinha.
     inserir_convite(&mut tx, caixinha_id).await?;
     tx.commit().await?;
+    state.convite_gate.registrar_sucesso(ip, &chave_gate);
 
     Ok(Json(carregar_detalhe(&state, caixinha_id, auth.user_id(), mes).await?))
 }
@@ -454,6 +509,11 @@ pub async fn propor_rendimento(
             req.competencia
         ))
     })?;
+    if !Mes::atual_utc().competencia_permitida(competencia) {
+        return Err(AppError::NaoValido(
+            "competência não pode ser maior que o próximo mês.".into(),
+        ));
+    }
 
     let mut tx = state.db.begin().await?;
     let (caixinha, eh_dono) = acesso(&mut tx, id, auth.user_id()).await?;
@@ -1160,7 +1220,11 @@ async fn carregar_detalhe(
         taxa_mensal: Taxa::new(taxa),
         previsao_quitacao: caixinha.5.clone(),
         arrecadado: Money::new(arrecadado),
-        arrecadado_pendente: Money::new(arrecadado_pendente),
+        arrecadado_pendente: if eh_dono {
+            Some(Money::new(arrecadado_pendente))
+        } else {
+            None
+        },
         disponivel_aporte: Money::new(modelo::disponivel_aporte(caixinha.3, &modelo_movs)),
         progresso: modelo::progresso(arrecadado, caixinha.3),
         media_avaliacoes: modelo::media_estrelas(&estrelas),

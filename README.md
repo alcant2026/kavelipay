@@ -7,9 +7,11 @@ App Android de organização financeira e pagamentos para **pessoa física**, co
 ## O que o app faz
 
 - Saldo, extrato e contas (ledger: `Wallet → Ledger Account → Transaction → Entries`)
-- Contas a pagar, cobranças (deep link `kavelipay://cobranca/...` — **não é PIX/EMV**), dívidas e splits
+- Contas a pagar, cobranças (deep link `kavelipay://cobranca/...` — **não é PIX/EMV**) e splits
+- Caixinhas: empréstimo registrado entre conhecidos, fora do ledger
 - Relatórios por categoria, recorrência, perfil e notificações
-- Assinatura premium (opcional): relatórios mensais, análise de ativos por IA e cotação de mercado
+- Assinatura premium (opcional): relatório mensal de gastos por categoria, com
+  download em HTML (imprime em PDF) e análise escrita por IA
 
 ## Stack
 
@@ -63,7 +65,6 @@ Push na `main` → GitHub Actions roda a suíte (Rust + e2e com Postgres real + 
 | [`docs/custos.md`](docs/custos.md) | Custos, pró-labore, marketing, CAC e break-even |
 | [`docs/ui-review.md`](docs/ui-review.md) | Gate de review de UI |
 | [`docs/transparencia.md`](docs/transparencia.md) | Derivação, categorias, LGPD, recorrência |
-| [`docs/ia-e-mercado.md`](docs/ia-e-mercado.md) | IA (OpenRouter) e dados de mercado |
 
 ## Regras que não se quebram
 

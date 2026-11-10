@@ -8,7 +8,7 @@
 cd android
 ./gradlew :app:assembleRelease      # APK assinado em app/build/outputs/apk/release/
 ./gradlew :app:assembleDebug
-./gradlew :app:testDebugUnitTest    # JUnit das regras puras (56 testes, sem emulador)
+./gradlew :app:testDebugUnitTest    # JUnit das regras puras (63 testes, sem emulador)
 ```
 
 Saída: `android/app/build/outputs/apk/release/KaveliPay-release.apk`
@@ -132,8 +132,8 @@ Quando a porta responde, `/health` dá 404 (não existe rota de health): use
 `/profile` (405 sem método) ou um login real para saber se está de pé.
 
 O script também exporta `ADMIN_TOKEN` (a config recusa subir com menos de 24
-caracteres). Sem ela, `POST /admin/parceiros` responde 503 e a vitrine só pode
-ser cadastrada por migration. Ao ler o token de volta, cuidado com o `=`: ele é
+caracteres). Sem ela, `POST /admin/assinaturas/codigos` responde 503 e não há
+como emitir código de assinatura. Ao ler o token de volta, cuidado com o `=`: ele é
 base64 e termina em `=`, então `cut -d= -f2` trunca e a API devolve 401 — use
 `sed -n 's/^export ADMIN_TOKEN=//p' ~/.local/bin/kavelipay-backend.sh`.
 
@@ -204,11 +204,9 @@ PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/b
 PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/splits_e2e.sh
 PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/charges_e2e.sh
 PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/profile_notif_history_e2e.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/investments_e2e.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/transparency_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/transparency_e2e.sh
 PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/refresh_e2e.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/debts_e2e.sh
-PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/caixinhas_e2e.sh
+PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay PGHOST=localhost PGPORT=55432 PGUSER=kavelipay PGPASSWORD=kavelipay bash tests/caixinhas_e2e.sh
 bash tests/simulacao.sh
 ```
 
@@ -252,37 +250,24 @@ plano free do Render, `/health` a 20 conexões = 100 req/s (p50 178 ms). Rota
 que consulta o banco fica bem abaixo disso: cada requisição faz 2 a 5 idas ao
 Neon (Ohio → us-east-2), e o pool é de 10 conexões.
 
-Os treze outros criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
-binário real (porta dinâmica por execução: `BASE_PORT` fixa explicitamente; antes fixas em :3311 auth, :3312 ledger, :3313 bills, :3314 splits,
-`:3315` charges, `:3316` perfil/notif/histórico, `:3317` dívidas, `:3321`
-transparência, `:3319` parceiros, `:3322` refresh, `:3323` investimentos).
-Exigem `cargo build` antes. Não
-aplique migrations manualmente nos bancos de teste: quem aplica é o servidor no
-boot (`sqlx::migrate!`).
+Os demais criam e destroem um banco próprio (`*_test_<pid>`) e sobem o
+binário real (porta dinâmica por execução: `BASE_PORT` fixa explicitamente).
+Exigem `cargo build` antes. Não aplique migrations manualmente nos bancos de
+teste: quem aplica é o servidor no boot (`sqlx::migrate!`).
 
 **`sqlx::migrate!` embute as migrations no binário em tempo de compilação.**
 Depois de editar qualquer `.sql`, rode `cargo build` — senão o servidor sobe
 com a versão antiga e o teste falha com um erro que parece de lógica.
 
-Estado atual dos testes: 142 Rust (inclui 8 de `lookup.rs` com mock da IA, 17
-de `cotacao.rs` com mock do brapi/Yahoo/statusinvest — nenhum gasta token ou
-rede real — e 7 de `http_cru.rs`, o cliente HTTP/1.1 que fala com o
-statusinvest; entre os de `cotacao.rs`, o nome oficial do mercado vence o da IA,
-a ação usa brapi com reserva no statusinvest, e o FII usa só o statusinvest) +
-13 schema + 20 auth + 15 ledger + 26 bills + 17 splits + 37 charges + 31 perfil
-+ 52 transparência + 28 investimentos (4 e2e a mais cobrindo
-`POST /investments/quote` + a data no padrão dd/mm/aaaa) + 14 refresh + 69
-dívidas (`debts_e2e.sh`, porta 3317) + 12 parceiros
-(`parceiros_e2e.sh`, porta 3319) =
-**476, todos passando** (334 deles shell e2e), mais a simulação de jornada
-completa, mais 75 JUnit
-do app (`./gradlew :app:testDebugUnitTest`, regras puras do prefill por IA, da
-sugestão de preço/dividendo, do total de negociação `qtd × preço`, do prefill
-de data em `dd/mm/aaaa`, de `DividaRegras` — normalização de valor pt-BR — e do
-QR/pixel (`QrCodeTest`: a cor tem de virar ARGB opaco, senão o QR sai
-transparente), do link de cobrança (`tokenDeCobranca`) e do reconhecimento do
-que foi lido (`classificarLeitura`: boleto × cobrança e a tela certa para cada
-um, sobre a lista única de `formatosDeLeitura`)).
+Estado atual dos testes: **193 Rust** (sem banco) + os e2e de `tests/*.sh`
+(schema, auth, ledger, bills, splits, charges, perfil/notif/histórico,
+transparência, refresh, limite, assinaturas, Mercado Pago, caixinhas,
+recuperação de senha) + 63 JUnit do app (`./gradlew :app:testDebugUnitTest`,
+regras puras de `CaixinhaRegras`, normalização de valor pt-BR, QR/pixel
+(`QrCodeTest`: a cor tem de virar ARGB opaco, senão o QR sai transparente), do
+link de cobrança (`tokenDeCobranca`) e do reconhecimento do que foi lido
+(`classificarLeitura`: boleto × cobrança e a tela certa para cada um, sobre a
+lista única de `formatosDeLeitura`)).
 
 `cargo clippy` e `cargo fmt` NÃO estão instalados (`rustfmt`/`clippy` ausentes no
 Fedora; instalar exige sudo). Não documente `cargo fmt` como se funcionasse.

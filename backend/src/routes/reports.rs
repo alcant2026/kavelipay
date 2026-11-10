@@ -5,6 +5,8 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
+use axum::http::header;
+use axum::response::{IntoResponse, Response};
 use chrono::{Datelike, NaiveDate};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -13,6 +15,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::ledger;
 use crate::money::Money;
+use crate::routes::charges::escapar;
 use crate::state::AppState;
 
 /// Tipos de transação que entram no relatório mensal de receita/despesa.
@@ -72,6 +75,10 @@ pub struct MonthReport {
     pub by_expense_category: Vec<CategorySlice>,
     pub by_income_category: Vec<CategorySlice>,
     pub transaction_count: u64,
+    /// Caixinhas: dinheiro que entrou/saiu por aporte, rendimento e devolução
+    /// CONFIRMADOS no período. Fora do ledger, por isso consulta própria.
+    pub caixinha_in: Money,
+    pub caixinha_out: Money,
 }
 
 /// Uma linha agregada do relatório.
@@ -97,18 +104,35 @@ pub async fn monthly(
     // contínuo). O extrato continua grátis; o relatório por categoria é
     // Premium. 402 faz o app abrir a tela de assinatura.
     crate::routes::billing::exigir_premium_do_token(&auth)?;
+    Ok(Json(
+        montar_relatorio(
+            &state,
+            auth.user_id(),
+            q.month.as_deref(),
+            q.all_time.unwrap_or(false),
+        )
+        .await?,
+    ))
+}
 
+/// Agregação única: o JSON e o HTML baixável saem daqui, então os dois nunca
+/// divergem.
+async fn montar_relatorio(
+    state: &AppState,
+    user_id: Uuid,
+    month: Option<&str>,
+    all_time: bool,
+) -> AppResult<MonthReport> {
     let (wallet_id, currency, is_demonstrative) =
         sqlx::query_as::<_, (Uuid, String, bool)>(
             "SELECT id, currency, is_demonstrative FROM wallets WHERE user_id = $1",
         )
-        .bind(auth.user_id())
+        .bind(user_id)
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::NotFound("wallet"))?;
 
-    let all_time = q.all_time.unwrap_or(false);
-    let (inicio, rotulo) = periodo(q.month.as_deref(), all_time)?;
+    let (inicio, rotulo) = periodo(month, all_time)?;
 
     // Um lançamento tem DUAS entradas no ledger (carteira + categoria de
     // destino). Filtrar por `a.kind = 'USER_AVAILABLE'` garante que ele conte
@@ -172,8 +196,10 @@ pub async fn monthly(
     }
 
     let (saldo, _) = ledger::saldo(&state.db, wallet_id).await?;
+    let (caixinha_in, caixinha_out) =
+        caixinhas_do_periodo(state, user_id, inicio, fim_do_periodo(inicio), all_time).await?;
 
-    Ok(Json(MonthReport {
+    Ok(MonthReport {
         month: rotulo,
         currency,
         is_demonstrative,
@@ -184,7 +210,45 @@ pub async fn monthly(
         by_expense_category: monta(despesas, expense),
         by_income_category: monta(receitas, income),
         transaction_count: count,
-    }))
+        caixinha_in: Money::new(caixinha_in),
+        caixinha_out: Money::new(caixinha_out),
+    })
+}
+
+/// Caixinhas ficam FORA do ledger, então entram no relatório por consulta
+/// própria. Só movimento `CONFIRMADO` conta, e o sinal depende do papel:
+/// dono recebe aporte e paga rendimento/devolução; membro paga aporte e
+/// recebe rendimento/devolução.
+async fn caixinhas_do_periodo(
+    state: &AppState,
+    user_id: Uuid,
+    inicio: chrono::DateTime<chrono::Utc>,
+    fim: chrono::DateTime<chrono::Utc>,
+    all_time: bool,
+) -> AppResult<(Decimal, Decimal)> {
+    let (entrou, saiu) = sqlx::query_as::<_, (Decimal, Decimal)>(
+        "SELECT
+            COALESCE(SUM(m.valor) FILTER (WHERE
+                (c.dono_user_id = $1 AND m.tipo = 'APORTE')
+             OR (m.membro_user_id = $1 AND m.tipo IN ('RENDIMENTO','DEVOLUCAO'))
+            ), 0) AS entrou,
+            COALESCE(SUM(m.valor) FILTER (WHERE
+                (c.dono_user_id = $1 AND m.tipo IN ('RENDIMENTO','DEVOLUCAO'))
+             OR (m.membro_user_id = $1 AND m.tipo = 'APORTE')
+            ), 0) AS saiu
+           FROM caixinha_movimentos m
+           JOIN caixinhas c ON c.id = m.caixinha_id
+          WHERE m.status = 'CONFIRMADO'
+            AND (c.dono_user_id = $1 OR m.membro_user_id = $1)
+            AND ($2::bool OR (m.confirmado_em >= $3 AND m.confirmado_em < $4))",
+    )
+    .bind(user_id)
+    .bind(all_time)
+    .bind(inicio)
+    .bind(fim)
+    .fetch_one(&state.db)
+    .await?;
+    Ok((entrou, saiu))
 }
 
 const SEM_CATEGORIA: &str = "(sem categoria)";
@@ -281,4 +345,266 @@ fn para_timestamp(d: NaiveDate) -> chrono::DateTime<chrono::Utc> {
         d.and_hms_opt(0, 0, 0).unwrap_or_default(),
         chrono::Utc,
     )
+}
+// ── GET /reports/monthly/relatorio — HTML para baixar/imprimir ───────────────
+
+/// Instruções fixas do modelo. A IA escreve só o texto qualitativo: os
+/// números do relatório vêm do ledger, e o texto é descartado se citar
+/// qualquer dígito (ver `texto_confiavel`).
+const SISTEMA_RELATORIO: &str = "\
+Você escreve a análise de um relatório financeiro pessoal em português do Brasil. \
+Regras obrigatórias: use SOMENTE os dados fornecidos; não invente valores, categorias nem fatos; \
+NÃO escreva números, nem mesmo em listas (use hífen como marcador); \
+não faça recomendação de investimento; trate o leitor por 'você'. \
+Escreva no máximo três parágrafos curtos e termine com duas ou três sugestões práticas \
+para economizar ou aumentar a renda.";
+
+/// GET /reports/monthly/relatorio
+///
+/// Mesmo relatório do JSON, em HTML autocontido com `Content-Disposition:
+/// attachment` — o app salva em Downloads e o Android imprime em PDF.
+pub async fn relatorio_html(
+    State(state): State<AppState>,
+    auth: crate::auth::AuthUser,
+    Query(q): Query<ReportQuery>,
+) -> AppResult<Response> {
+    crate::routes::billing::exigir_premium_do_token(&auth)?;
+
+    let relatorio = montar_relatorio(
+        &state,
+        auth.user_id(),
+        q.month.as_deref(),
+        q.all_time.unwrap_or(false),
+    )
+    .await?;
+
+    // Sem chave configurada o relatório continua baixável, só sem a análise.
+    // Com chave, o teto por usuário protege o custo de token de terceiro.
+    let analise = if state.ai.configurado() {
+        if !state.relatorio_gate.permite(auth.user_id()) {
+            return Err(AppError::TooManyRequests(
+                "limite de relatórios por hora atingido; tente de novo mais tarde".into(),
+            ));
+        }
+        let dados = dados_para_ia(&relatorio);
+        let mut analise = None;
+        // Duas tentativas no máximo: o modelo às vezes ignora a proibição de
+        // algarismo na primeira resposta. A segunda pede explicitamente sem
+        // dígito; se insistir, o relatório sai sem análise (número inventado
+        // é pior que seção ausente).
+        for tentativa in 0..2 {
+            let sistema = if tentativa == 0 {
+                SISTEMA_RELATORIO.to_string()
+            } else {
+                format!(
+                    "{SISTEMA_RELATORIO} A resposta anterior veio com algarismos. \
+                     Reescreva usando nenhum caractere de zero a nove."
+                )
+            };
+            match state.ai.completar(&sistema, &dados).await {
+                Ok(texto) => {
+                    if let Some(limpo) = texto_confiavel(&texto) {
+                        analise = Some(limpo);
+                        break;
+                    }
+                    tracing::warn!("análise do relatório veio com número; tentando de novo");
+                }
+                Err(e) => {
+                    tracing::warn!("análise do relatório indisponível: {e}");
+                    break;
+                }
+            }
+        }
+        analise
+    } else {
+        None
+    };
+
+    let html = montar_html(&relatorio, analise.as_deref());
+    let nome = format!(
+        "kavelipay-relatorio-{}.html",
+        relatorio.month.as_deref().unwrap_or("tudo")
+    );
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{nome}\""),
+            ),
+        ],
+        html,
+    )
+        .into_response())
+}
+
+/// Só os agregados vão para o provedor: nada de extrato linha a linha.
+fn dados_para_ia(r: &MonthReport) -> String {
+    let mut s = format!(
+        "Período: {}\nEntradas: R$ {}\nSaídas: R$ {}\nResultado: R$ {}\n\
+         Saldo da carteira: R$ {}\nLançamentos: {}\n\
+         Caixinhas — entrou: R$ {}; saiu: R$ {}\n",
+        r.month.as_deref().unwrap_or("todo o histórico"),
+        r.income,
+        r.expense,
+        r.net,
+        r.balance,
+        r.transaction_count,
+        r.caixinha_in,
+        r.caixinha_out,
+    );
+
+    if !r.by_expense_category.is_empty() {
+        s.push_str("Despesas por categoria:\n");
+        for f in &r.by_expense_category {
+            s.push_str(&format!("- {}: R$ {} ({} lançamentos)\n", f.name, f.total, f.count));
+        }
+    }
+    if !r.by_income_category.is_empty() {
+        s.push_str("Receitas por categoria:\n");
+        for f in &r.by_income_category {
+            s.push_str(&format!("- {}: R$ {} ({} lançamentos)\n", f.name, f.total, f.count));
+        }
+    }
+    s
+}
+
+/// Dígito no texto = valor inventado. Nesse caso a seção cai para o aviso
+/// padrão: relatório sem análise é melhor que relatório com número errado.
+fn texto_confiavel(texto: &str) -> Option<String> {
+    let limpo = texto.trim();
+    if limpo.is_empty() || limpo.chars().any(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(limpo.chars().take(4000).collect())
+}
+
+const CSS_RELATORIO: &str = "\
+body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;margin:0;background:#f6f6f8;color:#1b1b1f}\
+main{max-width:720px;margin:0 auto;padding:32px 20px 48px}\
+h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px}\
+.sub{color:#5f5f6b;font-size:13px;margin:0 0 24px}\
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}\
+th,td{padding:10px 12px;text-align:left;font-size:14px;border-bottom:1px solid #ececf1}\
+th{background:#fafafc;color:#5f5f6b;font-weight:600}\
+tr:last-child td{border-bottom:none}.num{text-align:right;white-space:nowrap}\
+.resumo td:first-child{color:#5f5f6b}\
+.analise{background:#fff;border-radius:12px;padding:16px 18px;font-size:14px;line-height:1.55}\
+.analise p{margin:0 0 10px}.analise p:last-child{margin-bottom:0}\
+.aviso{color:#8a5a00}\
+.rodape{margin-top:28px;color:#5f5f6b;font-size:12px;line-height:1.5}\
+@media print{body{background:#fff}main{padding:0}table,.analise{break-inside:avoid}}";
+
+fn montar_html(r: &MonthReport, analise: Option<&str>) -> String {
+    let periodo = r
+        .month
+        .as_deref()
+        .map(|m| m.replace('-', "/"))
+        .unwrap_or_else(|| "todo o histórico".to_string());
+
+    let mut h = String::new();
+    h.push_str("<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\">");
+    h.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+    h.push_str("<title>Relatório KaveliPay</title><style>");
+    h.push_str(CSS_RELATORIO);
+    h.push_str("</style></head><body><main>");
+
+    h.push_str("<h1>Relatório KaveliPay</h1>");
+    h.push_str(&format!("<p class=\"sub\">Período: {}</p>", escapar(&periodo)));
+
+    h.push_str("<h2>Resumo</h2><table class=\"resumo\">");
+    h.push_str(&format!(
+        "<tr><td>Entradas</td><td class=\"num\">R$ {}</td></tr>",
+        r.income
+    ));
+    h.push_str(&format!(
+        "<tr><td>Saídas</td><td class=\"num\">R$ {}</td></tr>",
+        r.expense
+    ));
+    h.push_str(&format!(
+        "<tr><td>Resultado do período</td><td class=\"num\">R$ {}</td></tr>",
+        r.net
+    ));
+    h.push_str(&format!(
+        "<tr><td>Saldo da carteira</td><td class=\"num\">R$ {}</td></tr>",
+        r.balance
+    ));
+    h.push_str(&format!(
+        "<tr><td>Caixinhas — entrou</td><td class=\"num\">R$ {}</td></tr>",
+        r.caixinha_in
+    ));
+    h.push_str(&format!(
+        "<tr><td>Caixinhas — saiu</td><td class=\"num\">R$ {}</td></tr>",
+        r.caixinha_out
+    ));
+    h.push_str("</table>");
+
+    h.push_str("<h2>Para onde foi</h2>");
+    if r.by_expense_category.is_empty() {
+        h.push_str("<p class=\"sub\">Sem despesas classificadas no período.</p>");
+    } else {
+        h.push_str("<table><tr><th>Categoria</th><th class=\"num\">Total</th><th class=\"num\">Fatia</th></tr>");
+        for f in &r.by_expense_category {
+            h.push_str(&format!(
+                "<tr><td>{}</td><td class=\"num\">R$ {}</td><td class=\"num\">{:.1}%</td></tr>",
+                escapar(&f.name),
+                f.total,
+                f.share * 100.0
+            ));
+        }
+        h.push_str("</table>");
+    }
+
+    if !r.by_income_category.is_empty() {
+        h.push_str("<h2>De onde veio</h2><table><tr><th>Categoria</th><th class=\"num\">Total</th></tr>");
+        for f in &r.by_income_category {
+            h.push_str(&format!(
+                "<tr><td>{}</td><td class=\"num\">R$ {}</td></tr>",
+                escapar(&f.name),
+                f.total
+            ));
+        }
+        h.push_str("</table>");
+    }
+
+    h.push_str("<h2>Análise</h2><div class=\"analise\">");
+    match analise {
+        Some(texto) => {
+            for paragrafo in texto.split('\n') {
+                let p = paragrafo.trim();
+                if !p.is_empty() {
+                    h.push_str(&format!("<p>{}</p>", escapar(p)));
+                }
+            }
+        }
+        None => h.push_str(
+            "<p class=\"aviso\">A análise por IA não está disponível agora. \
+             Os números deste relatório continuam corretos.</p>",
+        ),
+    }
+    h.push_str("</div>");
+
+    h.push_str(
+        "<p class=\"rodape\">Relatório gerado a partir dos lançamentos registrados no KaveliPay. \
+         Valores demonstrativos: o app não custodia dinheiro. \
+         A análise é texto gerado por IA e não é recomendação de investimento.</p>",
+    );
+    h.push_str("</main></body></html>");
+    h
+}
+
+#[cfg(test)]
+mod tests {
+    use super::texto_confiavel;
+
+    #[test]
+    fn analise_com_algarismo_e_descartada() {
+        assert!(texto_confiavel("Você gastou 10 reais.").is_none());
+        assert!(texto_confiavel("   ").is_none());
+        assert_eq!(
+            texto_confiavel(" Tudo certo. ").as_deref(),
+            Some("Tudo certo.")
+        );
+    }
 }

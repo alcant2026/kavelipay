@@ -31,10 +31,8 @@ O arquivo `render.yaml` na raiz define o serviço. Passos:
    - `JWT_SECRET` — mínimo 32 caracteres. Gere com
      `head -c 48 /dev/urandom | base64`.
    - `ADMIN_TOKEN` — mínimo 24 caracteres. É o token que emite código de
-     assinatura e cadastra parceiro. Gere com
+     assinatura. Gere com
      `head -c 32 /dev/urandom | base64`.
-   - `OPENROUTER_API_KEY` — opcional. Sem ela, o prefill por IA devolve 503 e o
-     resto do app funciona.
 3. Confirme o deploy. O Render injeta `PORT`; o backend lê `PORT` quando
    `BIND_ADDR` não existe. Não configure `BIND_ADDR` no painel.
 4. O health check do Render é `GET /health`. Ele responde `{"status":"ok"}` sem
@@ -97,8 +95,9 @@ uma instância só.
 | `DATABASE_URL` | sim | Postgres do Neon, com `sslmode=require` |
 | `JWT_SECRET` | sim | assina access/refresh tokens; mínimo 32 chars |
 | `ADMIN_TOKEN` | não | liga rotas `/admin/*`; sem ela devolvem 503 |
-| `OPENROUTER_API_KEY` | não | liga IA de prefill; sem ela devolve 503 |
-| `OPENROUTER_MODEL` | não | padrão `mistralai/mistral-nemo` |
+| `OPENROUTER_API_KEY` | não | liga a análise por IA do relatório mensal; sem ela o HTML continua sendo gerado, só sem o texto da análise |
+| `OPENROUTER_MODEL` | não | padrão `deepseek/deepseek-v4.1-flash-1017:floor` |
+| `OPENROUTER_BASE_URL` | não | padrão `https://openrouter.ai/api/v1` (só para mock/teste) |
 | `DB_MAX_CONNECTIONS` | não | padrão 10 |
 | `LIMITE_POR_MINUTO` | não | padrão 300 req/min por IP (429 acima; 0 desliga) |
 | `BREVO_API_KEY` | não | **preferido no plano free do Render**: liga a recuperação de senha pela API HTTPS da Brevo (grátis até 300 e-mails/dia). O free bloqueia saída nas portas 25/465/587, então SMTP só funciona em instância paga |
@@ -110,8 +109,7 @@ uma instância só.
 | `RUST_LOG` | não | `info` é um bom começo |
 | `BIND_ADDR` | não | só para rodar fora do Render; no Render use `PORT` |
 
-Nunca commite `DATABASE_URL`, `JWT_SECRET`, `ADMIN_TOKEN` nem
-`OPENROUTER_API_KEY`. O `render.yaml` só declara as chaves; os valores ficam no
+Nunca commite `DATABASE_URL`, `JWT_SECRET` nem `ADMIN_TOKEN`. O `render.yaml` só declara as chaves; os valores ficam no
 painel.
 
 **Cole de uma vez:** no painel do serviço, em *Environment* → *Add from .env*,
@@ -170,7 +168,7 @@ O Render guarda deploys anteriores. Se a versão nova quebrar:
 - [ ] `DATABASE_URL` com `sslmode=require` e conexão direta.
 - [ ] `JWT_SECRET` aleatório com 32+ caracteres.
 - [ ] `ADMIN_TOKEN` aleatório com 24+ caracteres.
-- [ ] `OPENROUTER_API_KEY` configurada (se IA ligada).
+- [ ] `OPENROUTER_API_KEY` configurada (sem ela o relatório sai sem análise).
 - [ ] `RUST_LOG=info`.
 - [ ] Health check `/health` respondendo.
 - [ ] `/health/db` respondendo.

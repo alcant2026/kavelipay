@@ -18,12 +18,11 @@
 //!
 //! ## O que o plano pago libera
 //!
-//! Recursos que geram custo real de API: relatório mensal, análise por IA
-//! (`/investments/lookup`) e cotação de mercado (`/investments/quote`). O
-//! núcleo — saldo, extrato, contas, cobranças, dívidas — continua grátis; um
-//! app de finanças que não serve para organizar o mês é desinstalado antes de
-//! assinar. A exportação LGPD também é grátis por lei: portabilidade de dados
-//! não pode ficar atrás de paywall.
+//! O relatório mensal — a única parte que gera custo de processamento e que o
+//! app de fato oferece. O núcleo — saldo, extrato, contas, cobranças,
+//! caixinhas — continua grátis; um app de finanças que não serve para
+//! organizar o mês é desinstalado antes de assinar. A exportação LGPD também é
+//! grátis por lei: portabilidade de dados não pode ficar atrás de paywall.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -49,14 +48,7 @@ pub const PRECO_ANUAL: &str = "79.90";
 
 /// Recursos que o plano libera. Lista explícita para o app desenhar a tela sem
 /// inventar promessa que o backend não cumpre.
-///
-/// Texto de USUÁRIO: quem lê isto no app não sabe o que é brapi nem Yahoo.
-/// O nome da fonte fica no código (`cotacao.rs`), não na tela.
-pub const RECURSOS_PREMIUM: &[&str] = &[
-    "Relatórios mensais por categoria",
-    "Análise de ativos por IA",
-    "Cotação de mercado dos seus investimentos",
-];
+pub const RECURSOS_PREMIUM: &[&str] = &["Relatório mensal de gastos por categoria"];
 
 const ERRO_PLANO: &str = "este recurso faz parte do plano Premium — conheça o plano";
 

@@ -12,7 +12,7 @@
    Investimento Coletivo (valor mobiliário, Lei 6.385/76) e exigiria CVM. Por
    isso o endpoint da vitrine não existe e o banco recusa `publica = true`.
 3. **Código de convite é gerado pelo servidor, automaticamente, e é de uso
-   único.** Formato `KAV-` + 6 hex maiúsculo (ex.: `KAV-8F3A2C`). Sempre
+   único.** Formato `KAV-` + 12 hex maiúsculo (ex.: `KAV-8F3A2C91D4E7`). Sempre
    existe **exatamente um** convite ativo por caixinha: quando o código é
    consumido, o próximo nasce na mesma transação. A API **nunca** devolve
    código já usado — a UI do dono mostra sempre só o atual, sem histórico
@@ -28,7 +28,7 @@ confirma** — só movimento `CONFIRMADO` entra em qualquer número. Todo númer
 
 - Identidade **sempre** do token (`AuthUser`). `user_id` nunca vem do body.
 - Quem não é dono nem membro: a caixinha **não existe** para ele → 404
-  `Caixinha não encontrada.` (nunca 403 — mesmo padrão de `debts.rs`).
+  `Caixinha não encontrada.` (nunca 403 — mesmo padrão das outras rotas).
 - Membro vê **só os próprios números** e os **próprios movimentos**; o dono
   vê todos. O convite ativo é visível **só ao dono**.
 - Valor de **rendimento nunca vem do cliente**: o servidor calcula (base ×
@@ -123,23 +123,23 @@ CREATE TABLE caixinha_avaliacoes (
 
 ## Geração de código
 
-`KAV-` + 6 hex maiúsculo, a partir de `Uuid::new_v4().simple()` (sem
+`KAV-` + 12 hex maiúsculo, a partir de `Uuid::new_v4().simple()` (sem
 dependência nova, entropia do gerador de UUID v4):
 
 ```rust
 fn gerar_chave() -> String {
     let hex = Uuid::new_v4().simple().to_string(); // 32 hex minúsculo
-    format!("KAV-{}", hex[..6].to_uppercase())
+    format!("KAV-{}", hex[..12].to_uppercase())
 }
 ```
 
 Inserção com `ON CONFLICT DO NOTHING` contra o índice parcial da chave ativa
-+ retry (máx. 5). Colisão a cada ~16,7M de códigos ativos no mundo inteiro —
++ retry (máx. 5). Com 48 bits (12 hex), colisão exige ~2,8×10¹⁴ códigos ativos —
 o retry é defensivo.
 
 ## Endpoints
 
-Rotas no `routes/mod.rs` — literais **antes** de `{id}`, como investments:
+Rotas no `routes/mod.rs` — literais **antes** de `{id}`:
 
 ```
 /caixinhas                     POST   criar
@@ -180,7 +180,7 @@ inválida.", que não casam no formato "{0} não encontrado").
 | Dono tenta aportar | 409 | `O responsável não aporta na própria caixinha.` |
 | Revalidação no confirm: pedido cheio / rendimento pago / devolvido | 409 | `O valor pedido já foi alcançado.` / `O rendimento deste mês já foi pago.` / `O saldo em aberto já foi quitado.` |
 | Avaliação repetida | 409 | `Você já avaliou esta caixinha.` |
-| Valor inválido/zero (aporte, devolução, criação) | 422 | `valor deve ser maior que zero` (estilo debts) / `Digite um valor maior que zero.` |
+| Valor inválido/zero (aporte, devolução, criação) | 422 | `valor deve ser maior que zero` / `Digite um valor maior que zero.` |
 | Aporte acima do disponível (com espaço) | 422 | `Faltam R$ 100,00 para completar o pedido.` (vírgula pt-BR) |
 | Aporte com pedido completo | 422 | `O valor pedido já foi alcançado.` |
 | Rendimento sem saldo em aberto no mês | 422 | `Não há rendimento em aberto neste mês.` |
@@ -205,7 +205,7 @@ inválida.", que não casam no formato "{0} não encontrado").
 
 ### GET /caixinhas (minhas)
 
-Array solto (como `/debts`), `criado_em DESC`:
+Array solto (como `/splits`), `criado_em DESC`:
 
 ```json
 [{ "id": "uuid", "nome": "Viagem da família", "papel": "dono" ,
@@ -239,7 +239,7 @@ dono, **sempre o ativo**. `devido_mes`/`pago_mes`/`falta_mes` referem-se ao
   "arrecadado": "600.00", "arrecadado_pendente": "200.00",
   "disponivel_aporte": "200.00", "progresso": 0.6,
   "media_avaliacoes": "4,5", "total_avaliacoes": 2,
-  "convite": "KAV-8F3A2C",
+  "convite": "KAV-8F3A2C91D4E7",
   "minha_avaliacao": null,
   "membros": [{
       "user_id": "uuid", "nome": "Ana", "telefone": "11988881111",
@@ -332,10 +332,9 @@ disponivel_devolucao  = max(saldo_em_aberto − Σ DEVOLUCAO PROPOSTO de m, 0)
 
 **Rust (sem banco)** — derivações puras, espelhando `CaixinhaModeloTest`:
 base com devolução parcial vs. total; HALF_UP do rendimento; falta
-descontando proposta pendente; código no formato `^KAV-[0-9A-F]{6}$`.
+descontando proposta pendente; código no formato `^KAV-[0-9A-F]{12}$`.
 
-**e2e `backend/tests/caixinhas_e2e.sh`** (porta **3324**, modelo
-`debts_e2e.sh`, banco próprio `*_test_<pid>`, `cargo build` antes — o
+**e2e `backend/tests/caixinhas_e2e.sh`** (porta **3324**, banco próprio `*_test_<pid>`, `cargo build` antes — o
 `sqlx::migrate!` embute a migration nova):
 criação com convite → dono não entra na própria → segunda conta entra
 (case/whitespace ok) → mesma chave de novo `409` → dono tem código NOVO ≠
@@ -355,7 +354,7 @@ sobrarem em `CaixinhaRegras` (`parseValor`, `formatarTelefone`).
 ## App Android — escopo
 
 - **Remover**: `CaixinhaModelo.exemplo()`, `DONO_CAIXINHA`, chips de troca de identidade ("Responsável"/"Ana",
-  "Carla"/"Dono"), `"KAV-4F2A"` fixo, aviso "PRÉVIA DO PROTÓTIPO".
+  "Carla"/"Dono"), `"KAV-8F3A2C91D4E7"` fixo, aviso "PRÉVIA DO PROTÓTIPO".
 - **Manter**: `CaixinhaRegras.parseValor`/`formatarTelefone` (validação de
   entrada), componentes `KpCard`/`KpBotao*`/`Estrelas`, `Money.brl`,
   `copiarCodigo` + Toast, textos de transparência (atualizar "protótipo

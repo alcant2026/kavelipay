@@ -1,7 +1,6 @@
 //! Binário do servidor. Falhar no boot é o comportamento correto: melhor
 //! nenhum processo do que um processo com segredo padrão ou banco errado.
 
-use kavelipay_backend::ai::AiClient;
 use kavelipay_backend::config::Config;
 use kavelipay_backend::state::AppState;
 use kavelipay_backend::{AppError, auth, routes};
@@ -45,23 +44,11 @@ async fn main() -> Result<(), AppError> {
     sqlx::migrate!("./migrations").run(&db).await?;
 
     let addr = config.bind_addr.clone();
-    let ai = AiClient::new(
-        config.openrouter_api_key.clone(),
-        config.openrouter_model.clone(),
-        config.openrouter_base_url.clone(),
-    )?;
 
     if config.admin_token.is_none() {
         tracing::warn!(
-            "ADMIN_TOKEN não definida: cadastro de ofertas da vitrine \
-             desligado (POST /admin/parceiros devolve 503)"
-        );
-    }
-
-    if config.openrouter_api_key.is_none() {
-        tracing::warn!(
-            "OPENROUTER_API_KEY não definida: prefill de ativos desligado \
-             (POST /investments/lookup devolve 503)"
+            "ADMIN_TOKEN não definida: emissão de código de assinatura \
+             desligada (POST /admin/assinaturas/codigos devolve 503)"
         );
     }
 
@@ -71,12 +58,6 @@ async fn main() -> Result<(), AppError> {
              (POST /auth/forgot-password devolve 503)"
         );
     }
-
-    let cotacao = kavelipay_backend::cotacao::CotacaoClient::new(
-        config.brapi_base_url.clone(),
-        config.yahoo_base_url.clone(),
-        config.statusinvest_base_url.clone(),
-    )?;
 
     let mp = kavelipay_backend::mercadopago::MercadoPago::new(
         config.mp_access_token.clone(),
@@ -93,8 +74,6 @@ async fn main() -> Result<(), AppError> {
             config.access_token_ttl_minutes,
             config.refresh_token_ttl_days,
         ),
-        ai,
-        cotacao,
         mp,
         mp_oauth: match (
             config.mp_client_id.clone(),
@@ -115,12 +94,26 @@ async fn main() -> Result<(), AppError> {
         public_base_url: config.public_base_url.clone(),
         admin_token: config.admin_token.clone(),
         login_gate: kavelipay_backend::rate_limit::LoginGate::default(),
+        convite_gate: kavelipay_backend::rate_limit::LoginGate::default(),
         mailer: config.mailer.clone(),
         reset_gate: Default::default(),
         limite_global: kavelipay_backend::rate_limit::LimiteGlobal::new(
             config.limite_por_minuto,
         ),
+        ai: kavelipay_backend::ai::AiClient::new(
+            config.openrouter_api_key.clone(),
+            config.openrouter_model.clone(),
+            config.openrouter_base_url.clone(),
+        )?,
+        relatorio_gate: Default::default(),
     };
+
+    if !state.ai.configurado() {
+        tracing::warn!(
+            "OPENROUTER_API_KEY ausente: análise por IA do relatório desligada \
+             (GET /reports/monthly/relatorio devolve 503)"
+        );
+    }
 
     let app = routes::router(state.clone())
         // Ordem de fora para dentro: trace, timeout, limite, rotas. O timeout

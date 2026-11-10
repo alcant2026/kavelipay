@@ -6,15 +6,12 @@ pub mod billing;
 pub mod caixinhas;
 pub mod categories;
 pub mod charges;
-pub mod debts;
 pub mod derivation;
 pub mod health;
 pub mod history;
-pub mod investments;
 pub mod lgpd;
 pub mod mp_conta;
 pub mod notifications;
-pub mod parceiros;
 pub mod profile;
 pub mod recurrence;
 pub mod reports;
@@ -93,13 +90,6 @@ pub fn router(state: AppState) -> Router {
         .route("/splits", post(splits::create_split))
         .route("/splits", get(splits::list_splits))
         .route("/splits/{id}/parts/{part_id}/settle", post(splits::settle_part))
-        // dívidas ("eu devo") — o lado inverso das divisões
-        .route("/debts", post(debts::create_debt))
-        .route("/debts", get(debts::list_debts))
-        .route("/debts/{id}/pay", post(debts::pay_debt))
-        .route("/debts/{id}/confirm", post(debts::confirm_debt))
-        .route("/debts/{id}", patch(debts::update_debt))
-        .route("/debts/{id}", delete(debts::delete_debt))
         // conta do Mercado Pago de cada usuário (o dinheiro cai direto nela)
         .route("/mercadopago/conectar", get(mp_conta::conectar))
         .route("/mercadopago/callback", get(mp_conta::callback))
@@ -142,31 +132,9 @@ pub fn router(state: AppState) -> Router {
         .route("/categories/{id}", delete(categories::delete))
         // relatórios
         .route("/reports/monthly", get(reports::monthly))
+        .route("/reports/monthly/relatorio", get(reports::relatorio_html))
         // recorrência
         .route("/bills/generate-recurring", post(recurrence::generate))
-        // investimentos
-        // Ordem importa: `/investments/summary` antes de `/investments/{id}`,
-        // senão o axum casa "summary" como se fosse um UUID e devolve 400.
-        .route("/investments", post(investments::create_investment))
-        .route("/investments", get(investments::list_investments))
-        .route("/investments/summary", get(investments::summary))
-        // Lookup por IA para prefill do formulário. ANTES de `/investments/{id}`
-        // pelo mesmo motivo do summary: "lookup" casaria como UUID e devolveria
-        // 400 de parse em vez de 404 de rota.
-        .route("/investments/lookup", post(investments::lookup))
-        // Sugestão de preço (brapi/Yahoo). Mesma regra de ordem: "quote"
-        // casaria como UUID se viesse depois de `/investments/{id}`.
-        .route("/investments/quote", post(investments::quote))
-        .route("/investments/{id}", get(investments::get_investment))
-        .route("/investments/{id}", patch(investments::update_investment))
-        .route(
-            "/investments/{id}/movements",
-            post(investments::create_movement),
-        )
-        .route(
-            "/investments/{id}/movements",
-            get(investments::list_movements),
-        )
         // caixinhas — empréstimo registrado entre conhecidos, FORA do ledger
         // (nenhum handler chama ledger::postar*: a carteira não muda).
         // Sem vitrine pública: captação pública com rendimento é CIC/CVM.
@@ -202,11 +170,6 @@ pub fn router(state: AppState) -> Router {
             "/caixinhas/{id}/meu-telefone",
             patch(caixinhas::meu_telefone),
         )
-        // vitrine de lojas parceiras (indicação de afiliado): usuário só lê;
-        // cadastro é /admin com X-Admin-Token (503 se ADMIN_TOKEN não existe)
-        .route("/parceiros", get(parceiros::list))
-        .route("/admin/parceiros", post(parceiros::criar))
-        .route("/admin/parceiros/{id}", delete(parceiros::desativar))
         // assinatura premium: o app paga as próprias contas sem virar banco.
         // Leitura e ativação são do usuário; emissão de código é do admin.
         .route("/billing/plano", get(billing::plano))

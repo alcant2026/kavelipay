@@ -9,9 +9,8 @@
 //!
 //! **Por que na mão, e não `lettre`:** o `lettre` puxa o rustls com o provider
 //! `aws-lc-rs`, e este binário já fixou `ring` (ver `Cargo.toml`). Com dois
-//! providers compilados, o rustls entra em pânico na escolha automática — o
-//! mesmo motivo que fez `http_cru.rs` escrever HTTP na mão. O diálogo SMTP
-//! que importa aqui é curto: EHLO, AUTH LOGIN, MAIL, RCPT, DATA.
+//! providers compilados, o rustls entra em pânico na escolha automática. O
+//! diálogo SMTP que importa aqui é curto: EHLO, AUTH LOGIN, MAIL, RCPT, DATA.
 //!
 //! O e-mail é disparado em background ([`crate::routes::auth::forgot_password`])
 //! e falha só no log: o usuário nunca deve descobrir, pelo tempo de resposta,
@@ -319,8 +318,8 @@ async fn conectar_tls(
     tcp: tokio::net::TcpStream,
     host: &str,
 ) -> Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>, String> {
-    // Provider explícito (ring), igual ao `http_cru`: a escolha automática do
-    // rustls entra em pânico se mais de um provider estiver compilado.
+    // Provider explícito (ring): a escolha automática do rustls entra em
+    // pânico se mais de um provider estiver compilado.
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let config = rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()

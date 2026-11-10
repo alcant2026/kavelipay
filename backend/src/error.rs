@@ -54,7 +54,7 @@ pub enum AppError {
     #[error("{0}")]
     PaymentRequired(&'static str),
 
-    /// Recurso desligado ou fora do ar (ex.: `OPENROUTER_API_KEY` não
+    /// Recurso desligado ou fora do ar (ex.: integração externa sem chave
     /// configurada). 503, não 500: não é defeito do servidor, é
     /// indisponibilidade — e o cliente deve tratar como "tente depois",
     /// não como "corrija seu request".

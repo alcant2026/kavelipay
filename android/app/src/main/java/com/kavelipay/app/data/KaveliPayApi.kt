@@ -213,6 +213,16 @@ class KaveliPayApi(private val sessao: SessionStore) {
         return ApiClient.get(caminho, token).paraRelatorio()
     }
 
+    /** HTML do relatório (Premium), para salvar em Downloads e imprimir em PDF. */
+    suspend fun relatorioHtml(mes: String? = null): String {
+        val caminho = if (mes == null) {
+            "/reports/monthly/relatorio"
+        } else {
+            "/reports/monthly/relatorio?month=$mes"
+        }
+        return ApiClient.getText(caminho, token)
+    }
+
     // ── Notificações ─────────────────────────────────────────────────────────
 
     suspend fun notificacoes(somenteNaoLidas: Boolean = false): List<Notificacao> {
@@ -433,6 +443,80 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
     suspend fun classificarTransacao(transactionId: String, categoryId: String) =
         ApiClient.patch("/wallet/transactions/$transactionId/category",
             JSONObject().put("category_id", categoryId), token)
+
+    // ── Caixinhas (empréstimo entre conhecidos, fora do ledger) ────────────────
+    // `GET /caixinhas` é array solto, como `/splits`. Toda mutação devolve o
+    // detalhe completo; `mes` é o mês local do aparelho (o backend defaulta UTC).
+    suspend fun caixinhas(): ListaCaixinhas =
+        ListaCaixinhas(ApiClient.getArray("/caixinhas", token).paraObjetos { it.paraItemCaixinha() })
+
+    suspend fun caixinha(id: String, mes: String): DetalheCaixinha =
+        ApiClient.get("/caixinhas/$id?mes=$mes", token).paraDetalheCaixinha()
+
+    suspend fun criarCaixinha(
+        nome: String,
+        valorPedido: String,
+        taxaMensal: String,
+        previsaoQuitacao: String?,
+        telefone: String?,
+        mes: String,
+    ): DetalheCaixinha {
+        val corpo = JSONObject()
+            .put("nome", nome)
+            .put("valor_pedido", valorPedido)
+            .put("taxa_mensal", taxaMensal)
+        previsaoQuitacao?.let { corpo.put("previsao_quitacao", it) }
+        telefone?.let { corpo.put("telefone", it) }
+        return ApiClient.post("/caixinhas?mes=$mes", corpo, token).paraDetalheCaixinha()
+    }
+
+    suspend fun entrarCaixinha(chave: String, mes: String): DetalheCaixinha =
+        ApiClient.post("/caixinhas/entrar?mes=$mes", JSONObject().put("chave", chave), token)
+            .paraDetalheCaixinha()
+
+    suspend fun proporAporte(id: String, amount: String, mes: String): DetalheCaixinha =
+        ApiClient.post("/caixinhas/$id/aportes?mes=$mes",
+            JSONObject().put("amount", amount), token).paraDetalheCaixinha()
+
+    suspend fun proporRendimento(
+        id: String,
+        membroId: String,
+        competencia: String,
+        mes: String,
+    ): DetalheCaixinha =
+        ApiClient.post("/caixinhas/$id/rendimentos?mes=$mes",
+            JSONObject().put("membro_id", membroId).put("competencia", competencia), token)
+            .paraDetalheCaixinha()
+
+    suspend fun proporDevolucao(
+        id: String,
+        membroId: String,
+        amount: String,
+        mes: String,
+    ): DetalheCaixinha =
+        ApiClient.post("/caixinhas/$id/devolucoes?mes=$mes",
+            JSONObject().put("membro_id", membroId).put("amount", amount), token)
+            .paraDetalheCaixinha()
+
+    suspend fun confirmarMovimento(id: String, movimentoId: String, mes: String): DetalheCaixinha =
+        ApiClient.post("/caixinhas/$id/movimentos/$movimentoId/confirmar?mes=$mes", null, token)
+            .paraDetalheCaixinha()
+
+    suspend fun recusarMovimento(id: String, movimentoId: String, mes: String): DetalheCaixinha =
+        ApiClient.post("/caixinhas/$id/movimentos/$movimentoId/recusar?mes=$mes", null, token)
+            .paraDetalheCaixinha()
+
+    suspend fun cancelarMovimento(id: String, movimentoId: String, mes: String): DetalheCaixinha =
+        ApiClient.post("/caixinhas/$id/movimentos/$movimentoId/cancelar?mes=$mes", null, token)
+            .paraDetalheCaixinha()
+
+    suspend fun avaliarCaixinha(id: String, estrelas: Int, mes: String): DetalheCaixinha =
+        ApiClient.post("/caixinhas/$id/avaliacao?mes=$mes",
+            JSONObject().put("estrelas", estrelas), token).paraDetalheCaixinha()
+
+    suspend fun salvarTelefoneCaixinha(id: String, telefone: String, mes: String): DetalheCaixinha =
+        ApiClient.patch("/caixinhas/$id/meu-telefone?mes=$mes",
+            JSONObject().put("telefone", telefone), token).paraDetalheCaixinha()
 }
 
 /**

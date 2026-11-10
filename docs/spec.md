@@ -6,7 +6,6 @@
 
 Produto:
 - Somente pessoa física. NÃO criar: painel de comerciantes, cadastro de empresas, gestão de clientes, catálogo, estoque, vendas, PDV, CRM, dashboard empresarial.
-- Vitrine de parceiros é INDICAÇÃO, não loja: card com produto e link de afiliado, **sem preço no app**, sem carrinho, sem checkout, sem pedido, sem estoque. A compra acontece no site da loja, numa WebView. Nada disso toca o ledger — não há pagamento, recebível nem saldo. A comissão é paga pela loja ao KaveliPay, nunca pelo usuário, e a tela diz isso em texto.
 - KaveliPay NÃO se apresenta como banco, instituição de pagamento, custodiante, emissor de moeda eletrônica, provedor de PIX próprio ou processador próprio. Não implementar mecanismos para contornar regulamentação financeira.
 
 Ledger:
@@ -62,18 +61,20 @@ Esta é a regra que mais fácil de violar sem querer, e ela está em código:
 ## Monetização (freemium)
 
 - **Núcleo grátis, sempre**: cadastro, login, carteira, saldo, entradas/despesas,
-  extrato, contas/boletos, cobranças com QR, divisão de despesa, dívidas,
+  extrato, contas/boletos, cobranças com QR, divisão de despesa, caixinhas,
   notificações, perfil/segurança e **exportação LGPD**. Portabilidade de dados é
   direito do titular; não pode ficar atrás de paywall.
-- **Premium pago**: relatório mensal, análise por IA (`/investments/lookup`) e
-  cotação de ativos (brapi/Yahoo). O que é grátis continua grátis — o paywall
-  nunca tira uma função que já existia.
+- **Premium pago**: relatório mensal de gastos por categoria, com versão em
+  HTML para baixar/imprimir em PDF e uma análise escrita por IA a partir dos
+  agregados (nunca do extrato linha a linha; a IA não cita números e não
+  recomenda investimento). É a única função paga do app — e a única que ele
+  oferece hoje. O que é grátis continua grátis: o paywall nunca tira uma função
+  que já existia.
 - **Receita da empresa ≠ dinheiro do usuário.** A assinatura é cobrada do dono
   da conta pelo KaveliPay e vive em `assinaturas`/`codigos_ativacao`. Nunca
   entra no ledger da carteira: lançar a compra como transação do cliente
   misturaria as contas da empresa com as do usuário e sujaria o saldo
-  demonstrativo. Do mesmo jeito, a comissão de afiliado da vitrine é paga pela
-  loja, não pelo usuário.
+  demonstrativo.
 - **Como se paga hoje**: código de ativação de uso único (`KPL-XXXX-...`,
   validade 30 dias, um código por compra/renovação), entregue ao usuário por
   fora do app (sideload / atendimento). É o caminho que não exige loja de

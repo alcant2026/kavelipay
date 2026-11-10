@@ -6,6 +6,7 @@ import com.kavelipay.app.data.ApiClient
 import com.kavelipay.app.data.Carteira
 import com.kavelipay.app.data.Categoria
 import com.kavelipay.app.data.Derivacao
+import com.kavelipay.app.data.DetalheCaixinha
 import com.kavelipay.app.data.Extrato
 import com.kavelipay.app.data.Historico
 import com.kavelipay.app.data.ItemCharge
@@ -14,6 +15,7 @@ import com.kavelipay.app.data.ItemSplit
 import com.kavelipay.app.data.Exportador
 import com.kavelipay.app.data.KaveliPayApi
 import com.kavelipay.app.data.ListaContas
+import com.kavelipay.app.data.ListaCaixinhas
 import com.kavelipay.app.data.ListaCharges
 import com.kavelipay.app.data.ListaSessoes
 import com.kavelipay.app.data.ListaSplits
@@ -23,6 +25,7 @@ import com.kavelipay.app.data.ContaMp
 import com.kavelipay.app.data.Plano
 import com.kavelipay.app.data.Relatorio
 import com.kavelipay.app.data.SessionStore
+import com.kavelipay.app.data.mesLocal
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,6 +72,12 @@ data class EstadoApp(
     val historico: Historico? = null,
     val perfil: Perfil? = null,
     val sessoes: ListaSessoes? = null,
+
+    // Caixinhas: lista (dono ou membro) e o detalhe aberto. `null` na lista =
+    // ainda não carregou; o detalhe é recarregado a cada mutação porque o
+    // servidor devolve os números derivados já recalculados.
+    val caixinhas: ListaCaixinhas? = null,
+    val caixinhaDetalhe: DetalheCaixinha? = null,
 
     /**
      * Plano vigente (grátis ou premium). `null` = ainda não foi lido.
@@ -782,6 +791,48 @@ fun carregarChargeQr(chargeId: String) {
         }
     }
 
+    // ── Relatório ─────────────────────────────────────────────────────────────
+    /** Carrega o relatório de um mês (`YYYY-MM`); `null` = mês atual. */
+    fun carregarRelatorio(mes: String? = null) {
+        viewModelScope.launch {
+            _estado.update { it.copy(carregando = true, erro = null) }
+            runCatching { api.relatorio(mes) }
+                .onSuccess { r ->
+                    _estado.update {
+                        it.copy(carregando = false, relatorio = r, planoNecessario = false)
+                    }
+                }
+                .onFailure { e ->
+                    val semPlano = ePlanoNecessario(e)
+                    _estado.update {
+                        it.copy(
+                            carregando = false,
+                            relatorio = null,
+                            planoNecessario = semPlano,
+                            erro = if (semPlano) null else mensagemDe(e),
+                        )
+                    }
+                }
+        }
+    }
+
+    /** Baixa o HTML do relatório em Downloads; o Android imprime em PDF. */
+    fun baixarRelatorio(mes: String? = null) {
+        viewModelScope.launch {
+            runCatching { api.relatorioHtml(mes) }
+                .onSuccess { html ->
+                    salvarExportacao(
+                        base = "kavelipay_relatorio",
+                        extensao = "html",
+                        mime = "text/html",
+                        conteudo = html,
+                        confirmacao = "Relatório salvo",
+                    )
+                }
+                .onFailure { avisoFalha(it) }
+        }
+    }
+
     // ── LGPD ──────────────────────────────────────────────────────────────────
     fun exportarDadosCsv() {
         viewModelScope.launch {
@@ -920,6 +971,124 @@ fun carregarChargeQr(chargeId: String) {
                 .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
         }
     }
+
+    // ── Caixinhas (empréstimo entre conhecidos) ───────────────────────────────
+    fun carregarCaixinhas() {
+        _estado.update { it.copy(carregando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.caixinhas() }
+                .onSuccess { lista ->
+                    _estado.update { it.copy(carregando = false, caixinhas = lista) }
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(carregando = false, erro = mensagemDe(e)) }
+                }
+        }
+    }
+
+    fun carregarCaixinha(id: String, mes: String = mesLocal()) {
+        _estado.update { it.copy(carregando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.caixinha(id, mes) }
+                .onSuccess { detalhe ->
+                    _estado.update { it.copy(carregando = false, caixinhaDetalhe = detalhe) }
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(carregando = false, erro = mensagemDe(e)) }
+                }
+        }
+    }
+
+    fun criarCaixinha(
+        nome: String,
+        valorPedido: String,
+        taxaMensal: String,
+        previsaoQuitacao: String?,
+        telefone: String?,
+        onOk: (String) -> Unit,
+    ) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching {
+                api.criarCaixinha(
+                    nome = nome.trim(),
+                    valorPedido = valorPedido,
+                    taxaMensal = taxaMensal,
+                    previsaoQuitacao = previsaoQuitacao?.trim()?.ifBlank { null },
+                    telefone = telefone,
+                    mes = mesLocal(),
+                )
+            }
+                .onSuccess { detalhe ->
+                    _estado.update {
+                        it.copy(enviando = false, caixinhaDetalhe = detalhe)
+                    }
+                    carregarCaixinhas()
+                    onOk(detalhe.id)
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) }
+                }
+        }
+    }
+
+    fun entrarCaixinha(chave: String, onOk: (String) -> Unit) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.entrarCaixinha(chave, mesLocal()) }
+                .onSuccess { detalhe ->
+                    _estado.update {
+                        it.copy(enviando = false, caixinhaDetalhe = detalhe)
+                    }
+                    carregarCaixinhas()
+                    onOk(detalhe.id)
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) }
+                }
+        }
+    }
+
+    /** Mutação que devolve o detalhe: guarda a resposta e atualiza a lista. */
+    private fun mutarCaixinha(bloco: suspend () -> DetalheCaixinha) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { bloco() }
+                .onSuccess { detalhe ->
+                    _estado.update { it.copy(enviando = false, caixinhaDetalhe = detalhe) }
+                    runCatching { api.caixinhas() }.onSuccess { lista ->
+                        _estado.update { it.copy(caixinhas = lista) }
+                    }
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) }
+                }
+        }
+    }
+
+    fun aportarCaixinha(id: String, amount: String, mes: String = mesLocal()) =
+        mutarCaixinha { api.proporAporte(id, amount, mes) }
+
+    fun renderCaixinha(id: String, membroId: String, competencia: String, mes: String = mesLocal()) =
+        mutarCaixinha { api.proporRendimento(id, membroId, competencia, mes) }
+
+    fun devolverCaixinha(id: String, membroId: String, amount: String, mes: String = mesLocal()) =
+        mutarCaixinha { api.proporDevolucao(id, membroId, amount, mes) }
+
+    fun confirmarMovimentoCaixinha(id: String, movimentoId: String, mes: String = mesLocal()) =
+        mutarCaixinha { api.confirmarMovimento(id, movimentoId, mes) }
+
+    fun recusarMovimentoCaixinha(id: String, movimentoId: String, mes: String = mesLocal()) =
+        mutarCaixinha { api.recusarMovimento(id, movimentoId, mes) }
+
+    fun cancelarMovimentoCaixinha(id: String, movimentoId: String, mes: String = mesLocal()) =
+        mutarCaixinha { api.cancelarMovimento(id, movimentoId, mes) }
+
+    fun avaliarCaixinha(id: String, estrelas: Int, mes: String = mesLocal()) =
+        mutarCaixinha { api.avaliarCaixinha(id, estrelas, mes) }
+
+    fun salvarTelefoneCaixinha(id: String, telefone: String, mes: String = mesLocal()) =
+        mutarCaixinha { api.salvarTelefoneCaixinha(id, telefone, mes) }
 
 }
 

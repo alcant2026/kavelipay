@@ -26,7 +26,7 @@ fn erro_de_token_também_nao_vaza() {
 
 #[test]
 fn indisponível_é_503_não_500_nem_404() {
-    // Feature desligada (sem OPENROUTER_API_KEY) não é erro do cliente nem
+    // Recurso desligado não é erro do cliente nem
     // defeito interno: é o servidor dizendo "não tenho o recurso agora".
     // 404 mentiria ("rota inexistente"), 500 culparia a infra na cara do app.
     let erro = AppError::Unavailable;

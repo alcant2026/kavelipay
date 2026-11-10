@@ -24,7 +24,7 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
-        value: mistralai/mistral-nemo
+        value: deepseek/deepseek-v4.1-flash-1017:floor
       - key: DB_MAX_CONNECTIONS
         value: "10"
       - key: RUST_LOG

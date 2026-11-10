@@ -101,11 +101,12 @@ except Exception:
     print('')" "$1" "$2"; }
 
 # Um request só: corpo e status juntos — duas chamadas criariam movimento
-# duplicado assim que a rota existisse (mesmo padrão de debts_e2e).
+# duplicado assim que a rota existisse (mesmo padrão de splits_e2e).
 req() { curl -s -w '\n%{http_code}' "$@"; }
 
 MES_ATUAL="$(date -u +%Y-%m)"
 MES_PROX="$(date -u -d "$(date -u +%Y-%m-01) +1 month" +%Y-%m)"
+MES_ALEM="$(date -u -d "$(date -u +%Y-%m-01) +2 months" +%Y-%m)"
 
 echo "criando banco: $DB"
 "${PSQL[@]}" -d postgres -c "CREATE DATABASE \"$DB\";"
@@ -170,8 +171,8 @@ check "papel do criador é dono (recebido ${PAPEL:-vazio})" \
     "$([ "$PAPEL" = "dono" ] && echo true || echo false)"
 
 CONVITE1=$(campo convite <<<"$NOVA")
-check "convite nasce no formato KAV-XXXXXX (recebido ${CONVITE1:-vazio})" \
-    "$(python3 -c "import re,sys; print('true' if re.match(r'^KAV-[0-9A-F]{6}$', sys.argv[1]) else 'false')" "$CONVITE1")"
+check "convite nasce no formato KAV-XXXXXXXXXXXX (recebido ${CONVITE1:-vazio})" \
+    "$(python3 -c "import re,sys; print('true' if re.match(r'^KAV-[0-9A-F]{12}$', sys.argv[1]) else 'false')" "$CONVITE1")"
 
 TAXA=$(campo taxa_mensal <<<"$NOVA")
 check "taxa serializa sem zeros à direita: 3 (recebido ${TAXA:-vazio})" \
@@ -256,6 +257,32 @@ C_FLOAT_TAXA=$(code -X POST "$BASE/caixinhas" -H "$AUTH_A" -H 'content-type: app
     -d '{"nome":"Outra","valor_pedido":"100.00","taxa_mensal":2.5}')
 check "taxa como float é 422 (recebido $C_FLOAT_TAXA)" \
     "$([ "$C_FLOAT_TAXA" = "422" ] && echo true || echo false)"
+
+NOME_LONGO=$(python3 -c "print('a' * 81)")
+RESPOSTA=$(req -X POST "$BASE/caixinhas" -H "$AUTH_A" -H 'content-type: application/json' \
+    -d "{\"nome\":\"$NOME_LONGO\",\"valor_pedido\":\"100.00\",\"taxa_mensal\":\"3\"}")
+C_NOME_LONGO="${RESPOSTA##*$'\n'}"
+check "nome com 81 caracteres é 422 (recebido $C_NOME_LONGO)" \
+    "$([ "$C_NOME_LONGO" = "422" ] && echo true || echo false)"
+MSG=$(campo message <<<"${RESPOSTA%$'\n'*}")
+check "mensagem é 'nome deve ter no máximo 80 caracteres' (recebido ${MSG:-vazio})" \
+    "$([ "$MSG" = "nome deve ter no máximo 80 caracteres" ] && echo true || echo false)"
+
+PREV_LONGA=$(python3 -c "print('p' * 61)")
+RESPOSTA=$(req -X POST "$BASE/caixinhas" -H "$AUTH_A" -H 'content-type: application/json' \
+    -d "{\"nome\":\"Outra\",\"valor_pedido\":\"100.00\",\"taxa_mensal\":\"3\",\"previsao_quitacao\":\"$PREV_LONGA\"}")
+C_PREV_LONGA="${RESPOSTA##*$'\n'}"
+check "previsão com 61 caracteres é 422 (recebido $C_PREV_LONGA)" \
+    "$([ "$C_PREV_LONGA" = "422" ] && echo true || echo false)"
+
+RESPOSTA=$(req -X POST "$BASE/caixinhas" -H "$AUTH_A" -H 'content-type: application/json' \
+    -d '{"nome":"Outra","valor_pedido":"9999999999999999.0000","taxa_mensal":"3"}')
+C_VALOR_ABSURDO="${RESPOSTA##*$'\n'}"
+check "valor pedido acima de NUMERIC(19,4) é 422 (recebido $C_VALOR_ABSURDO)" \
+    "$([ "$C_VALOR_ABSURDO" = "422" ] && echo true || echo false)"
+MSG=$(campo message <<<"${RESPOSTA%$'\n'*}")
+check "mensagem é 'valor pedido acima do limite' (recebido ${MSG:-vazio})" \
+    "$([ "$MSG" = "valor pedido acima do limite" ] && echo true || echo false)"
 
 MINHAS_POS_422=$(curl -s "$BASE/caixinhas" -H "$AUTH_A")
 N_POS_422=$(qtd_de '' <<<"$MINHAS_POS_422")
@@ -393,8 +420,13 @@ check "proposto não conta: arrecadado segue 0.00 (recebido ${ARR:-vazio})" \
     "$([ "$ARR" = "0.00" ] && echo true || echo false)"
 
 PEND=$(campo arrecadado_pendente <<<"$APORTE_B")
-check "arrecadado_pendente é 600.00 (recebido ${PEND:-vazio})" \
-    "$([ "$PEND" = "600.00" ] && echo true || echo false)"
+check "membro não vê arrecadado_pendente alheio (null, recebido ${PEND:-vazio})" \
+    "$([ -z "$PEND" ] && echo true || echo false)"
+
+DETALHE_PEND=$(curl -s "$BASE/caixinhas/$CAIXINHA" -H "$AUTH_A")
+PEND_DONO=$(campo arrecadado_pendente <<<"$DETALHE_PEND")
+check "dono vê arrecadado_pendente 600.00 (recebido ${PEND_DONO:-vazio})" \
+    "$([ "$PEND_DONO" = "600.00" ] && echo true || echo false)"
 
 DISP=$(campo disponivel_aporte <<<"$APORTE_B")
 check "disponivel_aporte desconta a proposta: 400.00 (recebido ${DISP:-vazio})" \
@@ -469,6 +501,16 @@ check "rendimento do mês do aporte é 422 (recebido $C_REND_ATUAL)" \
 MSG=$(campo message <<<"${RESPOSTA%$'\n'*}")
 check "mensagem é 'Não há rendimento em aberto neste mês.' (recebido ${MSG:-vazio})" \
     "$([ "$MSG" = "Não há rendimento em aberto neste mês." ] && echo true || echo false)"
+
+RESPOSTA=$(req -X POST "$BASE/caixinhas/$CAIXINHA/rendimentos" -H "$AUTH_A" \
+    -H 'content-type: application/json' \
+    -d "{\"membro_id\":\"$BOB_ID\",\"competencia\":\"$MES_ALEM\"}")
+C_REND_ALEM="${RESPOSTA##*$'\n'}"
+check "competência acima do próximo mês é 422 (recebido $C_REND_ALEM)" \
+    "$([ "$C_REND_ALEM" = "422" ] && echo true || echo false)"
+MSG=$(campo message <<<"${RESPOSTA%$'\n'*}")
+check "mensagem é 'competência não pode ser maior que o próximo mês.' (recebido ${MSG:-vazio})" \
+    "$([ "$MSG" = "competência não pode ser maior que o próximo mês." ] && echo true || echo false)"
 
 RESPOSTA=$(req -X POST "$BASE/caixinhas/$CAIXINHA/rendimentos" -H "$AUTH_A" \
     -H 'content-type: application/json' \
@@ -790,8 +832,8 @@ STATUS_CANCELADO=$(campo movimentos.0.status <<<"${RESPOSTA%$'\n'*}")
 check "movimento vira CANCELADO (recebido ${STATUS_CANCELADO:-vazio})" \
     "$([ "$STATUS_CANCELADO" = "CANCELADO" ] && echo true || echo false)"
 PEND=$(campo arrecadado_pendente <<<"${RESPOSTA%$'\n'*}")
-check "cancelado não fica pendente (recebido ${PEND:-vazio})" \
-    "$([ "$PEND" = "0.00" ] && echo true || echo false)"
+check "membro não vê pendente alheio: null após cancelar (recebido ${PEND:-vazio})" \
+    "$([ -z "$PEND" ] && echo true || echo false)"
 
 RESPOSTA=$(req -X POST "$BASE/caixinhas/$CAIXINHA/aportes" -H "$AUTH_B" \
     -H 'content-type: application/json' -d '{"amount":"50.00"}')
@@ -867,6 +909,24 @@ C_PUBLICAR=$(code -X PATCH "$BASE/caixinhas/$CAIXINHA/publica" -H "$AUTH_A" \
     -H 'Content-Type: application/json' -d '{"publica":true}')
 check "PATCH /caixinhas/{id}/publica não existe mais: 404 (recebido $C_PUBLICAR)" \
     "$([ "$C_PUBLICAR" = "404" ] && echo true || echo false)"
+
+echo
+echo "convite: adivinhar código em série trava o usuário (429), não a conta de outro"
+
+for i in 1 2 3 4 5; do
+    C_GUESS=$(code -X POST "$BASE/caixinhas/entrar" -H "$AUTH_D" \
+        -H 'content-type: application/json' -d "{\"chave\":\"KAV-00000000000$i\"}")
+    check "tentativa inválida $i é 404 (recebido $C_GUESS)" \
+        "$([ "$C_GUESS" = "404" ] && echo true || echo false)"
+done
+RESPOSTA=$(req -X POST "$BASE/caixinhas/entrar" -H "$AUTH_D" \
+    -H 'content-type: application/json' -d '{"chave":"KAV-000000000006"}')
+C_BLOQUEIO="${RESPOSTA##*$'\n'}"
+check "sexta tentativa seguida é 429 (recebido $C_BLOQUEIO)" \
+    "$([ "$C_BLOQUEIO" = "429" ] && echo true || echo false)"
+MSG=$(campo message <<<"${RESPOSTA%$'\n'*}")
+check "mensagem de bloqueio em pt-BR (recebido ${MSG:-vazio})" \
+    "$(python3 -c "import sys; print('true' if sys.argv[1].startswith('muitas tentativas de convite') else 'false')" "$MSG")"
 
 echo
 echo "minhas caixinhas: cada um vê as suas, com o papel certo"

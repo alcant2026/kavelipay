@@ -3,9 +3,7 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::ai::AiClient;
 use crate::auth::TokenService;
-use crate::cotacao::CotacaoClient;
 use crate::error::{AppError, AppResult};
 use crate::rate_limit::LoginGate;
 
@@ -13,16 +11,8 @@ use crate::rate_limit::LoginGate;
 pub struct AppState {
     pub db: PgPool,
     pub tokens: TokenService,
-    /// Cliente da IA para prefill de ativos. Uma estrutura só: o
-    /// `reqwest::Client` dentro segura o pool de conexões TLS — construir
-    /// um por consulta abriria handshake novo toda vez que a pessoa
-    /// digitasse um ticker.
-    pub ai: AiClient,
-    /// Cliente das fontes de cotação (brapi/Yahoo) — sugestão de preço e
-    /// data de dividendo. Mesmo motivo do `ai`: um pool, não um por tela.
-    pub cotacao: CotacaoClient,
-    /// Cliente do Mercado Pago (Checkout Pro). Mesmo motivo do `ai`: um pool
-    /// TLS só, não um por cobrança.
+    /// Cliente do Mercado Pago (Checkout Pro). Um pool TLS só, não um por
+    /// cobrança.
     pub mp: crate::mercadopago::MercadoPago,
     /// OAuth do Mercado Pago: id/segredo da aplicação e a chave que cifra os
     /// tokens dos usuários. `None` = ninguém pode conectar a conta.
@@ -30,14 +20,19 @@ pub struct AppState {
     /// Base pública do backend, sem barra no fim. É o que vira link de pagamento
     /// para quem não tem o app (`{base}/cobranca/{token}/pagar`).
     pub public_base_url: String,
-    /// Token do cadastro de ofertas da vitrine. `None` = rota de admin
-    /// desligada (503). Fica no estado, e não numa env lida no handler, para
-    /// o processo morrer no boot se o token for fraco — e para os testes
+    /// Token do admin (emissão de código de assinatura). `None` = rota de
+    /// admin desligada (503). Fica no estado, e não numa env lida no handler,
+    /// para o processo morrer no boot se o token for fraco — e para os testes
     /// conseguirem ligar a rota sem mexer no ambiente do processo.
     pub admin_token: Option<String>,
     /// Trava de tentativas de login (brute force). Em memória: MVP de uma
     /// instância só; se um dia houver mais de um processo, migra para tabela.
     pub login_gate: LoginGate,
+    /// Trava de tentativas de convite de caixinha, por usuário autenticado.
+    /// Separado do `login_gate`: adivinhar código não é tentar senha, e a
+    /// chave aqui é o `user_id`, não o e-mail. Mesma classe, contadores
+    /// independentes; em memória como o resto (uma instância no MVP).
+    pub convite_gate: LoginGate,
     /// Envio de e-mail. `None` = SMTP não configurado — recuperação de senha
     /// responde 503 (o resto do app não depende de e-mail).
     pub mailer: Option<crate::mail::Mailer>,
@@ -49,6 +44,12 @@ pub struct AppState {
     /// vCPU) não cair inteira por causa de um script — o `login_gate` protege
     /// uma conta, este protege o processo.
     pub limite_global: crate::rate_limit::LimiteGlobal,
+    /// Cliente de IA do relatório mensal. Sem chave, a rota devolve 503 e o
+    /// relatório sai só com os números do ledger.
+    pub ai: crate::ai::AiClient,
+    /// Teto de gerações de relatório por usuário/hora: cada uma custa token
+    /// de terceiro.
+    pub relatorio_gate: crate::rate_limit::LimiteUsuario,
 }
 
 /// Wallet do usuário, exigindo ACTIVE: wallet bloqueada não se move. Ponto

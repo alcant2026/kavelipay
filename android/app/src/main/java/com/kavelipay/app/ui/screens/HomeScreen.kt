@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TrendingUp
@@ -110,6 +111,7 @@ fun KpHomeScreen(
     aoVerHistorico: () -> Unit,
     aoVerCategorias: () -> Unit,
     aoVerPerfil: () -> Unit,
+    aoVerCaixinhas: () -> Unit = {},
     // Defaults para a Home continuar compilável sem quem os injeta (o Nav
     // antigo não passa esses quatro); quem alimenta é a raiz, no commit que
     // traz as rotas novas.
@@ -302,6 +304,13 @@ fun KpHomeScreen(
                             rotulo = "Relatório do mês",
                             subtitulo = "Entradas, saídas e para onde foi o dinheiro",
                             onClick = aoVerRelatorio,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        KpMenuRow(
+                            icone = Icons.Default.Savings,
+                            rotulo = "Caixinhas",
+                            subtitulo = "Empréstimos entre conhecidos, com quem deve o quê",
+                            onClick = aoVerCaixinhas,
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
                         KpMenuRow(

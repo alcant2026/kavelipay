@@ -458,3 +458,161 @@ fun JSONObject.paraContaMp(): ContaMp = ContaMp(
     conectado = optBoolean("conectado", false),
     mpUserId = if (isNull("mp_user_id")) null else optLong("mp_user_id"),
 )
+
+// ── Caixinhas (empréstimo registrado entre conhecidos) ────────────────────────
+/**
+ * Espelha `routes/caixinhas.rs`. Fora do ledger: nada aqui move saldo, e TODOS
+ * os valores derivados (`arrecadado`, `falta_mes`, `rendimento_disponivel`…)
+ * vêm prontos do servidor — a tela nunca recalcula dinheiro.
+ *
+ * A caixinha é privada: só entra quem recebe o código do dono. Os modelos
+ * carregam `papel` ("dono"/"membro") porque a mesma tela muda de ação conforme
+ * quem está olhando.
+ */
+data class ItemCaixinha(
+    val id: String,
+    val nome: String,
+    val papel: String,
+    val valorPedido: String,
+    val taxaMensal: String,
+    val arrecadado: String,
+    val progresso: Float,
+    val mediaAvaliacoes: String?,
+    val totalAvaliacoes: Int,
+    val criadoEm: String,
+)
+
+data class ListaCaixinhas(val itens: List<ItemCaixinha>)
+
+data class DonoCaixinha(
+    val userId: String,
+    val nome: String,
+    val telefone: String?,
+)
+
+data class MembroCaixinha(
+    val userId: String,
+    val nome: String,
+    val telefone: String?,
+    val aportado: String,
+    val saldoEmAberto: String,
+    val devidoMes: String,
+    val pagoMes: String,
+    val faltaMes: String,
+    val rendimentoDisponivel: String,
+    val rendimentoPendente: Boolean,
+)
+
+data class MovimentoCaixinha(
+    val id: String,
+    /** APORTE | RENDIMENTO | DEVOLUCAO (maiúsculo, como o servidor manda). */
+    val tipo: String,
+    val membroId: String,
+    val membroNome: String,
+    val valor: String,
+    /** "YYYY-MM" ou null (só rendimento tem competência). */
+    val competencia: String?,
+    /** PROPOSTO | CONFIRMADO | RECUSADO | CANCELADO. */
+    val status: String,
+    val propostoPor: String,
+    val criadoEm: String,
+    val confirmadoEm: String?,
+)
+
+data class DetalheCaixinha(
+    val id: String,
+    val nome: String,
+    val papel: String,
+    val dono: DonoCaixinha,
+    val valorPedido: String,
+    val taxaMensal: String,
+    val previsaoQuitacao: String?,
+    val arrecadado: String,
+    /** Só o dono recebe; soma de propostas de terceiros vem null pro membro. */
+    val arrecadadoPendente: String?,
+    val disponivelAporte: String,
+    val progresso: Float,
+    val mediaAvaliacoes: String?,
+    val totalAvaliacoes: Int,
+    /** Só o dono vê; código de convite ativo. */
+    val convite: String?,
+    val minhaAvaliacao: Int?,
+    val membros: List<MembroCaixinha>,
+    /** Só o dono recebe; membro vem null. */
+    val totalDevidoMes: String?,
+    val totalPagoMes: String?,
+    val totalFaltaMes: String?,
+    val movimentos: List<MovimentoCaixinha>,
+)
+
+fun JSONObject.paraItemCaixinha() = ItemCaixinha(
+    id = optString("id"),
+    nome = optString("nome"),
+    papel = optString("papel"),
+    valorPedido = optString("valor_pedido", "0.00"),
+    taxaMensal = optString("taxa_mensal", "0"),
+    arrecadado = optString("arrecadado", "0.00"),
+    progresso = optDouble("progresso", 0.0).toFloat(),
+    mediaAvaliacoes = anulavel("media_avaliacoes"),
+    totalAvaliacoes = optInt("total_avaliacoes"),
+    criadoEm = optString("criado_em"),
+)
+
+fun JSONObject.paraListaCaixinhas() = ListaCaixinhas(
+    itens = optJSONArray("items").paraObjetos { it.paraItemCaixinha() },
+)
+
+fun JSONObject.paraDonoCaixinha() = DonoCaixinha(
+    userId = optString("user_id"),
+    nome = optString("nome"),
+    telefone = anulavel("telefone"),
+)
+
+fun JSONObject.paraMembroCaixinha() = MembroCaixinha(
+    userId = optString("user_id"),
+    nome = optString("nome"),
+    telefone = anulavel("telefone"),
+    aportado = optString("aportado", "0.00"),
+    saldoEmAberto = optString("saldo_em_aberto", "0.00"),
+    devidoMes = optString("devido_mes", "0.00"),
+    pagoMes = optString("pago_mes", "0.00"),
+    faltaMes = optString("falta_mes", "0.00"),
+    rendimentoDisponivel = optString("rendimento_disponivel", "0.00"),
+    rendimentoPendente = optBoolean("rendimento_pendente"),
+)
+
+fun JSONObject.paraMovimentoCaixinha() = MovimentoCaixinha(
+    id = optString("id"),
+    tipo = optString("tipo"),
+    membroId = optString("membro_id"),
+    membroNome = optString("membro_nome"),
+    valor = optString("valor", "0.00"),
+    competencia = anulavel("competencia"),
+    status = optString("status"),
+    propostoPor = optString("proposto_por"),
+    criadoEm = optString("criado_em"),
+    confirmadoEm = anulavel("confirmado_em"),
+)
+
+fun JSONObject.paraDetalheCaixinha() = DetalheCaixinha(
+    id = optString("id"),
+    nome = optString("nome"),
+    papel = optString("papel"),
+    dono = optJSONObject("dono")?.paraDonoCaixinha() ?: DonoCaixinha("", "", null),
+    valorPedido = optString("valor_pedido", "0.00"),
+    taxaMensal = optString("taxa_mensal", "0"),
+    previsaoQuitacao = anulavel("previsao_quitacao"),
+    arrecadado = optString("arrecadado", "0.00"),
+    arrecadadoPendente = anulavel("arrecadado_pendente"),
+    disponivelAporte = optString("disponivel_aporte", "0.00"),
+    progresso = optDouble("progresso", 0.0).toFloat(),
+    mediaAvaliacoes = anulavel("media_avaliacoes"),
+    totalAvaliacoes = optInt("total_avaliacoes"),
+    convite = anulavel("convite"),
+    minhaAvaliacao = if (isNull("minha_avaliacao")) null else optInt("minha_avaliacao"),
+    membros = optJSONArray("membros").paraObjetos { it.paraMembroCaixinha() },
+    totalDevidoMes = anulavel("total_devido_mes"),
+    totalPagoMes = anulavel("total_pago_mes"),
+    totalFaltaMes = anulavel("total_falta_mes"),
+    movimentos = optJSONArray("movimentos").paraObjetos { it.paraMovimentoCaixinha() },
+)

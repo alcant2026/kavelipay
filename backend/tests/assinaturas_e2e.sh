@@ -97,14 +97,6 @@ ERR=$(curl -s "$BASE/reports/monthly" -H "$AUTH" | errcode)
 check "erro do relatório é plano_necessario (recebido ${ERR:-vazio})" \
     "$([ "$ERR" = "plano_necessario" ] && echo true || echo false)"
 
-C_LOOK=$(code -X POST "$BASE/investments/lookup" -H "$AUTH" -H "$JSON" -d '{"symbol":"PETR4"}')
-check "lookup por IA sem plano é 402 (recebido $C_LOOK)" \
-    "$([ "$C_LOOK" = "402" ] && echo true || echo false)"
-
-C_QUOTE=$(code -X POST "$BASE/investments/quote" -H "$AUTH" -H "$JSON" -d '{"symbol":"PETR4"}')
-check "cotação sem plano é 402 (recebido $C_QUOTE)" \
-    "$([ "$C_QUOTE" = "402" ] && echo true || echo false)"
-
 echo
 echo "2. código inválido não ativa nada"
 C_BAD=$(code -X POST "$BASE/billing/ativar" -H "$AUTH" -H "$JSON" -d '{"codigo":"KPL-AAAA-AAAA-AAAA-AAAA"}')

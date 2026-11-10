@@ -2,6 +2,7 @@ package com.kavelipay.app.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Log
 import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -340,12 +341,12 @@ private fun LeitorPreview(
     val analise = remember {
         ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            // 640x480, não 1280x720: o código de boleto ocupa a tela inteira e
-            // é lido com folga nessa resolução, enquanto a 720p cada frame
-            // custa 4x mais — a rotação da matriz e o decode do ZXing rodam a
-            // cada quadro, numa thread só, e em aparelho fraco isso esquenta e
-            // trava a prévia.
-            .setTargetResolution(Size(640, 480))
+            // 1280x720, não 640x480: o QR da cobrança é lido da TELA de outro
+            // aparelho e, a 640x480, cada módulo cai para ~7 px — o zxing
+            // perde a leitura. O boleto (1D) não precisa disso, mas a mesma
+            // câmera serve aos dois. Custo: 4x pixels por frame numa thread só,
+            // aceitável porque esta tela dura segundos.
+            .setTargetResolution(Size(1280, 720))
             .build()
             .apply { setAnalyzer(executor, LeitorYuv(pausado, aoDetectar)) }
     }
@@ -436,11 +437,16 @@ private class LeitorYuv(
             )
             val fonte = PlanarYUVLuminanceSource(y, wl, ha, 0, 0, wl, ha, false)
             val texto = leitor.decodeWithState(BinaryBitmap(HybridBinarizer(fonte))).text
+            // Sem log, "a câmera não lê" na mão do usuário é indistinguível de
+            // "nunca chegou frame" ou "leu e o app recusou". Só o tamanho: o
+            // texto pode ser o token de uma cobrança e não vai para o logcat.
+            Log.i("KpLeitor", "lido ${texto.length} chars")
             aoDetectar(texto)
         } catch (_: NotFoundException) {
             // Frame sem código — o caso normal de câmera apontada pra nada.
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             // Frame ruim: descarta e segue lendo.
+            Log.w("KpLeitor", "frame descartado: ${e.javaClass.simpleName}")
         } finally {
             imagem.close()
         }

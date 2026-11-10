@@ -9,6 +9,8 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use uuid::Uuid;
+
 /// Falhas permitidas dentro da janela antes do bloqueio.
 const MAX_TENTATIVAS: u32 = 5;
 /// Janela que conta falhas consecutivas.
@@ -181,10 +183,44 @@ impl LimiteGlobal {
     }
 }
 
+/// Freio por usuário autenticado: teto de gerações de relatório por hora.
+///
+/// O relatório com IA custa token de terceiro; sem teto, um assinante dispara
+/// centenas de chamadas. Por usuário (não por IP) porque o custo é da conta —
+/// e CGNAT põe muita gente no mesmo IP.
+#[derive(Default, Clone)]
+pub struct LimiteUsuario {
+    janelas: Arc<Mutex<HashMap<Uuid, (Instant, u32)>>>,
+}
+
+impl LimiteUsuario {
+    pub const MAX: u32 = 5;
+    pub const JANELA: Duration = Duration::from_secs(60 * 60);
+
+    /// `true` se o pedido pode seguir — e já conta como um.
+    pub fn permite(&self, user_id: Uuid) -> bool {
+        let mut mapa = self.lock();
+        let agora = Instant::now();
+        // Poda: sem isso um mês de contas distintas nunca encolhe.
+        if mapa.len() > 10_000 {
+            mapa.retain(|_, (inicio, _)| agora.duration_since(*inicio) <= Self::JANELA);
+        }
+        let entrada = mapa.entry(user_id).or_insert((agora, 0));
+        if agora.duration_since(entrada.0) > Self::JANELA {
+            *entrada = (agora, 0);
+        }
+        entrada.1 += 1;
+        entrada.1 <= Self::MAX
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<Uuid, (Instant, u32)>> {
+        self.janelas.lock().unwrap_or_else(|p| p.into_inner())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn limite_global_corta_no_maximo_e_libera_outro_ip() {
         let limite = LimiteGlobal::new(3);
@@ -205,6 +241,17 @@ mod tests {
 
     fn ip() -> IpAddr {
         "10.0.0.1".parse().unwrap()
+    }
+
+    #[test]
+    fn limite_usuario_corta_no_maximo_e_libera_outra_conta() {
+        let limite = LimiteUsuario::default();
+        let conta = Uuid::new_v4();
+        for _ in 0..LimiteUsuario::MAX {
+            assert!(limite.permite(conta));
+        }
+        assert!(!limite.permite(conta));
+        assert!(limite.permite(Uuid::new_v4()));
     }
 
     #[test]

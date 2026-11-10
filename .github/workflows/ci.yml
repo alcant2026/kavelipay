@@ -31,10 +31,9 @@ jobs:
     # Postgres real, não mock: os e2e provam as constraints do ledger, e
     # constraint falsa não prova nada.
     #
-    # POSTGRES_DB=kavelipay porque `investments_e2e.sh` usa o banco de nome
-    # fixo (o mesmo que o container local de teste cria — ver
-    # docs/ambiente-e-build.md). O usuário é superuser porque cada e2e cria e
-    # derruba o banco dele.
+    # POSTGRES_DB=kavelipay porque os e2e usam o banco de nome fixo (o mesmo
+    # que o container local de teste cria — ver docs/ambiente-e-build.md).
+    # O usuário é superuser porque cada e2e cria e derruba o banco dele.
     services:
       postgres:
         image: postgres:16

@@ -205,10 +205,10 @@ mod tests {
     #[test]
     fn investment_nao_entra_nos_defaults() {
         // As listas da spec (5 receitas + 9 despesas) não têm "investimento",
-        // e não devem: compra de ativo é registrada pelo módulo de
-        // investimentos, com o próprio ativo como categoria. Semear aqui
-        // criaria uma categoria "Investimentos" que o usuário nunca escolhe
-        // para compra — ela viraria lixo no seletor.
+        // e não devem: a categoria existe para os tipos do ledger
+        // (`InvestmentBuy`/`InvestmentSell`), não para o usuário escolher.
+        // Semear aqui criaria uma categoria "Investimentos" que ele nunca
+        // escolhe para compra — viraria lixo no seletor.
         assert_eq!(
             DEFAULTS.iter().filter(|(k, ..)| **k == CategoryKind::Investment).count(),
             0,

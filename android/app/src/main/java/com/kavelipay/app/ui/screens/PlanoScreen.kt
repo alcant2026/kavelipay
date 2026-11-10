@@ -129,11 +129,11 @@ fun KpPlanoScreen(vm: AppViewModel, aoVoltar: () -> Unit) {
                             Spacer(Modifier.height(Spacing.xs))
                             Text(
                                 text = if (premium) {
-                                    "Relatório do mês, análise por IA e cotação de " +
-                                        "mercado estão liberados."
+                                    "O relatório mensal de gastos por categoria está " +
+                                        "liberado."
                                 } else {
-                                    "Saldo, extrato, contas, cobranças e os seus dados " +
-                                        "continuam grátis."
+                                    "Saldo, extrato, contas, cobranças, caixinhas e os " +
+                                        "seus dados continuam grátis."
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,

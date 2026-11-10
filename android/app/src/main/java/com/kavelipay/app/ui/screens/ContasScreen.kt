@@ -27,13 +27,19 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import java.time.YearMonth
 import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpBadgeCritico
 import com.kavelipay.app.ui.components.KpBadgeNeutra
@@ -174,8 +180,14 @@ fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoAbrirPlano: () -
     val estado by vm.estado.collectAsState()
     val sem = KpTheme.semanticas
     val r = estado.relatorio
+    // Mês visível. O carregamento inicial vem do `carregarTudo`; as setas
+    // trocam o período e buscam de novo. Se a tela for reaberta depois de
+    // navegar, o mês mostrado acompanha o relatório já carregado.
+    var mes by remember {
+        mutableStateOf(estado.relatorio?.month ?: YearMonth.now().toString())
+    }
 
-    Scaffold(topBar = { CabecalhoComVoltar("Este mês", aoVoltar) }) { padding ->
+    Scaffold(topBar = { CabecalhoComVoltar("Relatório", aoVoltar) }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(
@@ -184,6 +196,24 @@ fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoAbrirPlano: () -
             ),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = {
+                        mes = YearMonth.parse(mes).minusMonths(1).toString()
+                        vm.carregarRelatorio(mes)
+                    }) { Text("‹ anterior") }
+                    Text(formatarMes(mes), style = TituloSecao)
+                    TextButton(onClick = {
+                        mes = YearMonth.parse(mes).plusMonths(1).toString()
+                        vm.carregarRelatorio(mes)
+                    }) { Text("próximo ›") }
+                }
+            }
+
             // Sem relatório, a tela NÃO mostra zeros: "R$ 0,00 de entrada" lê
             // como "você não gastou nada" quando o Truth é "isso é pago" (o
             // backend responde 402 sem plano) ou "não deu para carregar".
@@ -228,7 +258,7 @@ fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoAbrirPlano: () -
                                 } else {
                                     KpBotaoSecundario(
                                         "Tentar de novo",
-                                        onClick = { vm.carregarTudo() },
+                                        onClick = { vm.carregarRelatorio(mes) },
                                         modifier = Modifier.fillMaxWidth(),
                                     )
                                 }
@@ -267,6 +297,14 @@ fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoAbrirPlano: () -
                             )
                         }
                     }
+                }
+
+                item {
+                    KpBotaoSecundario(
+                        "Baixar relatório (HTML)",
+                        onClick = { vm.baixarRelatorio(mes) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
 
                 val fatias = r.fatiasDespesa.orEmpty()
@@ -335,6 +373,16 @@ fun KpRelatorioScreen(vm: AppViewModel, aoVoltar: () -> Unit, aoAbrirPlano: () -
                             "entradas e saídas no período. Saldo agora: R$ ${brl(r.balance ?: "0.00")}.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            estado.avisoPerfil?.let { aviso ->
+                item {
+                    Text(
+                        aviso,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (estado.avisoPerfilFalhou) sem.vencido else sem.receita,
                     )
                 }
             }

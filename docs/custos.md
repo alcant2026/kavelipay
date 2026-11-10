@@ -149,13 +149,10 @@ Você é **uma pessoa** fazendo três papéis. Não triplique salário: é **um 
 
 ## 4. IA do app (custo variável)
 
-- Modelo padrão `mistralai/mistral-nemo`: ~**US$ 0,000003 por consulta** (200 tokens).
-- Em reais: ~**R$ 0,000015 por consulta**.
-- 1.000 consultas/mês ≈ **R$ 0,015**; 10.000 ≈ **R$ 0,15**.
-- Cotação brapi/Yahoo/statusinvest: **R$ 0** no fluxo atual.
-- Plano pago do brapi (R$ 139,99/mês) foi evitado com statusinvest.
-
-**Conclusão:** IA do app é centavo. Não é o problema do negócio.
+O app **não tem mais** IA nem cotação de mercado: as telas de investimentos e de
+prefill por IA saíram do escopo, e as rotas/consumo de OpenRouter e
+brapi/Yahoo/statusinvest foram removidos do backend. O custo variável dessa
+frente hoje é **R$ 0**.
 
 ## 5. IA de desenvolvimento (custo fixo)
 

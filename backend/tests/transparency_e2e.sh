@@ -263,6 +263,21 @@ R_BOB=$(curl -s "$BASE/reports/monthly" -H "$AUTH_B" | get expense)
 check "relatório do Bob não vê gastos da Alice (obtido $R_BOB)" \
     "$([ "$R_BOB" = "0.00" ] && echo true || echo false)"
 
+# HTML baixável: mesmo gating, mesmos números, e a análise por IA é opcional
+# (o e2e roda sem OPENROUTER_API_KEY, então a seção cai no aviso).
+HTML_DIR="$(mktemp -d)"
+curl -s -D "$HTML_DIR/h" -o "$HTML_DIR/b" \
+    "$BASE/reports/monthly/relatorio?month=$MES" -H "$AUTH"
+check "relatório HTML responde 200" \
+    "$(grep -q ' 200 ' "$HTML_DIR/h" && echo true || echo false)"
+check "relatório HTML vem como anexo" \
+    "$(grep -qi 'content-disposition: attachment' "$HTML_DIR/h" && echo true || echo false)"
+check "relatório HTML tem o título" \
+    "$(grep -q 'Relatório KaveliPay' "$HTML_DIR/b" && echo true || echo false)"
+check "relatório HTML traz a receita do período" \
+    "$(grep -q '8200.50' "$HTML_DIR/b" && echo true || echo false)"
+rm -rf "$HTML_DIR"
+
 echo
 echo "6. extrato mostra a categoria"
 

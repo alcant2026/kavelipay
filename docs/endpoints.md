@@ -95,22 +95,6 @@ Com a conta conectada, cobrança e parte de divisão criam a preferência com o
 token **do dono**: o dinheiro cai na conta dele, não na do app. Sem conta
 conectada a página pública avisa e não oferece pagar.
 - `DELETE /charges/{id}` — cancela; só PENDING
-- `POST /investments/lookup` — `{symbol, kind}` → `{found, name?, summary?}`;
-  prefill por IA do "Adicionar ativo" (ver a seção de IA abaixo)
-- `POST /debts` — cria dívida `{creditor_name, amount, description}`. **Nenhuma
-  transação de ledger** (como `/charges`): registrar que devo não mexe no saldo.
-  `amount` string, float é 422. Vira sempre `PENDING`
-- `GET /debts` — carteira ativa, mais recentes primeiro
-- `POST /debts/{id}/pay` — declara o pagamento: debita o ledger (`Expense`) e
-  marca `PAID` na mesma transação. Idempotente: segunda vez é 409 sem debitar
-  de novo
-- `POST /debts/{id}/confirm` — credor confirmou: muda **só status**
-  (`PAID → CONFIRMED`), nunca dinheiro; confirmar duas vezes é 409
-- `PATCH /debts/{id}` — edição parcial `{creditor_name?, amount?, description?}`;
-  só `PENDING` (pago/confirmado é 409); 422 com as mesmas mensagens do POST
-- `DELETE /debts/{id}` — só `PENDING` (estado final é 409); pendente nunca
-  tocou o ledger, então não estorna nada. Id de outra carteira é 404, nunca 403
-
 ## Caixinha (empréstimo registrado entre conhecidos)
 
 > **FORA do ledger** — decisão fechada (`docs/caixinha-api.md` é o contrato):
@@ -124,7 +108,7 @@ conectada a página pública avisa e não oferece pagar.
 > **string** (float é 422); toda resposta de detalhe deriva o mês do
 > `?mes=YYYY-MM` (default: mês atual UTC; o app manda o mês LOCAL dele).
 >
-> **Sem vitrine pública.** Entrada só por convite (`KAV-XXXXXX`): captar de
+> **Sem vitrine pública.** Entrada só por convite (`KAV-XXXXXXXXXXXX`): captar de
 > credores desconhecidos com rendimento fixo é oferta pública de CIC (valor
 > mobiliário, Lei 6.385/76) — exigiria CVM. `/caixinhas/publicas` e
 > `/caixinhas/{id}/publica` não existem (404); o banco recusa `publica = true`.
@@ -165,63 +149,9 @@ conectada a página pública avisa e não oferece pagar.
   (tabela completa em `docs/caixinha-api.md`). `NaoEncontrado`/`NaoValido` em
   `error.rs` são as variantes de mensagem literal (code `not_found` /
   `invalid_transaction`).
-- Convite: `KAV-` + 6 hex maiúsculo, entropia do UUID v4, `ON CONFLICT DO
+- Convite: `KAV-` + 12 hex maiúsculo, entropia do UUID v4, `ON CONFLICT DO
   NOTHING` + retry; usado é histórico que a API **nunca** devolve — a UI do
   dono mostra só o código atual.
-
-## Parceiros (vitrine de indicação)
-
-- `GET /parceiros?limit=10&offset=0` — ofertas ativas, **da mais nova para a
-  mais antiga** (`criado_em DESC`), em página de 10 (teto 50). Resposta
-  `{itens, total, limit, offset}`: `total` é quantas ofertas ativas existem, o
-  que deixa o app saber que acabou sem adivinhar pela página incompleta. Exige
-  login (`AuthUser`), mas não filtra por usuário — a vitrine é a mesma para
-  todos e a resposta não tem dado de ninguém.
-- **Sem campo de preço**, e a ausência é regra: o Mercado Livre bloqueia leitura
-  automática (403 na API anônima, bot-block na página), então preço só existiria
-  digitado à mão — e preço digitado à mão envelhece calado. O app mostra "ver
-  preço na loja" e o número verdadeiro fica no destino.
-- `POST /admin/parceiros` — cadastro pelo dono (não é painel: uma rota, sem
-  tela). Header `X-Admin-Token` com o valor de `ADMIN_TOKEN` (mínimo 24
-  caracteres, conferido no boot). Corpo `{link, titulo?, imagem?, loja?}`:
-  - `link` precisa ser `https://` — 422 se não for.
-  - Sem `titulo`/`imagem`, o servidor busca `og:title`/`og:image` da página
-    (timeout 6 s, corpo até 512 KB, User-Agent próprio). Se a loja bloquear a
-    leitura, é 422 pedindo `titulo` — **nunca** inventa nome de produto.
-  - A loja é deduzida do domínio (`mercadolivre.com.br` → Mercado Livre, senão
-    o rótulo do domínio capitalizado).
-  - Link que responde **404/410** é recusado com 422 ("esse link não existe
-    mais na loja"). A página é buscada em **todo** cadastro, não só quando falta
-    título ou imagem: é a única chance de pegar link morto antes de ele entrar
-    na vitrine. `403`, `429` e `5xx` **não** recusam — são bot-block, limite de
-    acesso ou instabilidade da loja, e punir isso travaria justamente as lojas
-    que bloqueiam leitura automática.
-  - `201` com a oferta criada. Link que já está ativo é `409`; link desativado é
-    **reativado** e volta para o topo (`criado_em = now()`), não duplicado —
-    há índice único em `destino_url`.
-  - `401` com token ausente/errado; `503` quando `ADMIN_TOKEN` não está
-    definida (o resto do app funciona normalmente).
-- `DELETE /admin/parceiros/{id}` — desativa (`ativo = FALSE`), `204`. É o jeito
-  de tirar da vitrine sem apagar o registro; id inexistente ou já desativado é
-  `404`. Mesmo `X-Admin-Token`.
-- `scripts/verificar_ofertas.sh [--desativar]` — varre a vitrine e testa o
-  destino de cada oferta: `404`/`410` viram `MORTA`, sem resposta vira
-  `SEM-RESPOSTA` (não conta como morta: pode ser rede). Sem a flag só relata;
-  com `--desativar` chama o `DELETE` acima.
-- A compra acontece na loja, numa WebView do app. Nada toca o ledger: não há
-  pagamento, não há recebível, não há saldo. O KaveliPay recebe comissão de
-  afiliado da loja, não do usuário — e isso está escrito na tela e no rodapé
-  dos cards.
-- Oferta que morre **depois** de cadastrada: a WebView escuta erro HTTP de
-  navegação principal e, em `404`/`410`, troca a página por "Essa indicação
-  saiu do ar" com "Tentar de novo" e "Abrir no navegador". *Soft 404* (loja
-  responde `200` com "produto não encontrado" no HTML) não é detectável sem
-  conhecer o HTML de cada loja — é limitação assumida.
-- `imagem_url` pode ser nula (oferta sem `og:image`): o app mostra o ícone de
-  loja no lugar. Quando existe, é `https://` por `CHECK` no banco — e
-  `destino_url` também (defesa em profundidade: a WebView recusa
-  `http`/`file`/`javascript` em `classificarDestinoWeb`, testado em
-  `NavegacaoWebTest`).
 
 ## Assinatura premium (billing)
 
@@ -267,20 +197,28 @@ conectada a página pública avisa e não oferece pagar.
   assinatura logo depois de pagar. Código inválido/expirado ou já usado é `422`
   com mensagem em pt-BR.
 - `POST /admin/assinaturas/codigos` — emissão de código de uso único pelo dono.
-  Header `X-Admin-Token` (mesmo `ADMIN_TOKEN` da vitrine; mínimo 24 caracteres).
+  Header `X-Admin-Token` (o `ADMIN_TOKEN`; mínimo 24 caracteres).
   Corpo `{plano, dias?}`; `plano` é `mensal` (padrão 30 dias) ou `anual` (365);
   `dias` entre 1 e 400 serve para cortesia/renovação manual. Resposta
   `{codigo, plano, dias, expira_em}` — o código cru (`KPL-XXXX-XXXX-XXXX-XXXX`,
   alfabeto sem `0/O`/`1/I` porque é digitado à mão) aparece **uma vez**; depois
   só existe o hash SHA-256 no banco. Se perder o código, emita outro.
-- Gating por claim: relatório mensal, `/investments/lookup` (IA) e
-  `/investments/quote` (cotação) chamam `exigir_premium_do_token`, que lê o
+- Gating por claim: `GET /reports/monthly` e `GET /reports/monthly/relatorio`
+  chamam `exigir_premium_do_token`, que lê o
   claim do access token **sem consultar o banco**. Sem direito, é `402 Payment
   Required` com `codigo = "plano_necessario"` — não `403`: não é falta de
   permissão nem de login, é falta de plano, e o app abre a tela de assinatura a
-  partir desse código. O núcleo (saldo, extrato, contas, cobranças, dívidas) e
+  partir desse código. O núcleo (saldo, extrato, contas, cobranças, caixinhas) e
   a exportação LGPD continuam **grátis**: portabilidade de dados não pode ficar
   atrás de paywall.
+- `GET /reports/monthly/relatorio?month=YYYY-MM` — o mesmo relatório em **HTML
+  autocontido**, com `Content-Disposition: attachment` (o app salva em
+  Downloads e o Android imprime em PDF). Premium, mesmo gating. Os números vêm
+  do ledger; a seção "Análise" é escrita pela IA a partir **só dos agregados**
+  (nunca do extrato linha a linha) e é descartada se citar qualquer dígito —
+  valor inventado num relatório financeiro é pior que relatório sem análise.
+  Sem `OPENROUTER_API_KEY` o arquivo continua sendo gerado, com o aviso de
+  análise indisponível. Teto de 5 gerações por usuário/hora.
 
 ### Como cobrar na prática
 

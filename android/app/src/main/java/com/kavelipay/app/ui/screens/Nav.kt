@@ -57,6 +57,9 @@ private object Rota {
     const val COBRANCA_PUBLICA = "cobranca_publica"
     const val CATEGORIAS = "categorias"
     const val NOVA_CATEGORIA = "nova_categoria"
+    const val CAIXINHAS = "caixinhas"
+    const val NOVA_CAIXINHA = "nova_caixinha"
+    const val CAIXINHA_DETALHE = "caixinha_detalhe"
     const val HISTORICO = "historico"
     const val PERFIL = "perfil"
     const val LGPD = "lgpd"
@@ -143,6 +146,7 @@ fun KpRaiz(
                 aoVerHistorico = { irParaAba(2) },
                 aoVerCategorias = { nav.navigate(Rota.CATEGORIAS) },
                 aoVerPerfil = { irParaAba(4) },
+                aoVerCaixinhas = { nav.navigate(Rota.CAIXINHAS) },
                 aoVerNotificacoes = { nav.navigate(Rota.NOTIFICACOES) },
                 aoNovaDespesa = { nav.navigate(Rota.NOVA_DESPESA) },
                 aoNovaConta = { nav.navigate(Rota.NOVA_CONTA) },
@@ -290,6 +294,35 @@ fun KpRaiz(
                 vm = vm,
                 aoVoltar = { nav.popBackStack() },
                 aoSalvar = { nav.popBackStack() },
+            )
+        }
+        composable(Rota.CAIXINHAS) {
+            KpCaixinhasScreen(
+                vm = vm,
+                aoVoltar = { nav.popBackStack() },
+                aoNova = { nav.navigate(Rota.NOVA_CAIXINHA) },
+                aoAbrirDetalhe = { id -> nav.navigate("${Rota.CAIXINHA_DETALHE}/$id") },
+            )
+        }
+        composable(Rota.NOVA_CAIXINHA) {
+            KpNovaCaixinhaScreen(
+                vm = vm,
+                aoVoltar = { nav.popBackStack() },
+                aoSalvar = { id ->
+                    nav.popBackStack()
+                    nav.navigate("${Rota.CAIXINHA_DETALHE}/$id")
+                },
+            )
+        }
+        composable(
+            route = "${Rota.CAIXINHA_DETALHE}/{caixinhaId}",
+            arguments = listOf(navArgument("caixinhaId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val caixinhaId = backStackEntry.arguments?.getString("caixinhaId").orEmpty()
+            KpCaixinhaDetalheScreen(
+                vm = vm,
+                id = caixinhaId,
+                aoVoltar = { nav.popBackStack() },
             )
         }
         composable(Rota.HISTORICO) {

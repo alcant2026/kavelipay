@@ -34,17 +34,6 @@ pub struct Config {
     pub access_token_ttl_minutes: i64,
     /// Dias de validade do refresh token.
     pub refresh_token_ttl_days: i64,
-    /// Chave da OpenRouter para o prefill de ativos. `None` desliga a
-    /// feature: `POST /investments/lookup` devolve 503 e o app não preenche
-    /// nada. Opcional de propósito — o backend tem de subir sem ela, porque
-    /// ela é segredo de terceiro, não configuração de infraestrutura.
-    pub openrouter_api_key: Option<String>,
-    /// Modelo da OpenRouter usado no prefill. O padrão é o mais barato que
-    /// resolve a tarefa (~US$ 0,03/M tokens); trocar é mudar env var.
-    pub openrouter_model: String,
-    /// Base URL da API da OpenRouter. Existe como config para os testes de
-    /// integração apontarem para um mock local — em produção ninguém mexe.
-    pub openrouter_base_url: String,
     /// Token do Mercado Pago (Checkout Pro). `None` desliga a cobrança por
     /// link: `POST /charges/{id}/pagamento` devolve 503 e o app fica só com o
     /// deep link/QR. Opcional pelo mesmo motivo da OpenRouter.
@@ -71,27 +60,25 @@ pub struct Config {
     /// Base pública do backend, sem barra no fim. É o que vira link de
     /// pagamento para quem não tem o app (`{base}/cobranca/{token}/pagar`).
     pub public_base_url: String,
-    /// Base URL do brapi (cotação de ação + dividendos). Grátis e sem
-    /// chave (verificado ao vivo) — como a OpenRouter, o hook de teste é a
-    /// base URL.
-    pub brapi_base_url: String,
-    /// Base URL do Yahoo Finance (cotação de FII — brapi dá 401 em fundo
-    /// sem token). Mesmo motivo da anterior.
-    pub yahoo_base_url: String,
-    /// Base URL do statusinvest (provento de FII e reserva da ação — tem a
-    /// data de PAGAMENTO, que é a que interessa). Mesmo motivo da anterior.
-    pub statusinvest_base_url: String,
-    /// Segredo do cadastro de ofertas da vitrine (`POST /admin/parceiros`).
+    /// Segredo do admin (emissão de código de assinatura, `POST
+    /// /admin/assinaturas/codigos`).
     ///
     /// `None` desliga a rota com 503 — o padrão é NÃO existir admin. Um token
-    /// padrão seria uma porta dos fundos: quem lê o repositório cadastraria
-    /// propaganda no app de todo mundo. Igual à OpenRouter, é segredo de
-    /// operação, não configuração de infraestrutura.
+    /// padrão seria uma porta dos fundos: quem lê o repositório emitiria
+    /// assinatura para qualquer conta.
     pub admin_token: Option<String>,
     /// Envio de e-mail (recuperação de senha). `None` = SMTP não configurado:
     /// o backend sobe, e `POST /auth/forgot-password` devolve 503 em vez de
     /// fingir que mandou.
     pub mailer: Option<crate::mail::Mailer>,
+    /// Chave do OpenRouter para o texto do relatório mensal. `None` desliga a
+    /// análise por IA: o relatório continua sendo gerado com os números do
+    /// ledger, só sem o parágrafo escrito pelo modelo.
+    pub openrouter_api_key: Option<String>,
+    /// Modelo usado no relatório. Padrão: DeepSeek V4.1 Flash (floor).
+    pub openrouter_model: String,
+    /// Base URL da API de chat. Config para os testes apontarem para um mock.
+    pub openrouter_base_url: String,
 }
 
 impl Config {
@@ -111,15 +98,10 @@ impl Config {
         // Opcional: env var ausente (ou vazia, pra facilitar `unset`) não é
         // erro — é feature desligada. Erro de boot fica para o que é
         // obrigatório (banco, segredo).
-        let openrouter_api_key = env::var("OPENROUTER_API_KEY")
-            .ok()
-            .map(|k| k.trim().to_string())
-            .filter(|k| !k.is_empty());
-
-        // Mesmo tratamento da chave da IA, mas com piso de tamanho: um token
-        // de 4 caracteres é adivinhável em segundos, e este token escreve
-        // conteúdo que aparece para todos os usuários. Curto demais é erro de
-        // boot, não aviso.
+        //
+        // Mesmo tratamento, mas com piso de tamanho: um token de 4 caracteres
+        // é adivinhável em segundos, e este token emite assinatura. Curto
+        // demais é erro de boot, não aviso.
         let admin_token = env::var("ADMIN_TOKEN")
             .ok()
             .map(|k| k.trim().to_string())
@@ -169,17 +151,6 @@ impl Config {
             jwt_secret,
             access_token_ttl_minutes: ACCESS_TOKEN_TTL_MINUTES,
             refresh_token_ttl_days: REFRESH_TOKEN_TTL_DAYS,
-            openrouter_api_key,
-            openrouter_model: env::var("OPENROUTER_MODEL")
-                .unwrap_or_else(|_| crate::ai::MODELO_PADRAO.to_string()),
-            openrouter_base_url: env::var("OPENROUTER_BASE_URL")
-                .unwrap_or_else(|_| crate::ai::BASE_URL_PADRAO.to_string()),
-            brapi_base_url: env::var("BRAPI_BASE_URL")
-                .unwrap_or_else(|_| crate::cotacao::BRAPI_BASE_PADRAO.to_string()),
-            yahoo_base_url: env::var("YAHOO_BASE_URL")
-                .unwrap_or_else(|_| crate::cotacao::YAHOO_BASE_PADRAO.to_string()),
-            statusinvest_base_url: env::var("STATUSINVEST_BASE_URL")
-                .unwrap_or_else(|_| crate::cotacao::STATUSINVEST_BASE_PADRAO.to_string()),
             mp_access_token: env::var("MP_ACCESS_TOKEN")
                 .ok()
                 .map(|k| k.trim().to_string())
@@ -216,6 +187,20 @@ impl Config {
                 .unwrap_or_else(|| "https://kavelipay-backend.onrender.com".to_string()),
             admin_token,
             mailer: crate::mail::Mailer::from_env()?,
+            openrouter_api_key: env::var("OPENROUTER_API_KEY")
+                .ok()
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty()),
+            openrouter_model: env::var("OPENROUTER_MODEL")
+                .ok()
+                .map(|m| m.trim().to_string())
+                .filter(|m| !m.is_empty())
+                .unwrap_or_else(|| crate::ai::MODELO_PADRAO.to_string()),
+            openrouter_base_url: env::var("OPENROUTER_BASE_URL")
+                .ok()
+                .map(|u| u.trim().trim_end_matches('/').to_string())
+                .filter(|u| !u.is_empty())
+                .unwrap_or_else(|| crate::ai::BASE_URL_PADRAO.to_string()),
         })
     }
 }
