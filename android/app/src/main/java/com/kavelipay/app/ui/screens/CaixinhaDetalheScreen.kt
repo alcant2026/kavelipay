@@ -320,11 +320,6 @@ private fun KpResumoCaixinha(
                     )
                 }
             }
-            Spacer(Modifier.height(Spacing.xs))
-            KpLinhaResumo(
-                "Reputação do responsável",
-                "${detalhe.responsavelScore}/1000",
-            )
             Spacer(Modifier.height(Spacing.sm))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -512,9 +507,10 @@ private fun KpMembroCard(
 
 @Composable
 private fun KpScoreCaixinha(detalhe: DetalheCaixinha) {
+    // 500 é o neutro de quem nunca pagou nem atrasou: vermelho só abaixo.
     val cor = when {
         detalhe.responsavelScore >= 800 -> MaterialTheme.colorScheme.tertiary
-        detalhe.responsavelScore >= 600 -> MaterialTheme.colorScheme.primary
+        detalhe.responsavelScore >= 500 -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.error
     }
     KpCard(Modifier.fillMaxWidth()) {
@@ -528,7 +524,8 @@ private fun KpScoreCaixinha(detalhe: DetalheCaixinha) {
             )
             Spacer(Modifier.height(Spacing.xs))
             Text(
-                "${detalhe.responsavelEvidencias} membro(s) com aporte confirmado. " +
+                (if (detalhe.responsavelEvidencias == 0) "Nenhum membro com aporte confirmado ainda. "
+                 else "${detalhe.responsavelEvidencias} membros com aporte confirmado. ") +
                     "Sobe quando o rendimento é pago em dia e a quitação é confirmada; " +
                     "cai a cada mês vencido sem pagamento.",
                 style = MaterialTheme.typography.bodyMedium,
