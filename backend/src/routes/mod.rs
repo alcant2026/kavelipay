@@ -165,7 +165,6 @@ pub fn router(state: AppState) -> Router {
             "/caixinhas/{id}/movimentos/{mov_id}/cancelar",
             post(caixinhas::cancelar_movimento),
         )
-        .route("/caixinhas/{id}/avaliacao", post(caixinhas::avaliar))
         .route(
             "/caixinhas/{id}/meu-telefone",
             patch(caixinhas::meu_telefone),

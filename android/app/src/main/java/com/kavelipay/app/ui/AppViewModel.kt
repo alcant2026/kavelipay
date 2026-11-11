@@ -1084,9 +1084,6 @@ fun carregarChargeQr(chargeId: String) {
     fun cancelarMovimentoCaixinha(id: String, movimentoId: String, mes: String = mesLocal()) =
         mutarCaixinha { api.cancelarMovimento(id, movimentoId, mes) }
 
-    fun avaliarCaixinha(id: String, estrelas: Int, mes: String = mesLocal()) =
-        mutarCaixinha { api.avaliarCaixinha(id, estrelas, mes) }
-
     fun salvarTelefoneCaixinha(id: String, telefone: String, mes: String = mesLocal()) =
         mutarCaixinha { api.salvarTelefoneCaixinha(id, telefone, mes) }
 

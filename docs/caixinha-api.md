@@ -110,14 +110,16 @@ CREATE TABLE caixinha_movimentos (
 );
 CREATE INDEX caixinha_mov_caixinha_idx ON caixinha_movimentos (caixinha_id, criado_em DESC);
 
--- Nota de 1 a 5 do credor sobre a caixinha; uma por membro, imutável.
-CREATE TABLE caixinha_avaliacoes (
+-- Evento do score do responsável: append-only, nunca UPDATE/DELETE.
+CREATE TABLE caixinha_score_eventos (
+    id            UUID PRIMARY KEY,
+    dono_user_id  UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     caixinha_id   UUID NOT NULL REFERENCES caixinhas (id) ON DELETE CASCADE,
-    membro_user_id UUID NOT NULL REFERENCES users (id),
-    estrelas      SMALLINT NOT NULL,
+    tipo          TEXT NOT NULL,
+    pontos        INTEGER NOT NULL,
+    movimento_id  UUID UNIQUE REFERENCES caixinha_movimentos (id),
     criado_em     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (caixinha_id, membro_user_id),
-    CONSTRAINT caixinha_avaliacao_estrelas CHECK (estrelas BETWEEN 1 AND 5)
+    CONSTRAINT caixinha_score_tipo CHECK (tipo IN ('RENDIMENTO','DEVOLUCAO','AJUSTE'))
 );
 ```
 
@@ -152,7 +154,6 @@ Rotas no `routes/mod.rs` — literais **antes** de `{id}`:
 /caixinhas/{id}/movimentos/{mov_id}/confirmar   POST       (contraparte)
 /caixinhas/{id}/movimentos/{mov_id}/recusar      POST       (contraparte)
 /caixinhas/{id}/movimentos/{mov_id}/cancelar     POST       (quem propôs)
-/caixinhas/{id}/avaliacao     POST   avaliar 1–5            (membro)
 /caixinhas/{id}/meu-telefone  PATCH  salvar meu telefone
 ```
 
@@ -186,7 +187,6 @@ inválida.", que não casam no formato "{0} não encontrado").
 | Rendimento sem saldo em aberto no mês | 422 | `Não há rendimento em aberto neste mês.` |
 | Devolução sem saldo | 422 | `Não há saldo em aberto.` |
 | Devolução acima do saldo | 422 | `O saldo em aberto é R$ 600,00.` |
-| Avaliar sem ser membro / sem aporte / nota inválida | 422 | `Só membros podem avaliar.` / `Só quem fez aporte pode avaliar.` / `Escolha de 1 a 5 estrelas.` |
 | Telefone sem DDD completo | 422 | `Digite um telefone com DDD.` |
 | Criação: nome vazio / taxa inválida | 422 | `nome é obrigatório` / `taxa ao mês deve ser maior que zero` |
 
@@ -211,7 +211,7 @@ Array solto (como `/splits`), `criado_em DESC`:
 [{ "id": "uuid", "nome": "Viagem da família", "papel": "dono" ,
     "valor_pedido": "1000.00", "taxa_mensal": "3",
     "arrecadado": "600.00", "progresso": 0.6,
-    "media_avaliacoes": "4,5", "total_avaliacoes": 2, "criado_em": "..." }]
+    "responsavel_score": 595, "responsavel_evidencias": 2, "criado_em": "..." }]
 ```
 
 ### POST /caixinhas/entrar
@@ -228,7 +228,7 @@ commit. 200 → `CaixinhaDetalhe` (papel `membro`).
 
 Dono vê tudo; membro vê `membros` e `movimentos` só dele. `convite` só para
 dono, **sempre o ativo**. `devido_mes`/`pago_mes`/`falta_mes` referem-se ao
-`?mes=`. `media_avaliacoes` com uma casa e vírgula (`"4,5"`) ou `null`.
+`?mes=`. `responsavel_score` é o mesmo número para dono e membros.
 
 ```json
 {
@@ -238,9 +238,8 @@ dono, **sempre o ativo**. `devido_mes`/`pago_mes`/`falta_mes` referem-se ao
   "valor_pedido": "1000.00", "taxa_mensal": "3", "previsao_quitacao": null,
   "arrecadado": "600.00", "arrecadado_pendente": "200.00",
   "disponivel_aporte": "200.00", "progresso": 0.6,
-  "media_avaliacoes": "4,5", "total_avaliacoes": 2,
+  "responsavel_score": 595, "responsavel_evidencias": 2,
   "convite": "KAV-8F3A2C91D4E7",
-  "minha_avaliacao": null,
   "membros": [{
       "user_id": "uuid", "nome": "Ana", "telefone": "11988881111",
       "aportado": "600.00", "saldo_em_aberto": "600.00",
@@ -288,13 +287,35 @@ Confirmar revalida o estado (aporte não estoura `valor_pedido`; rendimento
 não excede o devido do mês; devolução não excede o saldo em aberto), com as
 mensagens da tabela. 200 → detalhe.
 
-### POST /caixinhas/{id}/avaliacao — membro avalia
+### Score do responsável (não é endpoint separado)
 
-```json
-{ "estrelas": 4 }
+Vem em `CaixinhaDetalhe` e no card de `GET /caixinhas`, visível para dono e
+membros. **Sem vitrine pública**: quem tem o código e ainda não entrou não vê
+o score.
+
+Base 500, faixa 0–1000, derivado — não existe coluna de score:
+
 ```
-Só membro com `aportado > 0`, uma vez, 1–5. 200 → detalhe
-(`minha_avaliacao` preenchido).
+rendimento confirmado em dia            +25
+rendimento confirmado com atraso        +25 − 10 × meses_de_atraso (piso 0)
+devolução total confirmada (1ª vez)     +70
+mês vencido sem rendimento pago         −10 por mês (máx. −60 por caixinha)
+```
+
+Vencimento do rendimento: **dia 10 do mês seguinte à competência**, 00:00 UTC
+(`2026-11` vence em `2026-12-10`). Atraso conta em meses inteiros.
+
+Freios anti-fraude (colusão entre conhecidos):
+
+- soma por `(caixinha, membro)` limitada a ±100 — um amigo não infla sozinho;
+- soma por caixinha limitada a ±120;
+- acima de 600 exige **2 membros distintos** com aporte confirmado
+  (`responsavel_evidencias`); sem isso o score para em 600.
+
+O título honesto: **reputação declarada e confirmada entre as partes**, não
+score de crédito. Sem custódia, a confirmação é dos membros; conluio continua
+possível. `previsao_quitacao` é texto livre, então atraso de devolução não é
+mensurável — só rendimento vencido derruba o score.
 
 ### PATCH /caixinhas/{id}/meu-telefone
 
@@ -326,6 +347,10 @@ falta_mes(m, mes)     = max(devido_mes − pago_mes, 0)
 rendimento_disponivel = max(falta_mes − Σ RENDIMENTO PROPOSTO de m no mes, 0)
 rendimento_pendente   = ∃ RENDIMENTO PROPOSTO de m no mes
 disponivel_devolucao  = max(saldo_em_aberto − Σ DEVOLUCAO PROPOSTO de m, 0)
+
+score(responsável)    = clamp(500 + Σ eventos + Σ penalidades, 0, 1000)
+  eventos por (caixinha,membro) clampados a ±100; por caixinha a ±120
+  sem 2 membros com aporte confirmado, teto 600
 ```
 
 ## Testes
@@ -342,7 +367,8 @@ primeiro → chave inválida `404` → aporte acima do disponível `422` → apo
 ok `PROPOSTO` → membro não confirma o próprio aporte `409` → dono confirma →
 rendimento proposto pelo dono com valor do servidor → membro confirma →
 rendimento de novo no mês `422` → devolução total confirmada zera saldo →
-avaliação: sem aporte `422`, com aporte ok, repetida `409` → telefone
+score 500 + 25 + 70 = 595; membro vê o mesmo; aporte antigo sem rendimento
+pago derruba para 575 → rota antiga `/avaliacao` devolve `404` → telefone
 inválido `422` e válido aparece pro dono → não-membro vê `404` e a lista
 não traz alheia → `GET /caixinhas/publicas` devolve `404` (vitrine removida) →
 **`GET /wallet` do dono e do membro com saldo `0.00` do começo ao fim**
@@ -362,7 +388,7 @@ sobrarem em `CaixinhaRegras` (`parseValor`, `formatarTelefone`).
 - **Telas**:
   1. **Minhas caixinhas** (nova; Home "Caixinha" aponta pra cá): seções
      "Como responsável" / "Como membro", card com nome, arrecadado de
-     pedido, progresso, taxa, média; botões "Nova caixinha" e "Entrar com
+     pedido, progresso, taxa, score do responsável; botões "Nova caixinha" e "Entrar com
      código" (dialog). Estados carregando/vazio/erro completos.
   2. **Nova caixinha** (nova): nome, valor pedido, taxa ao mês (%),
      previsão de quitação (texto) e seu telefone. Validação local + mensagem
@@ -370,7 +396,7 @@ sobrarem em `CaixinhaRegras` (`parseValor`, `formatarTelefone`).
   3. **Detalhe** (rewrite de `KpCaixinhaScreen`): papel vem do servidor;
      "Para confirmar" derivado dos movimentos `PROPOSTO`; pedido com
      convite copiável (dono); quem está dentro (dono: todos, membro: só
-     ele); avaliação (membro); contato + editar meu telefone; aportar
+     ele); score do responsável; contato + editar meu telefone; aportar
      (membro); pagar rendimento/devolver (dono, por membro); histórico.
 - **Regra de ouro da UI**: o servidor é a fonte da verdade — nenhum número
   é calculado/somado no app; dinheiro nunca `Double`/`Float` (string do

@@ -6,6 +6,7 @@
 pub mod ai;
 pub mod auth;
 pub mod caixinha_modelo;
+pub mod caixinha_score;
 pub mod categories;
 pub mod config;
 pub mod error;

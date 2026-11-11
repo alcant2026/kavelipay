@@ -27,16 +27,19 @@
 //! Todo número é derivado dos movimentos pelas funções puras de
 //! `crate::caixinha_modelo` — nada de saldo guardado.
 
+use std::collections::{HashMap, HashSet};
+
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgExecutor, Postgres, Transaction};
+use sqlx::{PgExecutor, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::caixinha_modelo::{self as modelo, Mes, Taxa};
+use crate::caixinha_score;
 use crate::error::{AppError, AppResult};
 use crate::money::Money;
 use crate::state::AppState;
@@ -101,11 +104,6 @@ pub struct DevolucaoRequest {
 }
 
 #[derive(Deserialize)]
-pub struct AvaliacaoRequest {
-    pub estrelas: i32,
-}
-
-#[derive(Deserialize)]
 pub struct TelefoneRequest {
     pub telefone: String,
 }
@@ -164,11 +162,12 @@ pub struct CaixinhaDetalhe {
     pub arrecadado_pendente: Option<Money>,
     pub disponivel_aporte: Money,
     pub progresso: f32,
-    pub media_avaliacoes: Option<String>,
-    pub total_avaliacoes: i64,
+    /// Reputação do responsável (0..=1000), derivada dos eventos e atrasos.
+    pub responsavel_score: i32,
+    /// Quantos membros distintos já aportaram — a "testemunha" do score.
+    pub responsavel_evidencias: i32,
     /// Convite ATIVO — só o dono vê; códigos usados nunca voltam.
     pub convite: Option<String>,
-    pub minha_avaliacao: Option<i16>,
     pub membros: Vec<MembroInfo>,
     /// Totais do `?mes=` — só fazem sentido pro dono (membro recebe `null`).
     pub total_devido_mes: Option<Money>,
@@ -186,8 +185,8 @@ pub struct MinhaCaixinha {
     pub taxa_mensal: Taxa,
     pub arrecadado: Money,
     pub progresso: f32,
-    pub media_avaliacoes: Option<String>,
-    pub total_avaliacoes: i64,
+    pub responsavel_score: i32,
+    pub responsavel_evidencias: i32,
     pub criado_em: DateTime<Utc>,
 }
 
@@ -285,15 +284,12 @@ pub async fn minhas(
 
     let rows = sqlx::query_as::<_, MinhaRow>(
         "SELECT c.id, c.nome, c.dono_user_id, c.valor_pedido, c.taxa_mensal, c.criado_em,
-                COALESCE(m.aportes, 0), COALESCE(a.total, 0), a.media
+                COALESCE(m.aportes, 0)
            FROM caixinhas c
            LEFT JOIN (SELECT caixinha_id, SUM(valor) AS aportes
                         FROM caixinha_movimentos
                        WHERE tipo = 'APORTE' AND status = 'CONFIRMADO'
                        GROUP BY caixinha_id) m ON m.caixinha_id = c.id
-           LEFT JOIN (SELECT caixinha_id, COUNT(*) AS total, AVG(estrelas) AS media
-                        FROM caixinha_avaliacoes
-                       GROUP BY caixinha_id) a ON a.caixinha_id = c.id
           WHERE c.dono_user_id = $1
              OR EXISTS (SELECT 1 FROM caixinha_membros cm
                          WHERE cm.caixinha_id = c.id AND cm.user_id = $1)
@@ -303,19 +299,29 @@ pub async fn minhas(
     .fetch_all(&state.db)
     .await?;
 
+    // O score é do DONO; numa lista com caixinhas de donos diferentes, cada
+    // dono é calculado uma vez só.
+    let mut scores: HashMap<Uuid, (i32, i32)> = HashMap::new();
+    for dono in rows.iter().map(|r| r.2).collect::<HashSet<_>>() {
+        scores.insert(dono, score_do_dono(&state.db, dono).await?);
+    }
+
     let itens = rows
         .into_iter()
-        .map(|r| MinhaCaixinha {
-            id: r.0,
-            nome: r.1,
-            papel: if r.2 == user { "dono" } else { "membro" }.to_string(),
-            valor_pedido: Money::new(r.3),
-            taxa_mensal: Taxa::new(r.4),
-            arrecadado: Money::new(modelo::duas_casas(r.6)),
-            progresso: modelo::progresso(modelo::duas_casas(r.6), r.3),
-            media_avaliacoes: modelo::media_texto(r.8),
-            total_avaliacoes: r.7,
-            criado_em: r.5,
+        .map(|r| {
+            let (score, evidencias) = scores.get(&r.2).copied().unwrap_or((caixinha_score::BASE, 0));
+            MinhaCaixinha {
+                id: r.0,
+                nome: r.1,
+                papel: if r.2 == user { "dono" } else { "membro" }.to_string(),
+                valor_pedido: Money::new(r.3),
+                taxa_mensal: Taxa::new(r.4),
+                arrecadado: Money::new(modelo::duas_casas(r.6)),
+                progresso: modelo::progresso(modelo::duas_casas(r.6), r.3),
+                responsavel_score: score,
+                responsavel_evidencias: evidencias,
+                criado_em: r.5,
+            }
         })
         .collect();
 
@@ -688,6 +694,58 @@ pub async fn confirmar_movimento(
         tx.rollback().await?;
         return Err(AppError::Conflict("Este movimento já foi resolvido.".into()));
     }
+
+    // Score do responsável: só movimento CONFIRMADO pontua, na MESMA
+    // transação do UPDATE — se a confirmação falhar, o evento não existe.
+    let evento = match mov.1.as_str() {
+        modelo::RENDIMENTO => {
+            let competencia = mov.4.map(mes_da_data).ok_or_else(|| {
+                AppError::Internal(anyhow::anyhow!(
+                    "rendimento {mov_id} sem competência"
+                ))
+            })?;
+            let atraso = caixinha_score::atraso_meses(competencia, Utc::now());
+            Some((caixinha_score::Tipo::Rendimento, caixinha_score::pontos_rendimento(atraso)))
+        }
+        modelo::DEVOLUCAO => {
+            let depois = movimentos_da_caixinha(&mut *tx, id).await?;
+            let modelo_depois = depois.iter().map(para_modelo).collect::<Vec<_>>();
+            let quitou = modelo::saldo_em_aberto(&modelo_depois, mov.2) <= Decimal::ZERO;
+            let ja_pontuou = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (
+                     SELECT 1 FROM caixinha_score_eventos e
+                       JOIN caixinha_movimentos m ON m.id = e.movimento_id
+                      WHERE e.tipo = 'DEVOLUCAO' AND e.caixinha_id = $1
+                        AND m.membro_user_id = $2)",
+            )
+            .bind(id)
+            .bind(mov.2)
+            .fetch_one(&mut *tx)
+            .await?;
+            if quitou && !ja_pontuou {
+                Some((caixinha_score::Tipo::Devolucao, caixinha_score::PONTOS_QUITACAO))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    if let Some((tipo, pontos)) = evento {
+        sqlx::query(
+            "INSERT INTO caixinha_score_eventos
+                 (id, dono_user_id, caixinha_id, tipo, pontos, movimento_id)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (movimento_id) DO NOTHING",
+        )
+        .bind(Uuid::new_v4())
+        .bind(caixinha.1)
+        .bind(id)
+        .bind(tipo.texto())
+        .bind(pontos)
+        .bind(mov_id)
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
 
     Ok(Json(carregar_detalhe(&state, id, auth.user_id(), mes).await?))
@@ -755,56 +813,6 @@ pub async fn cancelar_movimento(
     .bind(mov_id)
     .execute(&mut *tx)
     .await?;
-    tx.commit().await?;
-
-    Ok(Json(carregar_detalhe(&state, id, auth.user_id(), mes).await?))
-}
-
-// ── POST /caixinhas/{id}/avaliacao — membro avalia ───────────────────────────
-
-/// Nota de 1 a 5 do credor sobre a caixinha: uma por membro, imutável. A
-/// ordem das validações é a do protótipo (`CaixinhaModelo.kt`): membro →
-/// aporte → nota → repetida.
-pub async fn avaliar(
-    State(state): State<AppState>,
-    auth: crate::auth::AuthUser,
-    Path(id): Path<Uuid>,
-    Query(q): Query<MesQuery>,
-    Json(req): Json<AvaliacaoRequest>,
-) -> AppResult<Json<CaixinhaDetalhe>> {
-    let mes = mes_da_query(&q)?;
-    let mut tx = state.db.begin().await?;
-    let (_, eh_dono) = acesso(&mut tx, id, auth.user_id()).await?;
-    if eh_dono {
-        return Err(AppError::NaoValido("Só membros podem avaliar.".into()));
-    }
-
-    let movs = movimentos_da_caixinha(&mut *tx, id).await?;
-    let modelo_movs = movs.iter().map(para_modelo).collect::<Vec<_>>();
-    if modelo::aportado(&modelo_movs, auth.user_id()) <= Decimal::ZERO {
-        return Err(AppError::NaoValido(
-            "Só quem fez aporte pode avaliar.".into(),
-        ));
-    }
-    if !(1..=5).contains(&req.estrelas) {
-        return Err(AppError::NaoValido("Escolha de 1 a 5 estrelas.".into()));
-    }
-
-    // ON CONFLICT DO NOTHING + rows_affected: a corrida de dois cliques
-    // vira 409 "já avaliou", não 500 de unique_violation.
-    let rows = sqlx::query(
-        "INSERT INTO caixinha_avaliacoes (caixinha_id, membro_user_id, estrelas)
-         VALUES ($1, $2, $3)
-         ON CONFLICT DO NOTHING",
-    )
-    .bind(id)
-    .bind(auth.user_id())
-    .bind(req.estrelas as i16)
-    .execute(&mut *tx)
-    .await?;
-    if rows.rows_affected() == 0 {
-        return Err(AppError::Conflict("Você já avaliou esta caixinha.".into()));
-    }
     tx.commit().await?;
 
     Ok(Json(carregar_detalhe(&state, id, auth.user_id(), mes).await?))
@@ -883,7 +891,7 @@ type MovRow = (
 type MovLockRow = (Uuid, String, Uuid, Decimal, Option<NaiveDate>, String, Uuid);
 
 /// Linha de `GET /caixinhas`: id, nome, dono, valor_pedido, taxa_mensal,
-/// criado_em, arrecadado, total_avaliacoes, media.
+/// criado_em, arrecadado.
 type MinhaRow = (
     Uuid,
     String,
@@ -892,8 +900,6 @@ type MinhaRow = (
     Decimal,
     DateTime<Utc>,
     Decimal,
-    i64,
-    Option<Decimal>,
 );
 
 /// Membro da caixinha: user_id, nome, telefone, entrou_em.
@@ -1044,6 +1050,94 @@ async fn inserir_convite(
     )))
 }
 
+/// Score do responsável: eventos CONFIRMADOS + atraso de rendimento derivado.
+/// Nada é guardado — mesma filosofia do saldo. Devolve (score, evidências).
+pub async fn score_do_dono(db: &PgPool, dono: Uuid) -> AppResult<(i32, i32)> {
+    let caixinhas = sqlx::query_as::<_, (Uuid, Decimal)>(
+        "SELECT id, taxa_mensal FROM caixinhas WHERE dono_user_id = $1",
+    )
+    .bind(dono)
+    .fetch_all(db)
+    .await?;
+
+    let eventos_rows = sqlx::query_as::<_, (Uuid, String, i32, Option<Uuid>)>(
+        "SELECT e.caixinha_id, e.tipo, e.pontos, m.membro_user_id
+           FROM caixinha_score_eventos e
+           LEFT JOIN caixinha_movimentos m ON m.id = e.movimento_id
+          WHERE e.dono_user_id = $1",
+    )
+    .bind(dono)
+    .fetch_all(db)
+    .await?;
+
+    let eventos: Vec<caixinha_score::Evento> = eventos_rows
+        .into_iter()
+        .filter_map(|(caixinha_id, tipo, pontos, membro_id)| {
+            let Some(tipo) = caixinha_score::Tipo::do_banco(&tipo) else {
+                tracing::warn!(%caixinha_id, tipo, "evento de score com tipo desconhecido");
+                return None;
+            };
+            Some(caixinha_score::Evento { caixinha_id, membro_id, tipo, pontos })
+        })
+        .collect();
+
+    let atual = Mes::atual_utc();
+    let mut penalidades = Vec::new();
+    for (caixinha_id, taxa) in &caixinhas {
+        let movs = movimentos_da_caixinha(db, *caixinha_id).await?;
+        let modelo_movs = movs.iter().map(para_modelo).collect::<Vec<_>>();
+        let mut ids: Vec<Uuid> = movs
+            .iter()
+            .filter(|m| m.1 == modelo::APORTE && m.5 == modelo::CONFIRMADO)
+            .map(|m| m.2)
+            .collect();
+        ids.sort();
+        ids.dedup();
+        // Sem aporte confirmado não há rendimento devido nem o que penalizar.
+        if ids.is_empty() {
+            continue;
+        }
+        let Some(primeiro_aporte) = movs
+            .iter()
+            .filter(|m| m.1 == modelo::APORTE && m.5 == modelo::CONFIRMADO)
+            .filter_map(|m| m.8)
+            .min()
+        else {
+            continue;
+        };
+        let inicio = Mes { ano: primeiro_aporte.year(), mes: primeiro_aporte.month() };
+        let mut comp = inicio.proximo();
+        let mut meses_atrasados = 0;
+        while (comp.ano, comp.mes) < (atual.ano, atual.mes)
+            && meses_atrasados < caixinha_score::MESES_ATRASO_MAX
+        {
+            if modelo::totais_mes(&modelo_movs, &ids, comp, *taxa).2 > Decimal::ZERO {
+                meses_atrasados += 1;
+            }
+            comp = comp.proximo();
+        }
+        if meses_atrasados > 0 {
+            penalidades.push((*caixinha_id, caixinha_score::penalidade_atraso(meses_atrasados)));
+        }
+    }
+
+    let evidencias = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(DISTINCT m.membro_user_id)::int8
+           FROM caixinha_movimentos m
+           JOIN caixinhas c ON c.id = m.caixinha_id
+          WHERE c.dono_user_id = $1
+            AND m.tipo = 'APORTE' AND m.status = 'CONFIRMADO'",
+    )
+    .bind(dono)
+    .fetch_one(db)
+    .await?;
+
+    Ok((
+        caixinha_score::calcular(&eventos, &penalidades, evidencias),
+        evidencias as i32,
+    ))
+}
+
 /// Monta o `CaixinhaDetalhe` — a resposta de GET, entrar e de TODA mutação.
 /// Dono vê tudo; membro vê `membros` e `movimentos` só dele, `convite`
 /// nulo e totais `null`. Todo número sai das funções puras do modelo.
@@ -1103,13 +1197,8 @@ async fn carregar_detalhe(
     let movs = movimentos_da_caixinha(&state.db, id).await?;
     let modelo_movs = movs.iter().map(para_modelo).collect::<Vec<_>>();
 
-    let avaliacoes = sqlx::query_as::<_, (Uuid, i16)>(
-        "SELECT membro_user_id, estrelas
-           FROM caixinha_avaliacoes WHERE caixinha_id = $1",
-    )
-    .bind(id)
-    .fetch_all(&state.db)
-    .await?;
+    let (responsavel_score, responsavel_evidencias) =
+        score_do_dono(&state.db, caixinha.1).await?;
 
     // Convite SEMPRE o ativo — e só pro dono. Usado é histórico: a API não
     // devolve, a tela do dono não polui.
@@ -1205,8 +1294,6 @@ async fn carregar_detalhe(
         })
         .collect();
 
-    let estrelas: Vec<i16> = avaliacoes.iter().map(|a| a.1).collect();
-
     Ok(CaixinhaDetalhe {
         id: caixinha.0,
         nome: caixinha.2.clone(),
@@ -1227,10 +1314,9 @@ async fn carregar_detalhe(
         },
         disponivel_aporte: Money::new(modelo::disponivel_aporte(caixinha.3, &modelo_movs)),
         progresso: modelo::progresso(arrecadado, caixinha.3),
-        media_avaliacoes: modelo::media_estrelas(&estrelas),
-        total_avaliacoes: avaliacoes.len() as i64,
+        responsavel_score,
+        responsavel_evidencias,
         convite,
-        minha_avaliacao: avaliacoes.iter().find(|a| a.0 == user).map(|a| a.1),
         membros,
         total_devido_mes: totais.0,
         total_pago_mes: totais.1,

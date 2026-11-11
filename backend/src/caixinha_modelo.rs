@@ -286,25 +286,6 @@ pub fn totais_mes(
     (duas_casas(devido), duas_casas(pago), duas_casas((devido - pago).max(Decimal::ZERO)))
 }
 
-/// Média (vinda de um `AVG` do SQL) com UMA casa e vírgula pt-BR ("4,5"),
-/// ou `None` — o formato que a tela mostra.
-pub fn media_texto(media: Option<Decimal>) -> Option<String> {
-    media.map(|m| {
-        let m = m.round_dp_with_strategy(1, RoundingStrategy::MidpointAwayFromZero);
-        format!("{m:.1}").replace('.', ",")
-    })
-}
-
-/// Média das estrelas com UMA casa e vírgula pt-BR ("4,5"), ou `None`
-/// enquanto ninguém avaliou — o formato que a tela mostra.
-pub fn media_estrelas(estrelas: &[i16]) -> Option<String> {
-    if estrelas.is_empty() {
-        return None;
-    }
-    let soma = Decimal::from(estrelas.iter().map(|e| i64::from(*e)).sum::<i64>());
-    media_texto(Some(soma / Decimal::from(estrelas.len())))
-}
-
 /// `KAV-` + 12 hex maiúsculo, da entropia do UUID v4 (sem dependência nova).
 /// 48 bits: adivinhar um convite ativo por força bruta deixa de ser viável.
 /// Colisão a cada ~2,8e14 códigos ativos: o `ON CONFLICT` + retry é defensivo.
@@ -692,21 +673,6 @@ mod tests {
         assert_eq!(progresso(dec("50.00"), dec("100.00")), 0.5);
         assert_eq!(progresso(dec("150.00"), dec("100.00")), 1.0);
         assert_eq!(progresso(dec("50.00"), Decimal::ZERO), 0.0);
-    }
-
-    #[test]
-    fn media_de_estrelas_tem_uma_casa_e_virgula() {
-        assert_eq!(media_estrelas(&[]), None);
-        assert_eq!(media_estrelas(&[4]), Some("4,0".to_string()));
-        assert_eq!(media_estrelas(&[4, 5]), Some("4,5".to_string()));
-        // 13/3 = 4,333… → 4,3
-        assert_eq!(media_estrelas(&[4, 4, 5]), Some("4,3".to_string()));
-        // Midpoint: 7/2 = 3,5 exato
-        assert_eq!(media_estrelas(&[3, 4]), Some("3,5".to_string()));
-        // O mesmo formato sai do AVG do SQL (listagens usam a média pronta).
-        assert_eq!(media_texto(Some(dec("4.5000000000000000"))), Some("4,5".to_string()));
-        assert_eq!(media_texto(Some(dec("4"))), Some("4,0".to_string()));
-        assert_eq!(media_texto(None), None);
     }
 
     #[test]

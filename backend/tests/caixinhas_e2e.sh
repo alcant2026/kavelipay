@@ -629,7 +629,7 @@ check "saldo intacto após rendimento e devolução (alice $S2_A, bob $S2_B)" \
     "$([ "$S2_A" = "0.00" ] && [ "$S2_B" = "0.00" ] && echo true || echo false)"
 
 echo
-echo "carol entra com o código atual; avalia sem aporte é 422"
+echo "carol entra com o código atual; rota de estrelas não existe mais"
 
 RESPOSTA=$(req -X POST "$BASE/caixinhas/entrar" -H "$AUTH_C" -H 'content-type: application/json' \
     -d "{\"chave\":\"$CONVITE2\"}")
@@ -644,12 +644,9 @@ check "código já usado nunca volta: dono tem o terceiro (recebido ${CONVITE3:-
 
 RESPOSTA=$(req -X POST "$BASE/caixinhas/$CAIXINHA/avaliacao" -H "$AUTH_C" \
     -H 'content-type: application/json' -d '{"estrelas":4}')
-C_AV_SEM_APO="${RESPOSTA##*$'\n'}"
-check "avaliar sem aporte é 422 (recebido $C_AV_SEM_APO)" \
-    "$([ "$C_AV_SEM_APO" = "422" ] && echo true || echo false)"
-MSG=$(campo message <<<"${RESPOSTA%$'\n'*}")
-check "mensagem é 'Só quem fez aporte pode avaliar.' (recebido ${MSG:-vazio})" \
-    "$([ "$MSG" = "Só quem fez aporte pode avaliar." ] && echo true || echo false)"
+C_AV="${RESPOSTA##*$'\n'}"
+check "avaliar (rota removida) é 404 (recebido $C_AV)" \
+    "$([ "$C_AV" = "404" ] && echo true || echo false)"
 
 RESPOSTA=$(req -X POST "$BASE/caixinhas/$CAIXINHA/aportes" -H "$AUTH_C" \
     -H 'content-type: application/json' -d '{"amount":"100.00"}')
@@ -671,6 +668,12 @@ check "arrecadado soma os dois membros: 700.00 (recebido ${ARR:-vazio})" \
 PROG=$(campo progresso <<<"$DETALHE_A")
 check "progresso é 0.7 (recebido ${PROG:-vazio})" \
     "$([ "$PROG" = "0.7" ] && echo true || echo false)"
+SCORE_A=$(campo responsavel_score <<<"$DETALHE_A")
+check "score 500 + 25 (rendimento em dia) + 70 (quitação) = 595 (recebido ${SCORE_A:-vazio})" \
+    "$([ "$SCORE_A" = "595" ] && echo true || echo false)"
+EV_A=$(campo responsavel_evidencias <<<"$DETALHE_A")
+check "duas evidências destravam o teto acima de 600 (recebido ${EV_A:-vazio})" \
+    "$([ "$EV_A" = "2" ] && echo true || echo false)"
 
 echo
 echo "membro vê só os próprios movimentos; dono vê todos"
@@ -699,61 +702,17 @@ check "dono vê os 2 membros (recebido ${N_MEMB_A:-vazio})" \
     "$([ "$N_MEMB_A" = "2" ] && echo true || echo false)"
 
 echo
-echo "avaliação: uma por membro, 1 a 5, média com vírgula"
+echo "score do responsável: sem estrelas, número derivado dos movimentos"
 
-RESPOSTA=$(req -X POST "$BASE/caixinhas/$CAIXINHA/avaliacao" -H "$AUTH_C" \
-    -H 'content-type: application/json' -d '{"estrelas":6}')
-C_AV_NOTA="${RESPOSTA##*$'\n'}"
-check "nota 6 é 422 (recebido $C_AV_NOTA)" \
-    "$([ "$C_AV_NOTA" = "422" ] && echo true || echo false)"
-MSG=$(campo message <<<"${RESPOSTA%$'\n'*}")
-check "mensagem é 'Escolha de 1 a 5 estrelas.' (recebido ${MSG:-vazio})" \
-    "$([ "$MSG" = "Escolha de 1 a 5 estrelas." ] && echo true || echo false)"
+SCORE_B=$(campo responsavel_score <<<"$DETALHE_B")
+check "membro vê o mesmo score do dono: 595 (recebido ${SCORE_B:-vazio})" \
+    "$([ "$SCORE_B" = "595" ] && echo true || echo false)"
+EV_B=$(campo responsavel_evidencias <<<"$DETALHE_B")
+check "evidências = 2 membros com aporte confirmado (recebido ${EV_B:-vazio})" \
+    "$([ "$EV_B" = "2" ] && echo true || echo false)"
+check "JSON não tem mais media_avaliacoes" \
+    "$(printf '%s' "$DETALHE_B" | grep -q media_avaliacoes && echo false || echo true)"
 
-RESPOSTA=$(req -X POST "$BASE/caixinhas/$CAIXINHA/avaliacao" -H "$AUTH_C" \
-    -H 'content-type: application/json' -d '{"estrelas":4}')
-C_AV_CAROL="${RESPOSTA##*$'\n'}"
-check "carol avalia com 4: 200 (recebido $C_AV_CAROL)" \
-    "$([ "$C_AV_CAROL" = "200" ] && echo true || echo false)"
-
-MINHA_C=$(campo minha_avaliacao <<<"${RESPOSTA%$'\n'*}")
-check "minha_avaliacao da carol é 4 (recebido ${MINHA_C:-vazio})" \
-    "$([ "$MINHA_C" = "4" ] && echo true || echo false)"
-MEDIA=$(campo media_avaliacoes <<<"${RESPOSTA%$'\n'*}")
-check "média com uma casa e vírgula: 4,0 (recebido ${MEDIA:-vazio})" \
-    "$([ "$MEDIA" = "4,0" ] && echo true || echo false)"
-TOTAL=$(campo total_avaliacoes <<<"${RESPOSTA%$'\n'*}")
-check "total de avaliações é 1 (recebido ${TOTAL:-vazio})" \
-    "$([ "$TOTAL" = "1" ] && echo true || echo false)"
-
-RESPOSTA=$(req -X POST "$BASE/caixinhas/$CAIXINHA/avaliacao" -H "$AUTH_C" \
-    -H 'content-type: application/json' -d '{"estrelas":1}')
-C_AV_2X="${RESPOSTA##*$'\n'}"
-check "carol avalia de novo: 409 (recebido $C_AV_2X)" \
-    "$([ "$C_AV_2X" = "409" ] && echo true || echo false)"
-MSG=$(campo message <<<"${RESPOSTA%$'\n'*}")
-check "mensagem é 'Você já avaliou esta caixinha.' (recebido ${MSG:-vazio})" \
-    "$([ "$MSG" = "Você já avaliou esta caixinha." ] && echo true || echo false)"
-
-RESPOSTA=$(req -X POST "$BASE/caixinhas/$CAIXINHA/avaliacao" -H "$AUTH_B" \
-    -H 'content-type: application/json' -d '{"estrelas":5}')
-C_AV_BOB="${RESPOSTA##*$'\n'}"
-check "bob avalia com 5: 200 (recebido $C_AV_BOB)" \
-    "$([ "$C_AV_BOB" = "200" ] && echo true || echo false)"
-MEDIA=$(campo media_avaliacoes <<<"${RESPOSTA%$'\n'*}")
-check "média dos dois é 4,5 (recebido ${MEDIA:-vazio})" \
-    "$([ "$MEDIA" = "4,5" ] && echo true || echo false)"
-TOTAL=$(campo total_avaliacoes <<<"${RESPOSTA%$'\n'*}")
-check "total de avaliações é 2 (recebido ${TOTAL:-vazio})" \
-    "$([ "$TOTAL" = "2" ] && echo true || echo false)"
-
-RESPOSTA=$(req -X POST "$BASE/caixinhas/$CAIXINHA/avaliacao" -H "$AUTH_B" \
-    -H 'content-type: application/json' -d '{"estrelas":4}')
-C_AV_BOB_2X="${RESPOSTA##*$'\n'}"
-check "bob avalia de novo: 409 (recebido $C_AV_BOB_2X)" \
-    "$([ "$C_AV_BOB_2X" = "409" ] && echo true || echo false)"
-
-echo
 echo "telefone: só dígitos, com DDD — e aparece para quem pode ver"
 
 RESPOSTA=$(req -X PATCH "$BASE/caixinhas/$CAIXINHA/meu-telefone" -H "$AUTH_C" \
@@ -947,11 +906,11 @@ check "bob tem 1 caixinha (recebido ${N_MINHAS_B:-vazio})" \
 PAPEL_B2=$(acha "Viagem da família" papel <<<"$MINHAS_B")
 ARR_B2=$(acha "Viagem da família" arrecadado <<<"$MINHAS_B")
 PROG_B2=$(acha "Viagem da família" progresso <<<"$MINHAS_B")
-MEDIA_B2=$(acha "Viagem da família" media_avaliacoes <<<"$MINHAS_B")
+SCORE_B2=$(acha "Viagem da família" responsavel_score <<<"$MINHAS_B")
 TAXA_B2=$(acha "Viagem da família" taxa_mensal <<<"$MINHAS_B")
-check "card do bob: membro, 700.00, 0.7, 4,5, 3 (recebido $PAPEL_B2/$ARR_B2/$PROG_B2/$MEDIA_B2/$TAXA_B2)" \
+check "card do bob: membro, 700.00, 0.7, score 595, 3 (recebido $PAPEL_B2/$ARR_B2/$PROG_B2/$SCORE_B2/$TAXA_B2)" \
     "$([ "$PAPEL_B2" = "membro" ] && [ "$ARR_B2" = "700.00" ] && [ "$PROG_B2" = "0.7" ] \
-        && [ "$MEDIA_B2" = "4,5" ] && [ "$TAXA_B2" = "3" ] && echo true || echo false)"
+        && [ "$SCORE_B2" = "595" ] && [ "$TAXA_B2" = "3" ] && echo true || echo false)"
 
 MINHAS_D=$(curl -s "$BASE/caixinhas" -H "$AUTH_D")
 N_MINHAS_D=$(qtd_de '' <<<"$MINHAS_D")
@@ -1000,6 +959,24 @@ T_PAGO=$(campo total_pago_mes <<<"$DETALHE_PROX")
 T_FALTA=$(campo total_falta_mes <<<"$DETALHE_PROX")
 check "totais do mês seguinte: 3.00/18.00/0.00 (recebido $T_DEVIDO/$T_PAGO/$T_FALTA)" \
     "$([ "$T_DEVIDO" = "3.00" ] && [ "$T_PAGO" = "18.00" ] && [ "$T_FALTA" = "0.00" ] && echo true || echo false)"
+
+echo
+echo "atraso: rendimento vencido e não pago derruba o score"
+
+# Simula o tempo passando: um aporte confirmado há três meses numa segunda
+# caixinha, sem nenhum rendimento pago. O score é derivado, então basta o
+# movimento antigo — nada de coluna de score para atualizar.
+RESERVA_ID=$("${PSQL[@]}" -d "$DB" -tA -c "SELECT id FROM caixinhas WHERE nome = 'Caixa reserva'")
+MOV_ANTIGO=$(python3 -c 'import uuid; print(uuid.uuid4())')
+"${PSQL[@]}" -d "$DB" -c "INSERT INTO caixinha_movimentos
+    (id, caixinha_id, tipo, membro_user_id, valor, status, proposto_por, confirmado_em)
+    VALUES ('$MOV_ANTIGO', '$RESERVA_ID', 'APORTE', '$CAROL_ID', 100.00,
+            'CONFIRMADO', '$CAROL_ID', now() - interval '3 months')" >/dev/null
+
+DETALHE_ATRASO=$(curl -s "$BASE/caixinhas/$CAIXINHA" -H "$AUTH_A")
+SCORE_ATRASO=$(campo responsavel_score <<<"$DETALHE_ATRASO")
+check "dois meses vencidos sem pagamento: 595 - 20 = 575 (recebido ${SCORE_ATRASO:-vazio})" \
+    "$([ "$SCORE_ATRASO" = "575" ] && echo true || echo false)"
 
 echo
 echo "fora do ledger: nenhum saldo mudou do começo ao fim"

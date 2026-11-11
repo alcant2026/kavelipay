@@ -477,8 +477,10 @@ data class ItemCaixinha(
     val taxaMensal: String,
     val arrecadado: String,
     val progresso: Float,
-    val mediaAvaliacoes: String?,
-    val totalAvaliacoes: Int,
+    /** Reputação do responsável (0..1000), derivada dos movimentos no servidor. */
+    val responsavelScore: Int,
+    /** Membros distintos com aporte confirmado — lastro do score. */
+    val responsavelEvidencias: Int,
     val criadoEm: String,
 )
 
@@ -532,11 +534,12 @@ data class DetalheCaixinha(
     val arrecadadoPendente: String?,
     val disponivelAporte: String,
     val progresso: Float,
-    val mediaAvaliacoes: String?,
-    val totalAvaliacoes: Int,
+    /** Reputação do responsável (0..1000), igual para dono e membros. */
+    val responsavelScore: Int,
+    /** Membros distintos com aporte confirmado — lastro do score. */
+    val responsavelEvidencias: Int,
     /** Só o dono vê; código de convite ativo. */
     val convite: String?,
-    val minhaAvaliacao: Int?,
     val membros: List<MembroCaixinha>,
     /** Só o dono recebe; membro vem null. */
     val totalDevidoMes: String?,
@@ -553,8 +556,8 @@ fun JSONObject.paraItemCaixinha() = ItemCaixinha(
     taxaMensal = optString("taxa_mensal", "0"),
     arrecadado = optString("arrecadado", "0.00"),
     progresso = optDouble("progresso", 0.0).toFloat(),
-    mediaAvaliacoes = anulavel("media_avaliacoes"),
-    totalAvaliacoes = optInt("total_avaliacoes"),
+    responsavelScore = optInt("responsavel_score", 500),
+    responsavelEvidencias = optInt("responsavel_evidencias"),
     criadoEm = optString("criado_em"),
 )
 
@@ -606,10 +609,9 @@ fun JSONObject.paraDetalheCaixinha() = DetalheCaixinha(
     arrecadadoPendente = anulavel("arrecadado_pendente"),
     disponivelAporte = optString("disponivel_aporte", "0.00"),
     progresso = optDouble("progresso", 0.0).toFloat(),
-    mediaAvaliacoes = anulavel("media_avaliacoes"),
-    totalAvaliacoes = optInt("total_avaliacoes"),
+    responsavelScore = optInt("responsavel_score", 500),
+    responsavelEvidencias = optInt("responsavel_evidencias"),
     convite = anulavel("convite"),
-    minhaAvaliacao = if (isNull("minha_avaliacao")) null else optInt("minha_avaliacao"),
     membros = optJSONArray("membros").paraObjetos { it.paraMembroCaixinha() },
     totalDevidoMes = anulavel("total_devido_mes"),
     totalPagoMes = anulavel("total_pago_mes"),

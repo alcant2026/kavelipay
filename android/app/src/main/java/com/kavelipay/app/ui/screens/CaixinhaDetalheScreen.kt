@@ -16,12 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -169,15 +164,7 @@ fun KpCaixinhaDetalheScreen(
                     }
                 }
 
-                if (detalhe.papel == "membro" && detalhe.minhaAvaliacao == null &&
-                    meuMembro?.let { positivo(it.aportado) } == true
-                ) {
-                    item {
-                        KpAvaliar(
-                            aoAvaliar = { estrelas -> vm.avaliarCaixinha(id, estrelas, mes) },
-                        )
-                    }
-                }
+                item { KpScoreCaixinha(detalhe) }
 
                 val meuTelefone = if (detalhe.papel == "dono") {
                     detalhe.dono.telefone
@@ -333,13 +320,11 @@ private fun KpResumoCaixinha(
                     )
                 }
             }
-            detalhe.mediaAvaliacoes?.let { media ->
-                Spacer(Modifier.height(Spacing.xs))
-                KpLinhaResumo(
-                    "Avaliação",
-                    "★ $media (${detalhe.totalAvaliacoes})",
-                )
-            }
+            Spacer(Modifier.height(Spacing.xs))
+            KpLinhaResumo(
+                "Reputação do responsável",
+                "${detalhe.responsavelScore}/1000",
+            )
             Spacer(Modifier.height(Spacing.sm))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -526,32 +511,35 @@ private fun KpMembroCard(
 }
 
 @Composable
-private fun KpAvaliar(aoAvaliar: (Int) -> Unit) {
+private fun KpScoreCaixinha(detalhe: DetalheCaixinha) {
+    val cor = when {
+        detalhe.responsavelScore >= 800 -> MaterialTheme.colorScheme.tertiary
+        detalhe.responsavelScore >= 600 -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.error
+    }
     KpCard(Modifier.fillMaxWidth()) {
-        Column(
-            Modifier.padding(Spacing.md),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text("Como foi essa caixinha?", style = TituloCard)
+        Column(Modifier.padding(Spacing.md)) {
+            Text("Reputação do responsável", style = TituloCard)
             Spacer(Modifier.height(Spacing.xs))
             Text(
-                "Sua avaliação ajuda outras pessoas que forem emprestar para alguém.",
+                "${detalhe.responsavelScore}/1000",
+                style = MaterialTheme.typography.headlineSmall,
+                color = cor,
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                "${detalhe.responsavelEvidencias} membro(s) com aporte confirmado. " +
+                    "Sobe quando o rendimento é pago em dia e a quitação é confirmada; " +
+                    "cai a cada mês vencido sem pagamento.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(Spacing.sm))
-            Row {
-                (1..5).forEach { estrela ->
-                    IconButton(onClick = { aoAvaliar(estrela) }) {
-                        Icon(
-                            Icons.Default.StarBorder,
-                            contentDescription = "$estrela estrelas",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-            }
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                "Reputação declarada e confirmada entre as partes, não é score de crédito.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

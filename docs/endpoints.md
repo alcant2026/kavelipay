@@ -117,7 +117,7 @@ conectada a página pública avisa e não oferece pagar.
   telefone?}`. Cria a caixinha **e o primeiro convite na mesma
   transação**; `201` com o `CaixinhaDetalhe` (papel `dono`).
 - `GET /caixinhas` — as minhas (dono OU membro), `criado_em DESC`, com papel,
-  arrecadado, progresso, média de avaliações.
+  arrecadado, progresso e score do responsável.
 - `POST /caixinhas/entrar` — `{chave}`; normaliza `trim().to_uppercase()`.
   Transação única: trava o convite (`FOR UPDATE`), não o consome em erro,
   marca `usado_em`, insere o membro e **gera o próximo código** na mesma
@@ -140,8 +140,10 @@ conectada a página pública avisa e não oferece pagar.
   revalida o estado com as mensagens do contrato; permissão é checada antes do
   estado (quem nem podia resolver recebe `Só a outra parte...`).
 - `POST /caixinhas/{id}/movimentos/{mov_id}/cancelar` — só quem propôs.
-- `POST /caixinhas/{id}/avaliacao` — membro `{estrelas: 1..5}`, uma vez,
-  imutável; exige aporte confirmado > 0.
+- Score do responsável — não tem rota própria: `responsavel_score` (0–1000,
+  base 500) e `responsavel_evidencias` vêm no detalhe e na lista. Sobe com
+  rendimento pago em dia e quitação confirmada; cai por mês vencido. A rota
+  antiga `/avaliacao` (estrelas) não existe mais (404).
 - `PATCH /caixinhas/{id}/meu-telefone` — cada um grava o próprio telefone
   (dono → `caixinhas.telefone_dono`; membro → a linha dele). Só dígitos,
   10 ou 11; a formatação é da tela.

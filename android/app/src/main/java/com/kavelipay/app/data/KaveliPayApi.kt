@@ -510,10 +510,6 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
         ApiClient.post("/caixinhas/$id/movimentos/$movimentoId/cancelar?mes=$mes", null, token)
             .paraDetalheCaixinha()
 
-    suspend fun avaliarCaixinha(id: String, estrelas: Int, mes: String): DetalheCaixinha =
-        ApiClient.post("/caixinhas/$id/avaliacao?mes=$mes",
-            JSONObject().put("estrelas", estrelas), token).paraDetalheCaixinha()
-
     suspend fun salvarTelefoneCaixinha(id: String, telefone: String, mes: String): DetalheCaixinha =
         ApiClient.patch("/caixinhas/$id/meu-telefone?mes=$mes",
             JSONObject().put("telefone", telefone), token).paraDetalheCaixinha()

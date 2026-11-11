@@ -255,19 +255,11 @@ private fun KpCardCaixinha(item: ItemCaixinha, onClick: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                item.mediaAvaliacoes?.let { media ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "★ $media",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            " (${item.totalAvaliacoes})",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                Text(
+                    "Reputação ${item.responsavelScore}/1000",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
