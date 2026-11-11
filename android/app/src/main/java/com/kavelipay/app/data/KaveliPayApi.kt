@@ -346,15 +346,18 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
      * `ErroApi` com status 405 cai no `catch` genérico como "Algo deu errado".
      *
      * A leitura do perfil vem de `GET /auth/me`, que devolve
-     * `{user_id, email, display_name}`.
+     * `{user_id, email, display_name, pix_chave}`.
      */
     suspend fun perfil(): Perfil =
         ApiClient.get("/auth/me", token).paraPerfil()
 
     // ── Perfil / Segurança ──────────────────────────────────────────────────────
-    suspend fun atualizarPerfil(displayName: String?): Perfil {
+    suspend fun atualizarPerfil(displayName: String?, pixChave: String? = null): Perfil {
         val corpo = JSONObject()
         displayName?.takeIf { it.isNotBlank() }?.let { corpo.put("display_name", it) }
+        // Vazio é intencional: é assim que a pessoa apaga a chave. Ausente
+        // (`null`) significa "não mexe" — o diálogo do nome manda só o nome.
+        pixChave?.let { corpo.put("pix_chave", it) }
         return ApiClient.patch("/profile", corpo, token).paraPerfil()
     }
 

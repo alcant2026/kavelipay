@@ -263,6 +263,9 @@ struct Publica {
     status: String,
     due_date: Option<chrono::NaiveDate>,
     cobrador: Option<String>,
+    /// Chave Pix de quem cobra: sem ela a página não tem como receber nada
+    /// quando o Mercado Pago não está conectado.
+    pix_chave: Option<String>,
 }
 
 /// Token de 128 bits gerado pelo banco: 32 hex. Malformado e inexistente dão o
@@ -286,9 +289,10 @@ async fn por_token(state: &AppState, token: &str) -> AppResult<Publica> {
         Option<chrono::NaiveDate>,
         Option<String>,
         Uuid,
+        Option<String>,
     )>(
         "SELECT c.id, c.description, c.amount, c.currency, c.status, c.due_date,
-                u.display_name, w.user_id
+                u.display_name, w.user_id, u.pix_chave
            FROM charges c
            JOIN wallets w ON w.id = c.wallet_id
            JOIN users u ON u.id = w.user_id
@@ -308,6 +312,7 @@ async fn por_token(state: &AppState, token: &str) -> AppResult<Publica> {
         status: row.4,
         due_date: row.5,
         cobrador: row.6.filter(|n| !n.trim().is_empty()),
+        pix_chave: row.8.filter(|c| !c.trim().is_empty()),
     })
 }
 
@@ -354,12 +359,18 @@ h1{{font-size:16px;font-weight:600;color:#666;margin:0 0 4px}}
 .quem,.pe{{font-size:14px;color:#666;margin:6px 0}}
 .aviso{{margin-top:20px;padding:14px;border-radius:12px;background:#fff4e5;color:#8a5300;font-size:15px}}
 .aviso.ok{{background:#e8f6ee;color:#1a6b3c}}
+.pix{{margin-top:18px;padding:14px;border-radius:12px;background:#f3f0ff;text-align:left}}
+.pix p{{margin:0 0 6px;font-size:14px;color:#4a4a55}}
+.pix code{{display:block;font-size:14px;word-break:break-all;background:#fff;
+padding:10px;border-radius:8px;border:1px solid #e3ddf7;user-select:all}}
 button{{width:100%;margin-top:20px;padding:16px;border:0;border-radius:14px;background:#7b2ff7;
 color:#fff;font-size:17px;font-weight:600;cursor:pointer}}
 .rodape{{margin-top:22px;font-size:12px;color:#999}}
 @media(prefers-color-scheme:dark){{body{{background:#0e0e10;color:#f2f2f2}}
 main{{background:#1b1b1f;box-shadow:none}}.aviso{{background:#3a2b12;color:#f0c27a}}
-.aviso.ok{{background:#15301f;color:#8fdcae}}}}
+.aviso.ok{{background:#15301f;color:#8fdcae}}
+.pix{{background:#241f38}}.pix p{{color:#bdb6cf}}
+.pix code{{background:#15131f;border-color:#3a3355;color:#f2f2f2}}}}
 </style></head>
 <body><main>
 <h1>{titulo}</h1>
@@ -405,6 +416,19 @@ pub async fn pagina_pagamento(
         }
     };
 
+    // Pix direto: é o único caminho quando o Mercado Pago não está conectado,
+    // e continua válido quando está. A chave é do usuário, não da cobrança.
+    let pix = match (c.status.as_str(), c.pix_chave.as_deref()) {
+        ("PENDING", Some(chave)) => format!(
+            "<div class=\"pix\"><p>Pix de {}</p><code>{}</code>\
+             <p>Copie a chave e pague pelo app do seu banco. \
+             Quem cobrou confirma o recebimento aqui no app.</p></div>",
+            escapar(c.cobrador.as_deref().unwrap_or("quem cobrou")),
+            escapar(chave),
+        ),
+        _ => String::new(),
+    };
+
     let nota = match c.due_date {
         Some(d) => format!("<p class=\"pe\">Vence em {}</p>", d.format("%d/%m/%Y")),
         None => String::new(),
@@ -416,7 +440,7 @@ pub async fn pagina_pagamento(
         &c.description,
         c.cobrador.as_deref(),
         &nota,
-        acao,
+        &format!("{pix}{acao}"),
     ))
 }
 

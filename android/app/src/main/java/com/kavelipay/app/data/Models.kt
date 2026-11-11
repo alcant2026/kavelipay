@@ -190,6 +190,8 @@ data class Perfil(
     val id: String,
     val email: String,
     val displayName: String?,
+    /** Chave Pix que quem cobra mostra no link público. `null` = sem chave. */
+    val pixChave: String?,
 )
 
 /**
@@ -399,6 +401,7 @@ fun JSONObject.paraPerfil() = Perfil(
     id = optString("user_id"),
     email = optString("email"),
     displayName = anulavel("display_name"),
+    pixChave = anulavel("pix_chave"),
 )
 
 fun JSONObject.paraListaSessoes() = ListaSessoes(

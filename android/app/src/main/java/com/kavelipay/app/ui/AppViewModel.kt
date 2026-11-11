@@ -613,10 +613,10 @@ fun carregarChargeQr(chargeId: String) {
         }
     }
 
-    fun atualizarPerfil(displayName: String?) {
+    fun atualizarPerfil(displayName: String?, pixChave: String? = null) {
         viewModelScope.launch {
             _estado.update { it.copy(enviando = true, erro = null) }
-            runCatching { api.atualizarPerfil(displayName) }
+            runCatching { api.atualizarPerfil(displayName, pixChave) }
                 .onSuccess { perfil -> _estado.update { it.copy(enviando = false, perfil = perfil) } }
                 .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
         }

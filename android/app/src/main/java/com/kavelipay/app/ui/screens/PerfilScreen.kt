@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
@@ -122,6 +123,8 @@ fun KpPerfilScreen(
     val plano = estado.plano
     val contaMp = estado.contaMp
     var dialogoMp by remember { mutableStateOf(false) }
+    var dialogoPix by remember { mutableStateOf(false) }
+    var novaChave by remember { mutableStateOf("") }
     val validade = plano?.periodoFim
         ?.takeIf { it.isNotBlank() }
         ?.let { formatarDataCompleta(it) }
@@ -230,6 +233,20 @@ fun KpPerfilScreen(
                             else vm.abrirConexaoMp()
                         },
                     )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                    // Sem Mercado Pago conectado, a chave Pix é o único jeito de
+                    // quem recebeu o link pagar — por isso fica no mesmo cartão,
+                    // logo abaixo da conexão, e não numa tela de ajustes.
+                    KpMenuRow(
+                        icone = Icons.Default.QrCode,
+                        rotulo = "Chave Pix",
+                        subtitulo = estado.perfil?.pixChave?.takeIf { it.isNotBlank() }
+                            ?: "Sem chave: quem abrir o link não vê como pagar",
+                        onClick = {
+                            novaChave = estado.perfil?.pixChave.orEmpty()
+                            dialogoPix = true
+                        },
+                    )
                 }
             }
 
@@ -324,6 +341,47 @@ fun KpPerfilScreen(
             },
             dismissButton = {
                 KpBotaoSecundario("Fechar", onClick = { dialogoMp = false })
+            },
+        )
+    }
+
+    // ── Dialog: chave Pix ────────────────────────────────────────────────────
+    if (dialogoPix) {
+        AlertDialog(
+            onDismissRequest = { dialogoPix = false },
+            title = { Text("Chave Pix") },
+            text = {
+                Column {
+                    androidx.compose.material3.TextField(
+                        value = novaChave,
+                        onValueChange = { novaChave = it },
+                        label = { Text("CPF, e-mail, telefone ou aleatória") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(Spacing.sm))
+                    Text(
+                        "Aparece no link da cobrança para quem for pagar. " +
+                            "O KaveliPay não confirma Pix sozinho: você registra o " +
+                            "recebimento quando o dinheiro cair.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                KpBotaoPrimario(
+                    texto = "Salvar",
+                    onClick = {
+                        vm.atualizarPerfil(estado.perfil?.displayName, novaChave)
+                        dialogoPix = false
+                    },
+                    habilitado = novaChave.length <= 77 &&
+                        !novaChave.trim().contains(' '),
+                )
+            },
+            dismissButton = {
+                KpBotaoSecundario("Cancelar", onClick = { dialogoPix = false })
             },
         )
     }

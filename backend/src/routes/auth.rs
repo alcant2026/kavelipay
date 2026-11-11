@@ -493,6 +493,9 @@ pub struct MeResponse {
     pub user_id: uuid::Uuid,
     pub email: String,
     pub display_name: Option<String>,
+    /// Chave Pix que quem cobra mostra no link público — o app precisa dela
+    /// para exibir no Perfil sem uma segunda chamada.
+    pub pix_chave: Option<String>,
 }
 
 /// GET /auth/me — o teste mais direto da fronteira de confiança.
@@ -506,8 +509,8 @@ pub async fn me(
 ) -> AppResult<Json<MeResponse>> {
     // Busca pelo id do token; um token válido para usuário inexistente ou
     // removido é 401, não um Wallet vazio.
-    let row = sqlx::query_as::<_, (uuid::Uuid, String, Option<String>)>(
-        "SELECT id, email, display_name FROM users WHERE id = $1",
+    let row = sqlx::query_as::<_, (uuid::Uuid, String, Option<String>, Option<String>)>(
+        "SELECT id, email, display_name, pix_chave FROM users WHERE id = $1",
     )
     .bind(auth.user_id())
     .fetch_optional(&state.db)
@@ -518,5 +521,6 @@ pub async fn me(
         user_id: row.0,
         email: row.1,
         display_name: row.2,
+        pix_chave: row.3.filter(|p| !p.trim().is_empty()),
     }))
 }

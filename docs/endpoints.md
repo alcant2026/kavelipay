@@ -58,15 +58,18 @@ handler.
   link/QR — inclusive sem conta no app. Token malformado e inexistente dão o
   mesmo 404; a resposta não expõe wallet, id da cobrança nem nome do devedor
 - `GET /cobranca/{token}/pagar` — **pública, sem sessão**: a página de pagamento
-  em HTML (mobile-first, sem JS). Cobrança `PENDING` mostra o botão do Mercado
-  Pago; recebida ou cancelada diz o que aconteceu e não oferece pagamento. É o
-  link que se manda para quem **não tem o app**
+  em HTML (mobile-first, sem JS). Cobrança `PENDING` mostra a **chave Pix de
+  quem cobra** (`users.pix_chave`, copia-e-cola em texto) e, se a conta do
+  Mercado Pago estiver conectada, o botão do MP; recebida ou cancelada diz o que
+  aconteceu e **não mostra mais a chave** (nada de pagar duas vezes). É o link
+  que se manda para quem **não tem o app**
 - `POST /cobranca/{token}/pagar` — **pública**: cria (ou reaproveita
   `mp_preference_id`) a preferência e responde 303 para o checkout do MP.
   Cobrança já resolvida volta para a própria página em vez de abrir pagamento
 - `GET /charges/{id}/qr` também devolve `link` — a URL `https` acima, para o app
   copiar o link que funciona fora do app (`PUBLIC_BASE_URL`)
-- `POST /charges/{id}/receive` — registra o recebimento; único toque na carteira
+- `POST /charges/{id}/receive` — registra o recebimento; único toque na carteira.
+  Pix direto pela chave **não** é confirmado pelo servidor: quem recebeu declara
 - `POST /charges/{id}/pagamento` — **Mercado Pago**: gera a preferência do
   Checkout Pro e devolve `{preference_id, init_point}`. Só cobrança `PENDING` do
   dono (409 caso contrário). Sem `MP_ACCESS_TOKEN` é 503. A cobrança NÃO muda de

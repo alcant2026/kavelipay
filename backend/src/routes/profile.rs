@@ -14,6 +14,9 @@ use crate::state::AppState;
 #[derive(Deserialize)]
 pub struct UpdateProfile {
     pub display_name: Option<String>,
+    /// Chave Pix que quem cobra mostra na página pública. Texto livre:
+    /// CPF, e-mail, telefone ou aleatória — o banco não interpreta.
+    pub pix_chave: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -21,6 +24,7 @@ pub struct ProfileResponse {
     pub user_id: Uuid,
     pub email: String,
     pub display_name: Option<String>,
+    pub pix_chave: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -41,14 +45,31 @@ pub async fn update(
         return Err(AppError::Validation("nome muito longo (máx 120)".into()));
     }
 
-    let row = sqlx::query_as::<_, (Uuid, String, Option<String>, chrono::DateTime<chrono::Utc>)>(
+    // Chave Pix: 77 é o teto de uma chave aleatória (EVP). Espaço no meio
+    // nunca é chave válida e viraria texto truncado na hora de copiar.
+    let pix = req.pix_chave.as_deref().map(str::trim);
+    if let Some(p) = pix {
+        if p.len() > 77 {
+            return Err(AppError::Validation("chave Pix muito longa (máx 77)".into()));
+        }
+        if p.chars().any(char::is_whitespace) {
+            return Err(AppError::Validation(
+                "chave Pix não pode ter espaço no meio".into(),
+            ));
+        }
+    }
+
+    let row = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<String>, chrono::DateTime<chrono::Utc>)>(
         "UPDATE users
-            SET display_name = COALESCE($2, display_name), updated_at = now()
+            SET display_name = COALESCE($2, display_name),
+                pix_chave = COALESCE($3, pix_chave),
+                updated_at = now()
           WHERE id = $1
-        RETURNING id, email, display_name, created_at",
+        RETURNING id, email, display_name, pix_chave, created_at",
     )
     .bind(auth.user_id())
     .bind(nome)
+    .bind(pix)
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::Unauthorized)?;
@@ -57,7 +78,8 @@ pub async fn update(
         user_id: row.0,
         email: row.1,
         display_name: row.2,
-        created_at: row.3,
+        pix_chave: row.3.filter(|p| !p.trim().is_empty()),
+        created_at: row.4,
     }))
 }
 

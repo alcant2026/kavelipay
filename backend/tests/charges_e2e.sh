@@ -141,6 +141,28 @@ check "devedor vê o status PENDING (recebido $(get status <<<"$PUB"))" \
 check "devedor vê quem cobra (recebido $(get cobrador <<<"$PUB"))" \
     "$([ "$(get cobrador <<<"$PUB")" = "Alice" ] && echo true || echo false)"
 
+echo
+echo "chave Pix: sem Mercado Pago conectado é o único jeito de pagar"
+
+C_PIX_ESPACO=$(code -X PATCH "$BASE/profile" -H "$AUTH" \
+    -H 'content-type: application/json' -d '{"pix_chave":"alice @pix.com"}')
+check "chave com espaço no meio é 422 (recebido $C_PIX_ESPACO)" \
+    "$([ "$C_PIX_ESPACO" = "422" ] && echo true || echo false)"
+
+PIX_OK=$(curl -s -X PATCH "$BASE/profile" -H "$AUTH" \
+    -H 'content-type: application/json' -d '{"pix_chave":"alice@pix.com"}')
+check "PATCH /profile grava a chave (recebido $(get pix_chave <<<"$PIX_OK"))" \
+    "$([ "$(get pix_chave <<<"$PIX_OK")" = "alice@pix.com" ] && echo true || echo false)"
+
+PAGINA=$(curl -s "$BASE/cobranca/$TOKEN/pagar")
+check "página de pagamento mostra a chave Pix de quem cobra" \
+    "$(case "$PAGINA" in *"alice@pix.com"*) echo true;; *) echo false;; esac)"
+check "página diz de quem é o Pix (recebido Pix de Alice)" \
+    "$(case "$PAGINA" in *"Pix de Alice"*) echo true;; *) echo false;; esac)"
+PUB_DEPOIS=$(curl -s "$BASE/cobranca/$TOKEN")
+check "chave não vaza no JSON público" \
+    "$(case "$PUB_DEPOIS" in *"alice@pix.com"*) echo false;; *) echo true;; esac)"
+
 # A resposta pública é mínima de propósito: o link roda fora da sessão e não
 # pode levar wallet, id interno ou o nome de outra pessoa junto.
 check "resposta pública não expõe wallet nem id da cobrança" \
@@ -164,6 +186,10 @@ check "cobrança vira RECEIVED" "$([ "$(get status <<<"$REC")" = "RECEIVED" ] &&
 PUB_REC=$(curl -s "$BASE/cobranca/$TOKEN")
 check "rota pública passa a mostrar RECEIVED (recebido $(get status <<<"$PUB_REC"))" \
     "$([ "$(get status <<<"$PUB_REC")" = "RECEIVED" ] && echo true || echo false)"
+
+PAGINA_REC=$(curl -s "$BASE/cobranca/$TOKEN/pagar")
+check "cobrança recebida não mostra mais a chave (não cobrar duas vezes)" \
+    "$(case "$PAGINA_REC" in *"alice@pix.com"*) echo false;; *) echo true;; esac)"
 
 SALDO_RECEBIDO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
 check "saldo subiu para 150.00 ao receber (recebido $SALDO_RECEBIDO)" \
