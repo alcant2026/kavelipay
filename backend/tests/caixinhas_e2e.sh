@@ -122,14 +122,23 @@ for i in $(seq 1 40); do
     sleep 0.25
 done
 
-# Quatro contas: alice (dono), bob (membro), carol
-# (membro que entra depois, sem aporte no começo), dave (nunca entra).
+# Cinco contas: alice (dono), bob (membro), carol
+# (membro que entra depois, sem aporte no começo), dave (nunca entra),
+# eve (só para o teste de cobrança).
 curl -s -o /dev/null -X POST "$BASE/auth/register" -H 'content-type: application/json' \
     -d '{"email":"alice@teste.com","password":"senha-forte-123","display_name":"Alice Silva"}'
-for EMAIL in bob@teste.com carol@teste.com dave@teste.com; do
+for EMAIL in bob@teste.com carol@teste.com dave@teste.com eve@teste.com; do
     curl -s -o /dev/null -X POST "$BASE/auth/register" -H 'content-type: application/json' \
         -d "{\"email\":\"$EMAIL\",\"password\":\"senha-forte-123\"}"
 done
+# Alice é Premium aqui: a primeira caixinha é grátis e a segunda exige plano.
+# O direito é derivado da tabela, então basta a linha + login novo para o token
+# sair com o claim (ele não é lido do banco a cada request).
+"${PSQL[@]}" -d "$DB" -c "INSERT INTO assinaturas
+    (user_id, provider, provider_sub_id, plano, status, periodo_fim)
+    SELECT id, 'manual', 'e2e-alice', 'mensal', 'ACTIVE', now() + interval '30 days'
+      FROM users WHERE email = 'alice@teste.com'" >/dev/null
+
 login() { curl -s -X POST "$BASE/auth/login" -H 'content-type: application/json' \
     -d "{\"email\":\"$1\",\"password\":\"senha-forte-123\"}" | get access_token; }
 eu() { curl -s "$BASE/auth/me" -H "Authorization: Bearer $1" | get user_id; }
@@ -138,6 +147,7 @@ TOKEN_A=$(login alice@teste.com); AUTH_A="Authorization: Bearer $TOKEN_A"
 TOKEN_B=$(login bob@teste.com);   AUTH_B="Authorization: Bearer $TOKEN_B"
 TOKEN_C=$(login carol@teste.com);  AUTH_C="Authorization: Bearer $TOKEN_C"
 TOKEN_D=$(login dave@teste.com);  AUTH_D="Authorization: Bearer $TOKEN_D"
+TOKEN_E=$(login eve@teste.com);   AUTH_E="Authorization: Bearer $TOKEN_E"
 ALICE_ID=$(eu "$TOKEN_A")
 BOB_ID=$(eu "$TOKEN_B")
 CAROL_ID=$(eu "$TOKEN_C")
@@ -886,6 +896,26 @@ check "sexta tentativa seguida é 429 (recebido $C_BLOQUEIO)" \
 MSG=$(campo message <<<"${RESPOSTA%$'\n'*}")
 check "mensagem de bloqueio em pt-BR (recebido ${MSG:-vazio})" \
     "$(python3 -c "import sys; print('true' if sys.argv[1].startswith('muitas tentativas de convite') else 'false')" "$MSG")"
+
+echo
+echo "cobrança: a primeira caixinha é grátis, a segunda exige Premium"
+
+RESPOSTA=$(req -X POST "$BASE/caixinhas" -H "$AUTH_E" -H 'content-type: application/json' \
+    -d '{"nome":"Primeira da eve","valor_pedido":"100.00","taxa_mensal":"1"}')
+C_D1="${RESPOSTA##*$'\n'}"
+check "primeira caixinha sem plano: 201 (recebido $C_D1)" \
+    "$([ "$C_D1" = "201" ] && echo true || echo false)"
+
+RESPOSTA=$(req -X POST "$BASE/caixinhas" -H "$AUTH_E" -H 'content-type: application/json' \
+    -d '{"nome":"Segunda da eve","valor_pedido":"100.00","taxa_mensal":"1"}')
+C_D2="${RESPOSTA##*$'\n'}"
+check "segunda caixinha sem plano: 402 (recebido $C_D2)" \
+    "$([ "$C_D2" = "402" ] && echo true || echo false)"
+COD=$(campo error <<<"${RESPOSTA%$'\n'*}")
+check "código do erro é plano_necessario (recebido ${COD:-vazio})" \
+    "$([ "$COD" = "plano_necessario" ] && echo true || echo false)"
+# O caminho "com Premium passa da primeira" já está coberto acima: a "Caixa
+# reserva" é a segunda caixinha da alice e devolve 201.
 
 echo
 echo "minhas caixinhas: cada um vê as suas, com o papel certo"

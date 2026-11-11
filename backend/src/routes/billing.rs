@@ -48,7 +48,10 @@ pub const PRECO_ANUAL: &str = "79.90";
 
 /// Recursos que o plano libera. Lista explícita para o app desenhar a tela sem
 /// inventar promessa que o backend não cumpre.
-pub const RECURSOS_PREMIUM: &[&str] = &["Relatório mensal de gastos por categoria"];
+pub const RECURSOS_PREMIUM: &[&str] = &[
+    "Relatório mensal de gastos por categoria",
+    "Mais de uma caixinha (a primeira é grátis)",
+];
 
 const ERRO_PLANO: &str = "este recurso faz parte do plano Premium — conheça o plano";
 

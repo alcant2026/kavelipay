@@ -308,6 +308,7 @@ fun KpRaiz(
             KpNovaCaixinhaScreen(
                 vm = vm,
                 aoVoltar = { nav.popBackStack() },
+                aoAbrirPlano = { nav.navigate(Rota.PLANO) },
                 aoSalvar = { id ->
                     nav.popBackStack()
                     nav.navigate("${Rota.CAIXINHA_DETALHE}/$id")

@@ -203,6 +203,12 @@ inválida.", que não casam no formato "{0} não encontrado").
 ```
 201 → `CaixinhaDetalhe` (papel `dono`, com `convite` já gerado).
 
+**Cobrança:** a **primeira** caixinha é grátis; da segunda em diante exige
+Premium (claim `premium` do token, ver `docs/endpoints.md`). Sem plano: `402`
+com `{"error":"plano_necessario"}` — o app mostra o convite ao plano. O teto
+de 20 caixinhas por conta vale para todos. Entrar como membro é **sempre
+grátis**: só quem cria paga.
+
 ### GET /caixinhas (minhas)
 
 Array solto (como `/splits`), `criado_em DESC`:
@@ -368,7 +374,8 @@ ok `PROPOSTO` → membro não confirma o próprio aporte `409` → dono confirma
 rendimento proposto pelo dono com valor do servidor → membro confirma →
 rendimento de novo no mês `422` → devolução total confirmada zera saldo →
 score 500 + 25 + 70 = 595; membro vê o mesmo; aporte antigo sem rendimento
-pago derruba para 575 → rota antiga `/avaliacao` devolve `404` → telefone
+pago derruba para 575 → rota antiga `/avaliacao` devolve `404` → primeira
+caixinha sem plano `201`, segunda `402 plano_necessario` → telefone
 inválido `422` e válido aparece pro dono → não-membro vê `404` e a lista
 não traz alheia → `GET /caixinhas/publicas` devolve `404` (vitrine removida) →
 **`GET /wallet` do dono e do membro com saldo `0.00` do começo ao fim**

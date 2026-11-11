@@ -250,6 +250,12 @@ pub async fn criar(
     if existentes >= LIMITE_CAIXINHAS {
         return Err(AppError::NaoValido("limite de caixinhas atingido".into()));
     }
+    // A primeira é grátis; da segunda em diante exige Premium. Cobrar aqui é
+    // freio de fraude também: inflar o score pede caixinhas com membros
+    // distintos, e cada conta a mais custa assinatura.
+    if existentes >= 1 {
+        crate::routes::billing::exigir_premium_do_token(&auth)?;
+    }
 
     let mut tx = state.db.begin().await?;
     let id = sqlx::query_scalar::<_, Uuid>(

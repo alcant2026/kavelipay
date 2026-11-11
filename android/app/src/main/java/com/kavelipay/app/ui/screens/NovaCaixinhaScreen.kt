@@ -29,6 +29,7 @@ import com.kavelipay.app.data.telefoneDigitos
 import com.kavelipay.app.data.telefoneValido
 import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpBotaoPrimario
+import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.theme.Spacing
 
@@ -44,6 +45,7 @@ fun KpNovaCaixinhaScreen(
     vm: AppViewModel,
     aoVoltar: () -> Unit,
     aoSalvar: (String) -> Unit,
+    aoAbrirPlano: () -> Unit = {},
 ) {
     val estado by vm.estado.collectAsState()
 
@@ -166,6 +168,16 @@ fun KpNovaCaixinhaScreen(
 
             estado.erro?.let { mensagem ->
                 item { KpMensagemErro(mensagem) }
+            }
+
+            if (estado.planoNecessario) {
+                item {
+                    KpBotaoSecundario(
+                        "Conhecer o Premium",
+                        onClick = aoAbrirPlano,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
 
             item {

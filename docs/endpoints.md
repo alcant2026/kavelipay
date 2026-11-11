@@ -114,7 +114,8 @@ conectada a página pública avisa e não oferece pagar.
 > `/caixinhas/{id}/publica` não existem (404); o banco recusa `publica = true`.
 
 - `POST /caixinhas` — `{nome, valor_pedido, taxa_mensal, previsao_quitacao?,
-  telefone?}`. Cria a caixinha **e o primeiro convite na mesma
+  telefone?}`. **A primeira é grátis; a segunda em diante exige Premium**
+  (`402 plano_necessario`). Teto de 20 por conta. Cria a caixinha **e o primeiro convite na mesma
   transação**; `201` com o `CaixinhaDetalhe` (papel `dono`).
 - `GET /caixinhas` — as minhas (dono OU membro), `criado_em DESC`, com papel,
   arrecadado, progresso e score do responsável.

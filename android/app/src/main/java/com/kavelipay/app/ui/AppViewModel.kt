@@ -1027,7 +1027,14 @@ fun carregarChargeQr(chargeId: String) {
                     onOk(detalhe.id)
                 }
                 .onFailure { e ->
-                    _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) }
+                    _estado.update {
+                        it.copy(
+                            enviando = false,
+                            erro = mensagemDe(e),
+                            // 402 na criação = a 2ª caixinha é Premium.
+                            planoNecessario = ePlanoNecessario(e),
+                        )
+                    }
                 }
         }
     }
