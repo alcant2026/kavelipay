@@ -48,6 +48,9 @@ android {
         versionName = "0.1.0"
         // Define o nome base do APK (sem sufixos automáticos)
         setProperty("archivesBaseName", "KaveliPay")
+        // O app é só pt-BR: sem isso ele carrega as traduções das bibliotecas
+        // (dezenas de locales) para nada.
+        resourceConfigurations += listOf("pt")
     }
 
     buildTypes {

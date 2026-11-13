@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mesmo tema, fundo escuro: com o branco do values/ a tela pisca em quem
+         usa o aparelho no modo escuro, e no OLED isso é bem visível. -->
+    <style name="Theme.KaveliPay" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/ic_launcher_background</item>
+    </style>
+</resources>
