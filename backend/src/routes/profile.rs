@@ -114,7 +114,7 @@ pub async fn change_password(
     .await?
     .ok_or(AppError::Unauthorized)?;
 
-    if !crate::auth::verify(&req.current_password, &hash_atual) {
+    if !crate::auth::verify_async(req.current_password.clone(), hash_atual.clone()).await {
         return Err(AppError::Unauthorized);
     }
 
@@ -122,7 +122,7 @@ pub async fn change_password(
     // como uma delas deixa de ser aplicada.
     crate::routes::auth::validar_senha(&req.new_password)?;
 
-    let novo_hash = crate::auth::hash(&req.new_password)?;
+    let novo_hash = crate::auth::hash_async(req.new_password.clone()).await?;
 
     sqlx::query("UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1")
         .bind(auth.user_id())

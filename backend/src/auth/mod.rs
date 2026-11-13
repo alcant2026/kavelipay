@@ -6,5 +6,5 @@ pub mod password;
 pub mod token;
 
 pub use extract::{AuthUser, ClientIp};
-pub use password::{hash, verify};
+pub use password::{hash, hash_async, verify, verify_async};
 pub use token::{Claims, TokenService, hash_refresh};

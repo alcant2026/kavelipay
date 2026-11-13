@@ -43,7 +43,7 @@ pub async fn register(
 ) -> AppResult<Json<TokenResponse>> {
     let email = normalizar_email(&req.email)?;
     validar_senha(&req.password)?;
-    let hash = crate::auth::hash(&req.password)?;
+    let hash = crate::auth::hash_async(req.password.clone()).await?;
 
     // INSERT direto: uma violação de unique (users_email_lower_uniq) é
     // mapped por `mapear_erro_cadastro` para 409, não para 500. Deixar
@@ -114,12 +114,12 @@ pub async fn login(
         // Custo constante: verificamos a senha contra um hash descartável antes
         // de devolver erro, senão o tempo de resposta revelaria quais emails
         // existem (user enumeration).
-        let _ = crate::auth::verify(&req.password, DUMMY_HASH);
+        let _ = crate::auth::verify_async(req.password.clone(), DUMMY_HASH.to_string()).await;
         state.login_gate.registrar_falha(ip, &email);
         return Err(AppError::Unauthorized);
     };
 
-    if !crate::auth::verify(&req.password, &hash) {
+    if !crate::auth::verify_async(req.password.clone(), hash.clone()).await {
         state.login_gate.registrar_falha(ip, &email);
         return Err(AppError::Unauthorized);
     }
@@ -308,7 +308,7 @@ pub async fn reset_password(
     validar_senha(&req.new_password)?;
 
     let hash_do_codigo = crate::auth::hash_refresh(req.token.trim());
-    let novo_hash = crate::auth::hash(&req.new_password)?;
+    let novo_hash = crate::auth::hash_async(req.new_password.clone()).await?;
 
     let mut tx = state.db.begin().await?;
 

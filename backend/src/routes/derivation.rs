@@ -77,67 +77,77 @@ pub async fn derivation(
         .ok_or(crate::error::AppError::NotFound("wallet"))?;
 
     // ASC: a explicação é uma linha do tempo, começa do zero e acumula.
-    let todas = sqlx::query_as::<_, (
+    //
+    // O recorte é do Postgres: a window function acumula e o LIMIT devolve só
+    // a janela. Antes a consulta trazia o extrato inteiro para somar em Rust —
+    // o custo crescia com o histórico, não com o que a tela mostra.
+    let offset = q.offset.unwrap_or(0).max(0);
+    let limite = q.limit.unwrap_or(50).clamp(1, 500);
+
+    let janela = sqlx::query_as::<_, (
         Uuid,
         String,
         Option<String>,
         Decimal,
+        Decimal,
         chrono::DateTime<chrono::Utc>,
     )>(
-        "SELECT t.id, t.type, t.description,
-                CASE WHEN e.debit > 0 THEN -e.debit ELSE e.credit END,
-                t.created_at
+        "WITH movs AS (
+             SELECT t.id, t.type, t.description,
+                    CASE WHEN e.debit > 0 THEN -e.debit ELSE e.credit END AS delta,
+                    t.created_at
+               FROM ledger_transactions t
+               JOIN ledger_entries e ON e.transaction_id = t.id
+               JOIN ledger_accounts a ON a.id = e.account_id
+              WHERE t.wallet_id = $1
+                AND a.kind = 'USER_AVAILABLE'
+                AND t.status = 'POSTED'
+         )
+         SELECT id, type, description, delta,
+                SUM(delta) OVER (ORDER BY created_at, id ROWS UNBOUNDED PRECEDING),
+                created_at
+           FROM movs
+          ORDER BY created_at ASC, id ASC
+          LIMIT $2 OFFSET $3",
+    )
+    .bind(wallet_id)
+    .bind(limite)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await?;
+
+    let total_items = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
            FROM ledger_transactions t
            JOIN ledger_entries e ON e.transaction_id = t.id
            JOIN ledger_accounts a ON a.id = e.account_id
           WHERE t.wallet_id = $1
             AND a.kind = 'USER_AVAILABLE'
-            AND t.status = 'POSTED'
-          ORDER BY t.created_at ASC, t.id ASC",
+            AND t.status = 'POSTED'",
     )
     .bind(wallet_id)
-    .fetch_all(&state.db)
+    .fetch_one(&state.db)
     .await?;
 
     // `opening_balance` vem do ledger, não da soma da janela: é a verdade
-    // absoluta. `running_balance` anda do total ANTES da janela até o fim.
+    // absoluta. `running_balance` já sai acumulado desde o primeiro lançamento.
     let (saldo_real, _) = ledger::saldo(&state.db, wallet_id).await?;
 
-    let offset = q.offset.unwrap_or(0).max(0) as usize;
-    let limite = q.limit.unwrap_or(50).clamp(1, 500) as usize;
-    let total_items = todas.len();
+    let soma_janela: Decimal = janela.iter().map(|(_, _, _, delta, _, _)| *delta).sum();
 
-    let inicio = offset.min(total_items);
-    let janela = todas
-        .iter()
-        .skip(inicio)
-        .take(limite)
-        .cloned()
-        .collect::<Vec<_>>();
-
-    // Acumulado antes da janela, para o primeiro item já nascer no ponto certo.
-    let acumulado_inicial: Decimal = todas
-        .iter()
-        .take(inicio)
-        .map(|(_, _, _, delta, _)| *delta)
-        .sum();
-
-    let mut running = acumulado_inicial;
-    let mut items = Vec::with_capacity(janela.len());
-    let mut soma_janela = Decimal::ZERO;
-
-    for (id, tipo, descricao, delta, created_at) in &janela {
-        running += *delta;
-        soma_janela += *delta;
-        items.push(DerivationItem {
-            transaction_id: *id,
-            r#type: tipo.clone(),
-            description: descricao.clone(),
-            delta: Money::new(*delta),
-            running_balance: Money::new(running),
-            created_at: *created_at,
-        });
-    }
+    let items = janela
+        .into_iter()
+        .map(
+            |(id, tipo, descricao, delta, running, created_at)| DerivationItem {
+                transaction_id: id,
+                r#type: tipo,
+                description: descricao,
+                delta: Money::new(delta),
+                running_balance: Money::new(running),
+                created_at,
+            },
+        )
+        .collect();
 
     Ok(Json(DerivationResponse {
         wallet_id,

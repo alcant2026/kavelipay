@@ -65,7 +65,7 @@ pub async fn delete_account(
         .await?
         .ok_or(AppError::Unauthorized)?;
 
-    if !crate::auth::verify(&req.password, &hash) {
+    if !crate::auth::verify_async(req.password.clone(), hash.clone()).await {
         return Err(AppError::Unauthorized);
     }
 

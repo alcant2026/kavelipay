@@ -43,6 +43,22 @@ pub fn verify(senha: &str, hash_php: &str) -> bool {
     }
 }
 
+/// `hash` fora da thread do Tokio. argon2 é dezenas de ms de CPU pura: chamado
+/// direto num handler, trava o worker (em Render 0,1 vCPU, dois logins
+/// simultâneos derrubam o servidor). Use esta versão nas rotas.
+pub async fn hash_async(senha: String) -> AppResult<String> {
+    tokio::task::spawn_blocking(move || hash(&senha))
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("spawn_blocking do hash: {e}")))?
+}
+
+/// `verify` fora da thread do Tokio, pelo mesmo motivo de `hash_async`.
+pub async fn verify_async(senha: String, hash_php: String) -> bool {
+    tokio::task::spawn_blocking(move || verify(&senha, &hash_php))
+        .await
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
