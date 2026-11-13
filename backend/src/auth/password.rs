@@ -6,6 +6,8 @@
 
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng};
 use argon2::{Algorithm, Argon2, Params, Version};
+use std::sync::OnceLock;
+use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::error::{AppError, AppResult};
 
@@ -43,20 +45,48 @@ pub fn verify(senha: &str, hash_php: &str) -> bool {
     }
 }
 
-/// `hash` fora da thread do Tokio. argon2 é dezenas de ms de CPU pura: chamado
-/// direto num handler, trava o worker (em Render 0,1 vCPU, dois logins
-/// simultâneos derrubam o servidor). Use esta versão nas rotas.
+/// Quantas senhas podem ser calculadas ao mesmo tempo.
+///
+/// Cada argon2 aloca 19 MiB. Sem teto, uma rajada de logins abre uma thread
+/// por requisição no pool de bloqueio do Tokio (até 512) — e 512 × 19 MiB
+/// derruba qualquer instância pequena. Quatro é o bastante para o servidor
+/// absorver acessos simultâneos; o resto espera na fila, não na memória.
+static VAGAS: OnceLock<Semaphore> = OnceLock::new();
+
+async fn vaga() -> AppResult<SemaphorePermit<'static>> {
+    VAGAS
+        .get_or_init(|| Semaphore::new(4))
+        .acquire()
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("semáforo de senha fechado: {e}")))
+}
+
+/// `hash` fora da thread do Tokio, com no máximo 4 em paralelo. argon2 é
+/// dezenas de ms de CPU pura: chamado direto num handler, trava o worker (em
+/// Render 0,1 vCPU, dois logins simultâneos derrubam o servidor).
 pub async fn hash_async(senha: String) -> AppResult<String> {
+    let _vaga = vaga().await?;
     tokio::task::spawn_blocking(move || hash(&senha))
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("spawn_blocking do hash: {e}")))?
 }
 
 /// `verify` fora da thread do Tokio, pelo mesmo motivo de `hash_async`.
-pub async fn verify_async(senha: String, hash_php: String) -> bool {
-    tokio::task::spawn_blocking(move || verify(&senha, &hash_php))
-        .await
-        .unwrap_or(false)
+///
+/// Falha de infraestrutura (task morta por panic ou runtime desligando) é erro
+/// do servidor, não senha errada: devolver `false` daria 401 e ainda contaria
+/// uma tentativa falha contra a conta do dono.
+pub async fn verify_async(senha: String, hash_php: String) -> AppResult<bool> {
+    let _vaga = vaga().await?;
+    match tokio::task::spawn_blocking(move || verify(&senha, &hash_php)).await {
+        Ok(ok) => Ok(ok),
+        Err(e) => {
+            tracing::error!("verificação de senha não rodou: {e}");
+            Err(AppError::Internal(anyhow::anyhow!(
+                "spawn_blocking do verify: {e}"
+            )))
+        }
+    }
 }
 
 #[cfg(test)]

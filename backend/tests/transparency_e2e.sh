@@ -145,6 +145,21 @@ print(sum(1 for i in d['items'] if float(i['delta']) == 0))")
 check "nenhum lançamento aparece com delta 0.00" \
     "$([ "$ZERO_DELTA" = "0" ] && echo true || echo false)"
 
+# Offset é resolvido no SQL: o acumulado tem de continuar encadeando entre
+# páginas e o total não pode mudar por causa da janela.
+P2=$(curl -s "$BASE/wallet/derivation?limit=1&offset=1" -H "$AUTH")
+FORA=$(curl -s "$BASE/wallet/derivation?offset=999" -H "$AUTH")
+R2=$(printf '%s' "$P2" | jget "['items'][0]['running_balance']")
+check "running_balance da 2ª página encadeia (1000.00 - 300.00 = $R2)" \
+    "$([ "$R2" = "700.00" ] && echo true || echo false)"
+check "total_items é o mesmo em qualquer página ($(get total_items <<<"$P2") vs $(get total_items <<<"$D"))" \
+    "$([ "$(get total_items <<<"$P2")" = "$(get total_items <<<"$D")" ] && echo true || echo false)"
+VAZIA=$(printf '%s' "$FORA" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['items']))")
+check "offset além do fim devolve página vazia ($VAZIA itens)" \
+    "$([ "$VAZIA" = "0" ] && echo true || echo false)"
+check "offset além do fim mantém o total ($(get total_items <<<"$FORA"))" \
+    "$([ "$(get total_items <<<"$FORA")" = "3" ] && echo true || echo false)"
+
 echo
 echo "3. categorias foram semeadas"
 

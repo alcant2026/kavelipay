@@ -119,7 +119,7 @@ pub async fn login(
         return Err(AppError::Unauthorized);
     };
 
-    if !crate::auth::verify_async(req.password.clone(), hash.clone()).await {
+    if !crate::auth::verify_async(req.password.clone(), hash.clone()).await? {
         state.login_gate.registrar_falha(ip, &email);
         return Err(AppError::Unauthorized);
     }

@@ -114,7 +114,7 @@ pub async fn change_password(
     .await?
     .ok_or(AppError::Unauthorized)?;
 
-    if !crate::auth::verify_async(req.current_password.clone(), hash_atual.clone()).await {
+    if !crate::auth::verify_async(req.current_password.clone(), hash_atual.clone()).await? {
         return Err(AppError::Unauthorized);
     }
 

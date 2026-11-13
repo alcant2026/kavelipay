@@ -80,7 +80,7 @@ pub async fn derivation(
     //
     // O recorte é do Postgres: a window function acumula e o LIMIT devolve só
     // a janela. Antes a consulta trazia o extrato inteiro para somar em Rust —
-    // o custo crescia com o histórico, não com o que a tela mostra.
+    // o que crescia com o histórico era o tráfego e a memória, não a tela.
     let offset = q.offset.unwrap_or(0).max(0);
     let limite = q.limit.unwrap_or(50).clamp(1, 500);
 
