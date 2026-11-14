@@ -15,9 +15,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -379,15 +377,14 @@ private fun LeitorPreview(
         }
     }
 
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        androidx.compose.ui.viewinterop.AndroidView(factory = { previewView })
-        // Mira: retângulo central, o código costuma caber aí.
-        Box(
-            Modifier
-                .size(300.dp, 170.dp)
-                .border(2.dp, Color.White.copy(alpha = 0.85f), RoundedCornerShape(16.dp)),
-        )
-    }
+    // Sem "mira": o leitor já decodifica o frame inteiro (`PlanarYUVLuminanceSource`
+    // recebe a matriz completa), então a caixinha só dizia "aponte aqui" e
+    // limitava na cabeça de quem usa — quem posicionava o código fora dela
+    // achava que não ia ler.
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { previewView },
+        modifier = modifier.fillMaxSize(),
+    )
 }
 
 /**
