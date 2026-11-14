@@ -25,6 +25,22 @@ services:
         sync: false
       - key: OPENROUTER_MODEL
         value: deepseek/deepseek-v4.1-flash-1017:floor
+      # Mercado Pago: cobrança real do Premium e "conectar minha conta".
+      # Os segredos são preenchidos no painel (sync: false). Para testar em vez
+      # de vender, use um token TEST- no MP_ACCESS_TOKEN: o sandbox é derivado
+      # do prefixo, não há flag para esquecer ligada.
+      - key: MP_ACCESS_TOKEN
+        sync: false
+      - key: MP_PUBLIC_KEY
+        sync: false
+      - key: MP_NOTIFICATION_URL
+        value: https://kavelipay-backend.onrender.com/webhooks/mercadopago
+      - key: MP_CLIENT_ID
+        sync: false
+      - key: MP_CLIENT_SECRET
+        sync: false
+      - key: MP_TOKEN_KEY
+        sync: false
       - key: DB_MAX_CONNECTIONS
         value: "10"
       - key: RUST_LOG

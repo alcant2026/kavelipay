@@ -66,6 +66,18 @@ async fn main() -> Result<(), AppError> {
         config.mp_public_key.clone(),
         config.mp_sandbox,
     )?;
+    if config.mp_sandbox {
+        tracing::warn!(
+            "Mercado Pago com credencial de TESTE: o checkout aceita cartão de teste e \
+             não entra dinheiro. Para vender de verdade use MP_ACCESS_TOKEN=APP_USR-…"
+        );
+    }
+    if config.mp_access_token.is_some() && config.mp_notification_url.is_none() {
+        tracing::warn!(
+            "MP_NOTIFICATION_URL ausente: o Mercado Pago não avisa o backend do pagamento \
+             e a assinatura só ativa se o webhook for chamado por outro caminho"
+        );
+    }
 
     let state = AppState {
         db,

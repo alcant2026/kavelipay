@@ -746,10 +746,27 @@ pub async fn webhook(
     };
 
     let pagamento = state.mp.pagamento(pagamento_id, token_dono.as_deref()).await?;
+    let referencia = pagamento.external_reference.as_deref().unwrap_or_default();
+
+    // Estorno/chargeback da assinatura: dinheiro devolvido não compra acesso.
+    // Só o premium — cobrança entre usuários estornada não tem tratamento (o
+    // ledger registrou o recebimento que o dono afirmou; desfazer exigiria
+    // lançamento de estorno, que a spec não define).
+    if referencia.starts_with("plano:")
+        && matches!(
+            pagamento.status.as_str(),
+            "refunded" | "charged_back" | "cancelled"
+        )
+    {
+        if let Err(e) = crate::routes::billing::estornar_assinatura(&state.db, pagamento_id).await {
+            tracing::warn!(%pagamento_id, "premium: falha ao revogar no estorno: {e}");
+        }
+        return Ok(StatusCode::OK);
+    }
+
     if pagamento.status != "approved" {
         return Ok(StatusCode::OK);
     }
-    let referencia = pagamento.external_reference.as_deref().unwrap_or_default();
 
     // Cota de divisão (`parte:<uuid>`): mesma confiança da cobrança — quem
     // confirma é a consulta ao Mercado Pago, não o clique do dono.

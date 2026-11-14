@@ -56,6 +56,7 @@ pub struct Config {
     pub mp_token_key: Option<String>,
     /// Modo de teste do Mercado Pago: em vez do checkout de produção, o link
     /// de pagamento aponta para o sandbox, onde cartão de teste é aceito.
+    /// **Derivado** do prefixo do token (`TEST-`), nunca de variável própria.
     pub mp_sandbox: bool,
     /// Base pública do backend, sem barra no fim. É o que vira link de
     /// pagamento para quem não tem o app (`{base}/cobranca/{token}/pagar`).
@@ -143,6 +144,15 @@ impl Config {
             .filter(|n| *n <= 10_000)
             .unwrap_or(300);
 
+        // Modo de teste do Mercado Pago é DERIVADO da credencial, não de uma
+        // flag: token `TEST-` só existe em sandbox, `APP_USR-` só em produção.
+        // Uma variável a mais aqui é uma chance a mais de produção cobrar de
+        // mentira (cartão de teste liberando Premium) ou de o sandbox recusar
+        // com 401 "Unauthorized use of live credentials".
+        let mp_access_token = env::var("MP_ACCESS_TOKEN")
+            .ok()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty());
         Ok(Self {
             database_url,
             bind_addr,
@@ -151,19 +161,14 @@ impl Config {
             jwt_secret,
             access_token_ttl_minutes: ACCESS_TOKEN_TTL_MINUTES,
             refresh_token_ttl_days: REFRESH_TOKEN_TTL_DAYS,
-            mp_access_token: env::var("MP_ACCESS_TOKEN")
-                .ok()
-                .map(|k| k.trim().to_string())
-                .filter(|k| !k.is_empty()),
+            mp_sandbox: modo_teste(mp_access_token.as_deref()),
+            mp_access_token,
             mp_base_url: env::var("MP_BASE_URL")
                 .unwrap_or_else(|_| crate::mercadopago::BASE_URL_PADRAO.to_string()),
             mp_public_key: env::var("MP_PUBLIC_KEY")
                 .ok()
                 .map(|k| k.trim().to_string())
                 .filter(|k| !k.is_empty()),
-            mp_sandbox: env::var("MP_SANDBOX")
-                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "sim"))
-                .unwrap_or(false),
             mp_client_id: env::var("MP_CLIENT_ID")
                 .ok()
                 .map(|k| k.trim().to_string())
@@ -207,4 +212,24 @@ impl Config {
 
 fn required(key: &str) -> AppResult<String> {
     env::var(key).map_err(|_| AppError::Config(format!("{key} não definida")))
+}
+
+/// Credencial de teste do Mercado Pago = sandbox. `APP_USR-` é produção.
+fn modo_teste(token: Option<&str>) -> bool {
+    token.is_some_and(|t| t.starts_with("TEST-"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::modo_teste;
+
+    #[test]
+    fn sandbox_vem_do_prefixo_do_token() {
+        assert!(modo_teste(Some("TEST-1234-abc")));
+        assert!(!modo_teste(Some("APP_USR-1234-abc")));
+        // Sem credencial não há cobrança nenhuma: produção é o default.
+        assert!(!modo_teste(None));
+        // Prefixo parecido não pode virar sandbox por acidente.
+        assert!(!modo_teste(Some("APP_USR-TEST-1")));
+    }
 }

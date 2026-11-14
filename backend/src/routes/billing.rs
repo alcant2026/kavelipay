@@ -275,6 +275,26 @@ async fn periodo_e_upsert(
 /// Marca o checkout como pago e ativa o período — as duas coisas na mesma
 /// transação. Quem chama é o Brick (pagamento aprovado na hora) e o webhook
 /// (Pix aprovado depois); `concluido_em` é o que torna a segunda chamada inócua.
+/// Estorno ou chargeback do pagamento do Premium: o acesso termina quando o
+/// dinheiro volta. Sem isso o cliente estorna no cartão e continua Premium —
+/// prejuízo silencioso, porque nada no app avisa que o direito ficou órfão.
+///
+/// `periodo_fim = now()` e `status = 'CANCELED'`: o direito é derivado
+/// (`status = 'ACTIVE' AND periodo_fim > now()`), então basta isso. Idempotente
+/// pelo `WHERE status = 'ACTIVE'` — o Mercado Pago reenvia webhook por horas.
+pub(crate) async fn estornar_assinatura(db: &PgPool, pagamento_id: &str) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE assinaturas
+            SET status = 'CANCELED', periodo_fim = now(), atualizado_em = now()
+          WHERE provider = 'mercadopago' AND provider_sub_id = $1
+            AND status = 'ACTIVE'",
+    )
+    .bind(pagamento_id)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub(crate) async fn concluir_checkout(
     db: &PgPool,
     checkout_id: Uuid,

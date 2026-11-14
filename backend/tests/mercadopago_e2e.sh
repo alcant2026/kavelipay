@@ -60,7 +60,7 @@ code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 #  - external_reference lido de arquivo a cada requisição, porque só existe
 #    depois que a cobrança é criada.
 cat > "$TMP_MOCK" <<'PY'
-import json, sys
+import json, os, sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 EXT_REF = sys.argv[1]
@@ -133,7 +133,10 @@ class H(BaseHTTPRequestHandler):
             ref = ""
         if pid in ("brick-1", "brick-pix"):
             # Pix nasce pendente e é confirmado depois: o webhook é quem quita.
-            self._json({"status": "approved", "transaction_amount": ULTIMO.get("transaction_amount"),
+            # O arquivo `.estorno` simula o estorno do MESMO pagamento — é assim
+            # que o MP avisa: novo webhook, mesmo id, status refunded.
+            status = "refunded" if os.path.exists(EXT_REF + ".estorno") else "approved"
+            self._json({"status": status, "transaction_amount": ULTIMO.get("transaction_amount"),
                         "external_reference": ULTIMO.get("external_reference")})
         elif pid == "pend":
             self._json({"status": "pending", "external_reference": ref})
@@ -158,9 +161,12 @@ echo "subindo mock do MP em $MOCK"
 python3 "$TMP_MOCK" "$EXT_REF" "$MP_PORTA" & MOCK_PID=$!
 
 echo "subindo servidor"
+# Token `APP_USR-…` de propósito: com `TEST-` o backend entra sozinho no modo
+# sandbox (billing.rs manda para o Checkout Pro em vez da página do Brick) e
+# este script testa justamente o Brick. O mock do MP não olha o prefixo.
 DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DB}" \
 JWT_SECRET="$SECRET" BIND_ADDR="127.0.0.1:${E2E_PORTA}" RUST_LOG=error \
-PUBLIC_BASE_URL="$BASE" MP_ACCESS_TOKEN="TEST-fake-$$" MP_PUBLIC_KEY="TEST-chave-publica-$$" \
+PUBLIC_BASE_URL="$BASE" MP_ACCESS_TOKEN="APP_USR-fake-$$" MP_PUBLIC_KEY="TEST-chave-publica-$$" \
 MP_CLIENT_ID="client-teste" MP_CLIENT_SECRET="segredo-teste" MP_TOKEN_KEY="chave-de-teste-32-bytes-aleatoria" MP_BASE_URL="$MOCK" MP_NOTIFICATION_URL="$BASE/webhooks/mercadopago" \
 "$BIN" &
 SERVER_PID=$!
@@ -534,6 +540,14 @@ check "webhook do pix confirma e soma o período anual ($FIM3)" \
 VAL=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["transaction_amount"])' "${EXT_REF}.pagamento")
 check "pix anual cobrou 79.90 do banco (recebido $VAL)" \
     "$([ "$VAL" = "79.9" ] && echo true || echo false)"
+
+# Estorno do MESMO pagamento (id igual, status refunded): o dinheiro voltou,
+# então o direito tem de voltar junto.
+touch "${EXT_REF}.estorno"
+code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' \
+    -d '{"type":"payment","data":{"id":"brick-pix"}}' >/dev/null
+check "estorno/chargeback revoga o Premium" \
+    "$([ "$(curl -s "$BASE/billing/plano" -H "$AUTH" | get premium)" = "False" ] && echo true || echo false)"
 
 check "premium não mexe no saldo da carteira" \
     "$([ "$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)" = "50.00" ] && echo true || echo false)"

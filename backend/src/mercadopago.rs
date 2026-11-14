@@ -28,7 +28,8 @@ pub struct MercadoPago {
     /// identifica a conta para o SDK no navegador; quem cobra é o token.
     public_key: Option<String>,
     /// Modo de teste: o link de pagamento aponta para o sandbox, único lugar
-    /// onde cartão de teste é aceito. Ligado por `MP_SANDBOX`.
+    /// onde cartão de teste é aceito. Derivado do token (`TEST-`) em
+    /// [crate::config::Config]: sandbox e produção nunca divergem.
     sandbox: bool,
 }
 
@@ -109,8 +110,8 @@ impl MercadoPago {
         }
     }
 
-    /// Modo de teste ligado por `MP_SANDBOX`: o Checkout Pro aponta para o host
-    /// de sandbox e o premium vai por ele em vez do Payment Brick.
+    /// Modo de teste ligado pelo token `TEST-`: o Checkout Pro aponta para o
+    /// host de sandbox e o premium vai por ele em vez do Payment Brick.
     pub fn sandbox(&self) -> bool {
         self.sandbox
     }
