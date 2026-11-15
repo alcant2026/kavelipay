@@ -118,6 +118,11 @@ async fn main() -> Result<(), AppError> {
             config.openrouter_base_url.clone(),
         )?,
         relatorio_gate: Default::default(),
+        limites_cobranca: kavelipay_backend::routes::charges::LimitesCobranca {
+            teto: config.cobranca_teto,
+            teto_dia: config.cobranca_teto_dia,
+            teto_novo: config.cobranca_teto_novo,
+        },
     };
 
     if !state.ai.configurado() {

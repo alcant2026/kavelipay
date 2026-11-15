@@ -99,6 +99,9 @@ uma instância só.
 | `OPENROUTER_MODEL` | não | padrão `deepseek/deepseek-v4.1-flash-1017:floor` |
 | `OPENROUTER_BASE_URL` | não | padrão `https://openrouter.ai/api/v1` (só para mock/teste) |
 | `DB_MAX_CONNECTIONS` | não | padrão 10 |
+| `COBRANCA_TETO` | não | padrão `1000.00` por cobrança (422 acima) |
+| `COBRANCA_TETO_DIA` | não | padrão `2000.00` somados por carteira em 24h |
+| `COBRANCA_TETO_NOVO` | não | padrão `200.00`/dia nos primeiros 7 dias da conta |
 | `LIMITE_POR_MINUTO` | não | padrão 300 req/min por IP (429 acima; 0 desliga) |
 | `BREVO_API_KEY` | não | **preferido no plano free do Render**: liga a recuperação de senha pela API HTTPS da Brevo (grátis até 300 e-mails/dia). O free bloqueia saída nas portas 25/465/587, então SMTP só funciona em instância paga |
 | `MAIL_FROM` | com `BREVO_API_KEY` | endereço verificado na Brevo que aparece como remetente |

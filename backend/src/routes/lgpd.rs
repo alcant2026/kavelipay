@@ -69,12 +69,16 @@ pub async fn delete_account(
         return Err(AppError::Unauthorized);
     }
 
+    // Uma transação só: revogar sessões, anonimizar e fechar a carteira pela
+    // metade deixaria a conta num estado que não é vivo nem excluído.
+    let mut tx = state.db.begin().await?;
+
     let revogadas = sqlx::query(
         "UPDATE refresh_tokens SET revoked_at = now()
           WHERE user_id = $1 AND revoked_at IS NULL",
     )
     .bind(user_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?
     .rows_affected();
 
@@ -94,15 +98,36 @@ pub async fn delete_account(
     )
     .bind(user_id)
     .bind(req.reason.as_deref())
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
 
     // Carteira e contas vão junto: sem PII e sem dono, não têm utilidade nem
     // valor probatório. O ledger sozinho já não é identificável.
     sqlx::query("UPDATE wallets SET status = 'CLOSED', updated_at = now() WHERE user_id = $1")
         .bind(user_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
+
+    // Credencial de terceiro não sobrevive ao dono: sem apagar o token OAuth,
+    // os links públicos de cobrança ainda criariam preferência na conta do
+    // ex-usuário — dinheiro entrando para quem pediu para sair.
+    sqlx::query("DELETE FROM mp_contas WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Links de cobrança pendente morrem junto; os já recebidos ficam no
+    // histórico (o ledger preservado é o que dá sentido a eles).
+    sqlx::query(
+        "UPDATE charges SET status = 'CANCELED', updated_at = now()
+          WHERE status = 'PENDING'
+            AND wallet_id IN (SELECT id FROM wallets WHERE user_id = $1)",
+    )
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
 
     tracing::info!(
         user_id = %user_id,

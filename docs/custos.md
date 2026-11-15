@@ -45,7 +45,7 @@ Modelo de referência: **1% por cobrança recebida**, com piso de R$ 0,49 e teto
 
 Esse 1% só vale a pena depois de: (a) o usuário já usar o app de graça e ver o valor; (b) a taxa ser anunciada antes do pagamento; (c) o MP aprovar a aplicação como marketplace. Antes disso é atrito para quem ainda nem confia no produto.
 
-**Implementado** (`MercadoPago::taxa_da_transacao`, `marketplace_fee` em toda preferência de cobrança e de parte de divisão): 1% com piso de R$ 0,49 e teto de R$ 4,90, calculado no servidor a partir do valor do banco — nunca do app. Cobrança de valor igual ou menor que a comissão sai sem taxa. O valor é descontado do vendedor e o Mercado Pago deposita na conta da aplicação; não existe etapa manual.
+**Implementado** (`MercadoPago::taxa_da_transacao`, `marketplace_fee` em toda preferência de cobrança e de parte de divisão): 1% com piso de R$ 0,49 e teto de R$ 4,90, calculado no servidor a partir do valor do banco — nunca do app. Cobrança de valor igual ou menor que a comissão sai sem taxa. O valor sai do vendedor e o Mercado Pago deposita **a comissão** na conta da aplicação (o valor da cobrança em si vai para a conta de quem cobrou); não existe etapa manual.
 
 Ressalvas: (a) sem a conta do Mercado Pago conectada não há vendedor de quem descontar, então o link nem aceita pagamento; (b) o premium passa sem comissão — seria cobrar de nós mesmos; (c) a taxa é cobrada no pagamento, não por assinatura, então o Pix pequeno é o que paga a operação.
 

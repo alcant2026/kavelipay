@@ -49,7 +49,13 @@ handler.
   pagamento na API deles e só então quita a parte, gravando `mp_payment_id`. Quem
   confirma o pagamento é o MP, não o clique do dono. Também leva
   `marketplace_fee` de 1% (piso R$ 0,49, teto R$ 4,90)
-- `POST /charges` — cria cobrança e devolve o QR. **NÃO gera lançamento**
+- `POST /charges` — cria cobrança e devolve o QR. **NÃO gera lançamento**.
+  Tetos de abuso (422 com `message` em pt-BR): R$ 1.000 por cobrança, R$ 2.000
+  somados por carteira em 24h — R$ 200 nos primeiros 7 dias da conta — e 20
+  cobranças em aberto. Configuráveis por `COBRANCA_TETO`,
+  `COBRANCA_TETO_DIA` e `COBRANCA_TETO_NOVO`. Existem porque o dinheiro cai na
+  conta de PSP do dono da carteira, mas quem o Mercado Pago bloqueia por fraude
+  é a conta conectada
 - `GET /charges`, `GET /charges/{id}/qr` — o QR é
   `kavelipay://cobranca/<token>` (deep link do app, **nunca** BR Code/EMV); o
   payload não carrega valor
@@ -73,12 +79,15 @@ handler.
 - `POST /charges/{id}/pagamento` — **Mercado Pago**: gera a preferência do
   Checkout Pro e devolve `{preference_id, init_point}`. Só cobrança `PENDING` do
   dono (409 caso contrário). Sem `MP_ACCESS_TOKEN` é 503. A cobrança NÃO muda de
-  status aqui. A preferência leva `marketplace_fee` = 1% do valor (piso R$ 0,49,
-  teto R$ 4,90, calculado do banco): o Mercado Pago desconta do vendedor e
-  deposita na conta do KaveliPay
+  status aqui. O valor cheio vai para a conta do dono da cobrança (a
+  preferência é criada com o OAuth dele; sem conta conectada é 422). Só a
+  comissão de 1% (piso R$ 0,49, teto R$ 4,90, calculado do banco) sai do
+  vendedor via `marketplace_fee` e é depositada na conta do KaveliPay
 - `POST /webhooks/mercadopago` — público. O corpo **não é fonte de verdade**:
   o status vem da consulta autenticada a `/v1/payments/{id}` e o valor vem do
-  banco. Só `approved` credita; o crédito entra como `ChargeReceived` com
+  banco. O `transaction_amount` devolvido pelo MP tem que bater com o valor da
+  cobrança/cota — diferente, não credita (senão um Pix de R$ 0,01 quitaria uma
+  cobrança de R$ 500). Só `approved` credita; o crédito entra como `ChargeReceived` com
   `UPDATE charges ... WHERE status='PENDING'` na mesma transação, então
   reenvio é idempotente (segunda vez não cria transação) e sempre responde 200
   para o MP não reenfileirar

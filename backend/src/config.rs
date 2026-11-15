@@ -61,6 +61,15 @@ pub struct Config {
     /// Base pública do backend, sem barra no fim. É o que vira link de
     /// pagamento para quem não tem o app (`{base}/cobranca/{token}/pagar`).
     pub public_base_url: String,
+    /// Teto por cobrança. O dinheiro cai na conta de PSP do próprio usuário,
+    /// mas quem o Mercado Pago cobra e bloqueia por fraude é o dono da conta
+    /// conectada — por isso o produto põe um teto antes de divulgar o app.
+    pub cobranca_teto: rust_decimal::Decimal,
+    /// Soma máxima cobrada por carteira nas últimas 24h.
+    pub cobranca_teto_dia: rust_decimal::Decimal,
+    /// Teto diário para conta com menos de 7 dias: fraude precisa de volume
+    /// rápido e não espera uma semana.
+    pub cobranca_teto_novo: rust_decimal::Decimal,
     /// Segredo do admin (emissão de código de assinatura, `POST
     /// /admin/assinaturas/codigos`).
     ///
@@ -115,6 +124,12 @@ impl Config {
                 )));
             }
         }
+
+        // Tetos de cobrança. Valores inválidos matam o boot em vez de virarem
+        // teto zero (que recusaria toda cobrança) ou teto infinito.
+        let cobranca_teto = decimal_env("COBRANCA_TETO", "1000.00")?;
+        let cobranca_teto_dia = decimal_env("COBRANCA_TETO_DIA", "2000.00")?;
+        let cobranca_teto_novo = decimal_env("COBRANCA_TETO_NOVO", "200.00")?;
 
         // Render injeta a porta em `PORT`; o dev local usa `BIND_ADDR`.
         // `BIND_ADDR` tem prioridade para não quebrar o ambiente atual.
@@ -185,6 +200,9 @@ impl Config {
                 .ok()
                 .map(|u| u.trim().to_string())
                 .filter(|u| !u.is_empty()),
+            cobranca_teto,
+            cobranca_teto_dia,
+            cobranca_teto_novo,
             public_base_url: env::var("PUBLIC_BASE_URL")
                 .ok()
                 .map(|u| u.trim().trim_end_matches('/').to_string())
@@ -212,6 +230,16 @@ impl Config {
 
 fn required(key: &str) -> AppResult<String> {
     env::var(key).map_err(|_| AppError::Config(format!("{key} não definida")))
+}
+
+/// Valor monetário opcional: ausente/vazio usa o padrão, lixo quebra o boot.
+fn decimal_env(key: &str, padrao: &str) -> AppResult<rust_decimal::Decimal> {
+    use std::str::FromStr;
+    match env::var(key) {
+        Ok(valor) if !valor.trim().is_empty() => rust_decimal::Decimal::from_str(valor.trim())
+            .map_err(|_| AppError::Config(format!("{key} não é um valor monetário: {valor}"))),
+        _ => Ok(rust_decimal::Decimal::from_str(padrao).expect("padrão literal")),
+    }
 }
 
 /// Credencial de teste do Mercado Pago = sandbox. `APP_USR-` é produção.

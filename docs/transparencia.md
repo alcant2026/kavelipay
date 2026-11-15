@@ -39,10 +39,14 @@ está accounted for". Tudo nesta seção existe para sustentar isso.
   referencia `ledger_accounts` com `ON DELETE RESTRICT`; apagar em cascata
   quebraria o equilíbrio de transações de anos atrás para remover um e-mail.
   Some o PII, revoga sessões, fecha a wallet, ledger preservado e equilibrado.
-  Exige `password` **e** `confirm: true`.
+  Exige `password` **e** `confirm: true`. Tudo numa transação só, e junto vão
+  o token OAuth do Mercado Pago (`mp_contas`) e as cobranças PENDING — sem
+  isso, o link público continuaria cobrando na conta do ex-usuário.
 - `POST /bills/generate-recurring` — recorrência não é entidade nova: a próxima
   ocorrência é um `bills` comum. Idempotente por `bills_recurrence_key_uniq`
-  (`<bill-fonte>:<YYYY-MM>`). `months_ahead` tem teto de 24.
+  (`<bill-fonte>:<YYYY-MM-DD>`, a data exata — com o mês, três das quatro
+  ocorrências de uma série `WEEKLY` sumiam no `ON CONFLICT`). `months_ahead`
+  tem teto de 24.
 
 Armadilhas destas rotas, já pagas:
 - `ON CONFLICT (wallet_id, recurrence_key)` precisa repetir o predicado

@@ -69,6 +69,11 @@ pub struct Preferencia {
 pub struct Pagamento {
     pub status: String,
     pub external_reference: Option<String>,
+    /// Quanto foi efetivamente pago. `None` quando o MP não manda o campo —
+    /// nesse caso a checagem de valor é pulada, nunca aprovada por omissão de
+    /// dado errado.
+    #[serde(default)]
+    pub transaction_amount: Option<Decimal>,
 }
 
 impl MercadoPago {

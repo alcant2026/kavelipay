@@ -50,6 +50,9 @@ pub struct AppState {
     /// Teto de gerações de relatório por usuário/hora: cada uma custa token
     /// de terceiro.
     pub relatorio_gate: crate::rate_limit::LimiteUsuario,
+    /// Tetos de valor de cobrança. Ficam no estado (e não lidos no handler)
+    /// para o teste ligar teto baixo sem mexer no ambiente do processo.
+    pub limites_cobranca: crate::routes::charges::LimitesCobranca,
 }
 
 /// Wallet do usuário, exigindo ACTIVE: wallet bloqueada não se move. Ponto

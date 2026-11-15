@@ -272,6 +272,36 @@ check "Bob não vê cobranças da Alice (recebeu $LISTA_BOB)" \
     "$([ "$LISTA_BOB" = "0" ] && echo true || echo false)"
 
 echo
+echo "tetos de cobrança"
+
+# Conta nova (Carol) não acumula volume: o dinheiro cai na conta de PSP de quem
+# cobra, mas o Mercado Pago bloqueia a conta conectada se ela virar laranja.
+curl -s -o /dev/null -X POST "$BASE/auth/register" -H 'content-type: application/json' \
+    -d '{"email":"carol@teste.com","password":"senha-forte-123"}'
+AUTH_C="Authorization: Bearer $(login carol@teste.com)"
+cobrar_carol() {
+    code -X POST "$BASE/charges" -H "$AUTH_C" -H 'content-type: application/json' \
+        -d "{\"description\":\"$1\",\"amount\":\"$2\"}"
+}
+
+C_TETO=$(cobrar_carol Carro 1500.00)
+check "acima do teto por cobrança é 422 (recebido $C_TETO)" \
+    "$([ "$C_TETO" = "422" ] && echo true || echo false)"
+
+C_DENTRO=$(cobrar_carol Notebook 150.00)
+check "cobrança dentro do teto é 201 (recebido $C_DENTRO)" \
+    "$([ "$C_DENTRO" = "201" ] && echo true || echo false)"
+
+C_DIA=$(cobrar_carol Fone 60.00)
+check "conta nova passa do teto diário é 422 (recebido $C_DIA)" \
+    "$([ "$C_DIA" = "422" ] && echo true || echo false)"
+
+MSG_DIA=$(curl -s -X POST "$BASE/charges" -H "$AUTH_C" -H 'content-type: application/json' \
+    -d '{"description":"Fone","amount":"60.00"}' | get message)
+check "recusa explica o limite em pt-BR, sem jargão (recebido: $MSG_DIA)" \
+    "$(case "$MSG_DIA" in *"limite de cobranças"*) echo true;; *) echo false;; esac)"
+
+echo
 echo "contabilidade"
 
 DESBAL=$(psql -v ON_ERROR_STOP=1 -q -X -t -A -d "$DB" -c \

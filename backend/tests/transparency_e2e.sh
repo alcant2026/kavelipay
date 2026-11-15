@@ -385,6 +385,13 @@ check "senha errada é 401 (recebido $C_SEM_SENHA)" \
 # Este endpoint NÃO tem id de usuário: o `user_id` vem do token. Bob chamando
 # ele apaga a conta DO BOB, nunca a da Alice. É a propriedade a checar — não um
 # "não pode apagar o outro", que não chega a ser tentado.
+# Cobrança pendente do Bob: o link público é o que "excluir conta" tem que
+# matar junto, senão o ex-usuário continua recebendo dinheiro pelo link.
+CHG_BOB=$(curl -s -X POST "$BASE/charges" -H "$AUTH_B" -H 'content-type: application/json' \
+    -d '{"description":"Cobrança do Bob","amount":"50.00"}' | get id)
+TOKEN_BOB=$(psql -v ON_ERROR_STOP=1 -q -X -t -A -d "$DB" -c \
+    "SELECT share_token FROM charges WHERE id = '$CHG_BOB'")
+
 C_BOB=$(code -X DELETE "$BASE/lgpd/account" -H "$AUTH_B" \
     -H 'content-type: application/json' -d '{"password":"senha-forte-123","confirm":true,"reason":"não uso"}')
 check "Bob elimina a própria conta (recebido $C_BOB)" \
@@ -394,6 +401,15 @@ C_LOGIN_BOB=$(code -X POST "$BASE/auth/login" -H 'content-type: application/json
     -d '{"email":"bob@teste.com","password":"senha-forte-123"}')
 check "login da conta eliminada é 401 (recebido $C_LOGIN_BOB)" \
     "$([ "$C_LOGIN_BOB" = "401" ] && echo true || echo false)"
+
+STATUS_BOB=$(psql -v ON_ERROR_STOP=1 -q -X -t -A -d "$DB" -c \
+    "SELECT status FROM charges WHERE id = '$CHG_BOB'")
+check "cobrança pendente do eliminado é cancelada ($STATUS_BOB)" \
+    "$([ "$STATUS_BOB" = "CANCELED" ] && echo true || echo false)"
+
+C_LINK_BOB=$(code "$BASE/cobranca/$TOKEN_BOB")
+check "link público da conta eliminada é 404 (recebido $C_LINK_BOB)" \
+    "$([ "$C_LINK_BOB" = "404" ] && echo true || echo false)"
 
 # E a conta da Alice tem que continuar intacta.
 C_ALICE_VIVA=$(code -X POST "$BASE/auth/login" -H 'content-type: application/json' \
@@ -457,6 +473,17 @@ C_MESES=$(code -X POST "$BASE/bills/generate-recurring" -H "$AUTH" \
     -H 'content-type: application/json' -d '{"months_ahead":999}')
 check "months_ahead gigante é limitado, não desbota ($C_MESES)" \
     "$([ "$C_MESES" = "201" ] && echo true || echo false)"
+
+# WEEKLY: cinco semanas caem em dois meses. Com a chave mensal antiga três
+# ocorrências caíam no mesmo `<id>:<YYYY-MM>` e sumiam no ON CONFLICT.
+SEMANA=$(date -d "+7 days" +%F)
+REC_SEM=$(curl -s -X POST "$BASE/bills" -H "$AUTH" -H 'content-type: application/json' \
+    -d "{\"description\":\"Feira semanal\",\"amount\":\"80.00\",\"due_date\":\"$SEMANA\",\"recurrence\":\"WEEKLY\"}" | get id)
+G_W=$(curl -s -X POST "$BASE/bills/generate-recurring" -H "$AUTH" \
+    -H 'content-type: application/json' -d "{\"months_ahead\":5,\"bill_id\":\"$REC_SEM\"}")
+N_W=$(get created <<<"$G_W")
+check "série WEEKLY gera as 5 ocorrências ($N_W)" \
+    "$([ "$N_W" = "5" ] && echo true || echo false)"
 
 echo
 echo "resultado: $pass passaram, $fail falharam"

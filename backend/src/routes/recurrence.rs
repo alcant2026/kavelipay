@@ -50,7 +50,9 @@ const MAX_SERIES: usize = 100;
 ///
 /// Idempotente por construção: só gera a ocorrência se ainda não existir um
 /// `bills` PENDING com a mesma `recurrence_key`. A chave é
-/// `<bill-fonte-id>:<YYYY-MM>`.
+/// `<bill-fonte-id>:<YYYY-MM-DD>` — a DATA, não o mês: numa série `WEEKLY` as
+/// quatro ocorrências do mês compartilhariam a chave mensal e três sumiriam
+/// no `ON CONFLICT DO NOTHING`.
 pub async fn generate(
     State(state): State<AppState>,
     auth: crate::auth::AuthUser,
@@ -108,7 +110,7 @@ pub async fn generate(
                 continue;
             }
 
-            let chave = format!("{bill_id}:{}", proximo.format("%Y-%m"));
+            let chave = format!("{bill_id}:{proximo}");
 
             // Dedup no banco, não em memória: duas chamadas concorrentes
             // gerariam o mesmo boleto duas vezes sem isso.

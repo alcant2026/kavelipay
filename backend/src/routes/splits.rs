@@ -428,7 +428,7 @@ async fn por_token_parte(state: &AppState, token: &str) -> AppResult<PartePublic
            JOIN expense_splits s ON s.id = p.split_id
            JOIN wallets w ON w.id = s.wallet_id
            JOIN users u ON u.id = w.user_id
-          WHERE p.share_token = $1",
+          WHERE p.share_token = $1 AND w.status = 'ACTIVE'",
     )
     .bind(&token)
     .fetch_optional(&state.db)
@@ -496,6 +496,15 @@ pub async fn pagar_pela_parte(
         return existente(id);
     }
 
+    // Mesma razão da cobrança: sem token do dono, a preferência usaria a conta
+    // da aplicação e o dinheiro de terceiro entraria nela.
+    let Some(dono) = crate::routes::mp_conta::token_do_dono(&state, p.dono).await? else {
+        return Ok(Redirect::to(&format!("/cobranca/parte/{token}/pagar")));
+    };
+
+    // shortcut: os tetos de `routes::charges::checar_limites` valem só para
+    // cobrança; uma divisão com total alto ainda passa. Aplicar os mesmos
+    // tetos em `create_split` se a fraude por divisão aparecer em produção.
     let preferencia = state
         .mp
         .criar_preferencia(
@@ -504,7 +513,7 @@ pub async fn pagar_pela_parte(
             p.owed_amount,
             "BRL",
             &format!("{}/cobranca/parte/{token}/pagar", state.public_base_url),
-            crate::routes::mp_conta::token_do_dono(&state, p.dono).await?.as_deref(),
+            Some(&dono),
             Some(crate::mercadopago::taxa_da_transacao(p.owed_amount)),
         )
         .await?;

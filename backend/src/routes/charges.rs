@@ -25,6 +25,72 @@ use crate::payment::{DemoPaymentProvider, PaymentPayload, PaymentProvider};
 use crate::state::wallet_ativa;
 use crate::state::AppState;
 
+/// Cobranças em aberto que uma carteira pode acumular. Não é regra de negócio
+/// do usuário: é teto de abuso. Quem tiver 20 abertas recebe resposta clara em
+/// vez de uma lista infinita que ninguém paga.
+const PENDENTES_MAX: i64 = 20;
+
+/// Tetos de valor em cobrança, vindos da config no boot.
+#[derive(Debug, Clone, Copy)]
+pub struct LimitesCobranca {
+    pub teto: Decimal,
+    pub teto_dia: Decimal,
+    pub teto_novo: Decimal,
+}
+
+/// O valor que o Mercado Pago diz ter pago bate com o que a cobrança/cota pede.
+///
+/// `None` (campo ausente na resposta) não bloqueia; valor diferente bloqueia.
+/// Sem isto, "MP confirmou um pagamento com esta referência" viraria "MP
+/// confirmou que este valor foi pago" — e quem credita é sempre o valor do
+/// recurso, nunca o do pagamento.
+fn valor_confere(pago: Option<Decimal>, esperado: Decimal) -> bool {
+    pago.is_none_or(|v| v == esperado)
+}
+
+/// Recusa a cobrança antes do INSERT quando ela passa do teto do produto.
+///
+/// Existe porque o pagador paga no Checkout Pro **da conta do próprio dono da
+/// carteira**: é essa conta que o Mercado Pago bloqueia e cobra o chargeback.
+/// Conta criada há cinco minutos pedindo R$ 5 mil é o padrão de fraude que
+/// derruba a conta de quem cedeu o CPF — o teto baixo em conta nova é o que
+/// impede o volume antes de existir histórico.
+fn checar_limites(
+    l: &LimitesCobranca,
+    valor: Decimal,
+    soma_24h: Decimal,
+    pendentes: i64,
+    conta_nova: bool,
+) -> AppResult<()> {
+    let reais = |v: Decimal| format!("R$ {:.2}", v).replace('.', ",");
+
+    if valor > l.teto {
+        return Err(AppError::NaoValido(format!(
+            "o limite por cobrança é {}. Ajuste o valor.",
+            reais(l.teto)
+        )));
+    }
+    // Conta nova tem teto menor: fraude precisa de volume rápido.
+    let teto_dia = if conta_nova {
+        l.teto_novo.min(l.teto_dia)
+    } else {
+        l.teto_dia
+    };
+    if soma_24h + valor > teto_dia {
+        return Err(AppError::NaoValido(format!(
+            "o limite de cobranças é {} por dia. Tente de novo amanhã.",
+            reais(teto_dia)
+        )));
+    }
+    if pendentes >= PENDENTES_MAX {
+        return Err(AppError::NaoValido(format!(
+            "você já tem {PENDENTES_MAX} cobranças em aberto. \
+             Cancele alguma ou aguarde o pagamento."
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 pub struct NewCharge {
     pub description: String,
@@ -92,6 +158,35 @@ pub async fn create_charge(
 
     let wallet = wallet_ativa(&state, auth.user_id()).await?;
 
+    let mut tx = state.db.begin().await?;
+
+    // FOR UPDATE serializa cobranças simultâneas da mesma carteira: sem o
+    // lock, N requests paralelos passariam todos pelo mesmo teto diário.
+    sqlx::query("SELECT 1 FROM wallets WHERE id = $1 FOR UPDATE")
+        .bind(wallet)
+        .fetch_one(&mut *tx)
+        .await?;
+
+    let (soma_24h, pendentes, conta_nova) = sqlx::query_as::<_, (Decimal, i64, bool)>(
+        "SELECT
+           COALESCE((SELECT SUM(amount) FROM charges
+                      WHERE wallet_id = $1 AND created_at > now() - interval '24 hours'), 0),
+           (SELECT COUNT(*) FROM charges WHERE wallet_id = $1 AND status = 'PENDING'),
+           (SELECT created_at > now() - interval '7 days' FROM users WHERE id = $2)",
+    )
+    .bind(wallet)
+    .bind(auth.user_id())
+    .fetch_one(&mut *tx)
+    .await?;
+
+    checar_limites(
+        &state.limites_cobranca,
+        req.amount.amount(),
+        soma_24h,
+        pendentes,
+        conta_nova,
+    )?;
+
     // O token vem do banco (DEFAULT da migration 0010), não do app: é o
     // segredo que vai no QR e a única coisa que quem recebe o link carrega.
     let (id, share_token) = sqlx::query_as::<_, (Uuid, String)>(
@@ -104,8 +199,9 @@ pub async fn create_charge(
     .bind(req.amount.amount())
     .bind(due_date)
     .bind(req.debtor_name.as_deref())
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     let charge = buscar(&state, id, wallet).await?;
     let qr = DemoPaymentProvider.qr_payload(&share_token);
@@ -296,7 +392,7 @@ async fn por_token(state: &AppState, token: &str) -> AppResult<Publica> {
            FROM charges c
            JOIN wallets w ON w.id = c.wallet_id
            JOIN users u ON u.id = w.user_id
-          WHERE c.share_token = $1",
+          WHERE c.share_token = $1 AND w.status = 'ACTIVE'",
     )
     .bind(&token)
     .fetch_optional(&state.db)
@@ -468,6 +564,14 @@ pub async fn pagar_pela_pagina(
         return Ok(Redirect::to(&state.mp.checkout_url(&id, false)));
     }
 
+    // A conta pode ser desconectada entre a checagem acima e esta linha. Sem
+    // token do dono, `criar_preferencia` cairia no token da aplicação e o
+    // dinheiro do usuário entraria na conta do KaveliPay — o oposto da
+    // fronteira "não custodia dinheiro".
+    let Some(dono) = crate::routes::mp_conta::token_do_dono(&state, c.dono).await? else {
+        return Ok(Redirect::to(&format!("/cobranca/{token}/pagar")));
+    };
+
     let preferencia = state
         .mp
         .criar_preferencia(
@@ -476,7 +580,7 @@ pub async fn pagar_pela_pagina(
             c.amount,
             &c.currency,
             &format!("kavelipay://cobranca/{token}"),
-            crate::routes::mp_conta::token_do_dono(&state, c.dono).await?.as_deref(),
+            Some(&dono),
             Some(crate::mercadopago::taxa_da_transacao(c.amount)),
         )
         .await?;
@@ -775,9 +879,18 @@ pub async fn webhook(
             return Ok(StatusCode::OK);
         };
         let mut tx = state.db.begin().await?;
-        let linha = sqlx::query_as::<_, (String, Decimal, bool, Uuid, Uuid, Option<String>, Uuid)>(
+        let linha = sqlx::query_as::<_, (
+            String,
+            Decimal,
+            bool,
+            Uuid,
+            Uuid,
+            Option<String>,
+            Uuid,
+            String,
+        )>(
             "SELECT p.participant_name, p.owed_amount, p.settled_at IS NOT NULL,
-                    p.split_id, w.id, p.mp_payment_id, w.user_id
+                    p.split_id, w.id, p.mp_payment_id, w.user_id, w.status
                FROM expense_split_parts p
                JOIN expense_splits s ON s.id = p.split_id
                JOIN wallets w ON w.id = s.wallet_id
@@ -788,10 +901,29 @@ pub async fn webhook(
         .fetch_optional(&mut *tx)
         .await?;
 
-        let Some((nome, valor, quitada, split_id, wallet, ja_pago, user_id)) = linha else {
+        let Some((nome, valor, quitada, split_id, wallet, ja_pago, user_id, status)) = linha else {
             return Ok(StatusCode::OK);
         };
         if quitada || ja_pago.is_some() {
+            return Ok(StatusCode::OK);
+        }
+
+        // Carteira fechada (conta eliminada) não recebe: quitar creditaria um
+        // ledger que ninguém mais acessa e esconderia dinheiro do pagador.
+        if status != "ACTIVE" {
+            tracing::warn!(%parte_id, "split: pagamento para carteira {status}; ignorado");
+            return Ok(StatusCode::OK);
+        }
+
+        // `quitar_parte` credita `owed_amount`, não o valor pago: sem esta
+        // conferência, um pagamento de R$ 0,01 quitaria uma cota de R$ 500.
+        if !valor_confere(pagamento.transaction_amount, valor) {
+            tracing::warn!(
+                %parte_id,
+                pago = ?pagamento.transaction_amount,
+                %valor,
+                "split: valor pago não confere com a cota; não quita"
+            );
             return Ok(StatusCode::OK);
         }
 
@@ -856,8 +988,9 @@ pub async fn webhook(
 
     let mut tx = state.db.begin().await?;
     // FOR UPDATE OF c: dois webhooks do mesmo pagamento não postam duas vezes.
-    let linha = sqlx::query_as::<_, (String, Decimal, String, Uuid, Uuid, Option<String>)>(
-        "SELECT c.status, c.amount, c.description, c.wallet_id, w.user_id, c.mp_payment_id
+    let linha = sqlx::query_as::<_, (String, Decimal, String, Uuid, Uuid, Option<String>, String)>(
+        "SELECT c.status, c.amount, c.description, c.wallet_id, w.user_id, c.mp_payment_id,
+                w.status
            FROM charges c
            JOIN wallets w ON w.id = c.wallet_id
           WHERE c.id = $1
@@ -867,10 +1000,31 @@ pub async fn webhook(
     .fetch_optional(&mut *tx)
     .await?;
 
-    let Some((status, amount, description, wallet, user_id, ja_pago)) = linha else {
+    let Some((status, amount, description, wallet, user_id, ja_pago, wallet_status)) = linha else {
         return Ok(StatusCode::OK);
     };
     if status != "PENDING" || ja_pago.is_some() {
+        return Ok(StatusCode::OK);
+    }
+
+    // Carteira fechada (conta eliminada) não recebe — inclusive pagamento feito
+    // antes da exclusão que chega pelo webhook depois.
+    if wallet_status != "ACTIVE" {
+        tracing::warn!(%charge_id, "cobrança: pagamento para carteira {wallet_status}; ignorado");
+        return Ok(StatusCode::OK);
+    }
+
+    // O valor creditado é `charges.amount`, não o que o MP diz ter pago: sem
+    // esta conferência, um pagamento de R$ 0,01 marcaria como recebida uma
+    // cobrança de R$ 500. Coletor e moeda já vêm travados pela preferência
+    // (criada com o token do dono e `unit_price` da cobrança).
+    if !valor_confere(pagamento.transaction_amount, amount) {
+        tracing::warn!(
+            %charge_id,
+            pago = ?pagamento.transaction_amount,
+            %amount,
+            "cobrança: valor pago não confere com a cobrança; não credita"
+        );
         return Ok(StatusCode::OK);
     }
 
@@ -906,4 +1060,52 @@ pub async fn webhook(
 
     tx.commit().await?;
     Ok(StatusCode::OK)
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    fn limites() -> LimitesCobranca {
+        LimitesCobranca {
+            teto: Decimal::new(1000, 0),
+            teto_dia: Decimal::new(2000, 0),
+            teto_novo: Decimal::new(200, 0),
+        }
+    }
+
+    #[test]
+    fn valor_pago_tem_que_conferir_com_o_cobrado() {
+        let pedido = Decimal::new(50000, 2); // 500,00
+        assert!(valor_confere(Some(pedido), pedido));
+        // Centavo a menos já não quita: o crédito é do valor pedido.
+        assert!(!valor_confere(Some(Decimal::new(1, 2)), pedido));
+        // Campo ausente não bloqueia pagamento legítimo.
+        assert!(valor_confere(None, pedido));
+    }
+
+    #[test]
+    fn recusa_acima_do_teto_por_cobranca() {
+        let l = limites();
+        assert!(checar_limites(&l, Decimal::new(1000, 0), Decimal::ZERO, 0, false).is_ok());
+        assert!(checar_limites(&l, Decimal::new(1001, 0), Decimal::ZERO, 0, false).is_err());
+    }
+
+    #[test]
+    fn conta_nova_tem_teto_diario_menor() {
+        let l = limites();
+        let ja_cobrado = Decimal::new(150, 0);
+        // 150 + 60 = 210 passa dos 200 da conta nova e não dos 2000 da antiga.
+        assert!(checar_limites(&l, Decimal::new(60, 0), ja_cobrado, 0, true).is_err());
+        assert!(checar_limites(&l, Decimal::new(60, 0), ja_cobrado, 0, false).is_ok());
+    }
+
+    #[test]
+    fn recusa_com_a_carteira_cheia_de_pendentes() {
+        let l = limites();
+        assert!(checar_limites(&l, Decimal::new(10, 0), Decimal::ZERO, PENDENTES_MAX, false).is_err());
+        assert!(
+            checar_limites(&l, Decimal::new(10, 0), Decimal::ZERO, PENDENTES_MAX - 1, false).is_ok()
+        );
+    }
 }

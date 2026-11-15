@@ -55,8 +55,9 @@ get() { python3 -c "import sys,json; print(json.load(sys.stdin).get('$1',''))"; 
 code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 
 # Mock da API do MP. Dois detalhes de propósito:
-#  - o pagamento aprovado devolve transaction_amount 999.00, diferente do valor
-#    da cobrança: se o backend creditar 999, o teste falha (valor vem do banco);
+#  - o pagamento aprovado devolve o `transaction_amount` escrito em
+#    `<ref>.valor`; sem esse arquivo, devolve 999.00 (divergente) — o backend
+#    credita o valor do BANCO e recusa pagamento cujo valor não confere;
 #  - external_reference lido de arquivo a cada requisição, porque só existe
 #    depois que a cobrança é criada.
 cat > "$TMP_MOCK" <<'PY'
@@ -145,7 +146,12 @@ class H(BaseHTTPRequestHandler):
         elif pid == "semstatus":
             self._json({"status": "rejected", "external_reference": ref})
         else:
-            self._json({"status": "approved", "external_reference": ref, "transaction_amount": 999.0})
+            try:
+                valor = float(open(EXT_REF + ".valor").read().strip())
+            except Exception:
+                valor = 999.0
+            self._json({"status": "approved", "external_reference": ref,
+                        "transaction_amount": valor})
 
     def log_message(self, *a):
         pass
@@ -304,12 +310,15 @@ check "webhook de outro tipo responde 200 sem efeito (recebido $C)" \
 echo
 echo "pagamento aprovado credita uma vez só"
 
+# O MP confirma o valor que a preferência pediu (50,00); o ledger continua
+# creditando o valor do banco, não o que vier no corpo/API.
+printf '50.00' > "$EXT_REF.valor"
 C=$(code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' \
     -d '{"type":"payment","data":{"id":"123"}}')
 SALDO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
 check "webhook aprovado responde 200 (recebido $C)" \
     "$([ "$C" = "200" ] && echo true || echo false)"
-check "saldo creditado com o valor da COBRANÇA, não do MP 999.00 (recebido $SALDO)" \
+check "saldo creditado com o valor da COBRANÇA (recebido $SALDO)" \
     "$([ "$SALDO" = "50.00" ] && echo true || echo false)"
 
 ST=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT status FROM charges WHERE id='$ID_CH'")
@@ -337,6 +346,21 @@ C=$(code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json
 SALDO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
 check "pagamento de cobrança desconhecida não credita (saldo $SALDO)" \
     "$([ "$SALDO" = "50.00" ] && echo true || echo false)"
+
+# O MP diz que a referência desta cobrança foi paga, mas com R$ 0,01: creditar
+# `charges.amount` aqui inventaria R$ 50 no ledger.
+CHG_DIV=$(curl -s -X POST "$BASE/charges" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"description":"Cobrança divergente","amount":"50.00"}' | get id)
+printf '%s' "$CHG_DIV" > "$EXT_REF"
+printf '0.01' > "$EXT_REF.valor"
+curl -s -o /dev/null -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' \
+    -d '{"type":"payment","data":{"id":"777"}}'
+ST_DIV=$("${PSQL[@]}" -t -A -d "$DB" -c "SELECT status FROM charges WHERE id='$CHG_DIV'")
+SALDO_DIV=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
+check "pagamento com valor diferente não credita (status $ST_DIV, saldo $SALDO_DIV)" \
+    "$([ "$ST_DIV" = "PENDING" ] && [ "$SALDO_DIV" = "50.00" ] && echo true || echo false)"
+printf '%s' "$ID_CH" > "$EXT_REF"
+printf '50.00' > "$EXT_REF.valor"
 
 echo
 echo "link de cobrança já recebida não é gerado de novo"
@@ -418,6 +442,7 @@ check "webhook pendente não quita a parte (settled=$QUITADA)" \
     "$([ "$C" = "200" ] && [ "$QUITADA" = "f" ] && echo true || echo false)"
 
 printf 'parte:%s' "$ID_PARTE" > "$EXT_REF"
+printf '20.00' > "$EXT_REF.valor"
 C=$(code -X POST "$BASE/webhooks/mercadopago" -H 'content-type: application/json' \
     -d '{"type":"payment","data":{"id":"777"}}')
 QUITADA=$("${PSQL[@]}" -t -A -d "$DB" \
