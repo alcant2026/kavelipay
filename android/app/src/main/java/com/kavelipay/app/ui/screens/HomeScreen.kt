@@ -308,8 +308,8 @@ fun KpHomeScreen(
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
                         KpMenuRow(
                             icone = Icons.Default.Savings,
-                            rotulo = "Caixinhas",
-                            subtitulo = "Empréstimos entre conhecidos, com quem deve o quê",
+                            rotulo = NomeCaixinha.PLURAL,
+                            subtitulo = NomeCaixinha.EXPLICACAO,
                             onClick = aoVerCaixinhas,
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))

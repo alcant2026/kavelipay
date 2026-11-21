@@ -79,7 +79,7 @@ fun KpCaixinhaDetalheScreen(
     var devolucaoDe by remember { mutableStateOf<MembroCaixinha?>(null) }
     var telefoneAberto by remember { mutableStateOf(false) }
 
-    Scaffold(topBar = { CabecalhoComVoltar("Caixinha", aoVoltar) }) { padding ->
+    Scaffold(topBar = { CabecalhoComVoltar("Empréstimo", aoVoltar) }) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -102,7 +102,7 @@ fun KpCaixinhaDetalheScreen(
                         )
                     } else {
                         Text(
-                            estado.erro ?: "Não foi possível abrir a caixinha.",
+                            estado.erro ?: "Não foi possível abrir o empréstimo.",
                             modifier = Modifier.padding(Spacing.md),
                         )
                     }
@@ -236,7 +236,7 @@ fun KpCaixinhaDetalheScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     Text(
-                        "Só quem participa da caixinha vê este telefone. Use DDD.",
+                        "Só quem participa deste empréstimo vê este telefone. Use DDD.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     KpCampo(
@@ -380,7 +380,7 @@ private fun KpConvite(codigo: String) {
                 texto = "Copiar código",
                 onClick = {
                     val area = contexto.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    area.setPrimaryClip(ClipData.newPlainText("Convite da caixinha", codigo))
+                    area.setPrimaryClip(ClipData.newPlainText("Convite do empréstimo", codigo))
                     Toast.makeText(contexto, "Código copiado.", Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -546,7 +546,7 @@ private fun KpMeuTelefone(telefone: String?, aoEditar: () -> Unit) {
     KpCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(Spacing.md)) {
             KpLinhaResumo(
-                "Seu telefone nesta caixinha",
+                "Seu telefone neste empréstimo",
                 telefone?.let { formatarTelefone(it) } ?: "não informado",
             )
             Spacer(Modifier.height(Spacing.xs))

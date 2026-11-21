@@ -64,7 +64,7 @@ fun KpNovaCaixinhaScreen(
         taxaApi != null &&
         !telefoneErrado
 
-    Scaffold(topBar = { CabecalhoComVoltar("Nova caixinha", aoVoltar) }) { padding ->
+    Scaffold(topBar = { CabecalhoComVoltar("Novo empréstimo", aoVoltar) }) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -86,7 +86,7 @@ fun KpNovaCaixinhaScreen(
                         )
                         Spacer(Modifier.height(Spacing.xs))
                         Text(
-                            "A caixinha registra quanto você emprestou e quanto cada pessoa " +
+                            "O empréstimo registra quanto você emprestou e quanto cada pessoa " +
                                 "já pagou. O dinheiro combinado entre vocês não passa pelo app. " +
                                 "Depois de criar, mande o código de convite para quem vai participar.",
                             style = MaterialTheme.typography.bodyMedium,

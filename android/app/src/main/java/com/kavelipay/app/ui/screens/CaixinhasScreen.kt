@@ -67,7 +67,7 @@ fun KpCaixinhasScreen(
     var mostrarEntrar by rememberSaveable { mutableStateOf(false) }
     var chave by rememberSaveable { mutableStateOf("") }
 
-    Scaffold(topBar = { CabecalhoComVoltar("Caixinhas", aoVoltar) }) { padding ->
+    Scaffold(topBar = { CabecalhoComVoltar(NomeCaixinha.PLURAL, aoVoltar) }) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -86,10 +86,20 @@ fun KpCaixinhasScreen(
                         Text("Empréstimo entre conhecidos", style = TituloCard)
                         Spacer(Modifier.height(Spacing.xs))
                         Text(
-                            "Registre quem emprestou quanto e acompanhe os pagamentos. " +
-                                "O dinheiro não passa pelo KaveliPay: cada um paga o outro " +
-                                "como combinaram. Só entra quem recebe o código do responsável.",
+                            NomeCaixinha.EXPLICACAO,
                             style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(Spacing.sm))
+                        Text(
+                            NomeCaixinha.AVISO,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(Spacing.sm))
+                        Text(
+                            "Só entra quem recebe o código do responsável.",
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -99,7 +109,7 @@ fun KpCaixinhasScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     KpBotaoPrimario(
-                        texto = "Nova caixinha",
+                        texto = "Novo empréstimo",
                         onClick = aoNova,
                         icone = Icons.Default.Add,
                         modifier = Modifier.fillMaxWidth(),
@@ -133,9 +143,9 @@ fun KpCaixinhasScreen(
                 itens.isNullOrEmpty() -> item {
                     KpVazio(
                         icone = Icons.Default.Savings,
-                        titulo = "Nenhuma caixinha ainda",
-                        descricao = "Crie uma para registrar um empréstimo ou entre com o " +
-                            "código que o responsável mandou.",
+                        titulo = "Nenhum empréstimo ainda",
+                        descricao = "Registre quanto emprestou ou entre com o código que o " +
+                            "responsável mandou.",
                     )
                 }
 
@@ -160,7 +170,7 @@ fun KpCaixinhasScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     Text(
-                        "Digite o código que o responsável da caixinha mandou (KAV-XXXXXXXXXXXX).",
+                        "Digite o código que o responsável do empréstimo mandou (KAV-XXXXXXXXXXXX).",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     KpCampo(
