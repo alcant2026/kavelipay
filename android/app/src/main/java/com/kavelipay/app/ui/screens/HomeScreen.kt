@@ -65,6 +65,7 @@ import com.kavelipay.app.ui.components.KpHeroCardSaldo
 import com.kavelipay.app.ui.components.KpLinhaResumo
 import com.kavelipay.app.ui.components.KpTopBar
 import com.kavelipay.app.ui.components.KpVazio
+import com.kavelipay.app.ui.components.Money
 import com.kavelipay.app.ui.components.Money.LinhaLancamento
 import com.kavelipay.app.ui.components.Money.brl
 import com.kavelipay.app.ui.theme.KpTheme
@@ -220,6 +221,63 @@ fun KpHomeScreen(
                         { KpAcaoItem(Icons.Default.SwapHoriz, "Dividir", aoVerDivisoes) },
                     )
                 )
+            }
+
+            // 2b. Próximas contas — o que vence nos próximos dias.
+            //
+            // "Contas a pagar" (abaixo) mostra as pendentes; este bloco responde
+            // à pergunta que a pessoa abre o app para fazer: "o que vence agora?".
+            // Só aparece quando existe alguma coisa vencendo em até 7 dias ou já
+            // vencida — sem isso, é um cartão dizendo "nada" que empurra o saldo
+            // para fora da dobra.
+            estado.contas?.let { contasResponse ->
+                val hoje = java.time.LocalDate.now()
+                val proximas = contasResponse.itens
+                    .filter { it.status == "PENDING" }
+                    .filter {
+                        val dias = PrazosConta.diasAte(it.dueDate, hoje) ?: return@filter false
+                        dias <= 7
+                    }
+                    .sortedBy { PrazosConta.parse(it.dueDate) ?: java.time.LocalDate.MAX }
+
+                if (proximas.isNotEmpty()) {
+                    item {
+                        KpCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(Spacing.md)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("Próximas contas", style = TituloCard)
+                                    KpBadgeNeutra(
+                                        if (proximas.size == 1) {
+                                            "1 conta"
+                                        } else {
+                                            "${proximas.size} contas"
+                                        },
+                                    )
+                                }
+
+                                Spacer(Modifier.height(Spacing.sm))
+
+                                proximas.take(4).forEachIndexed { i, conta ->
+                                    LinhaProximaConta(conta, hoje)
+                                    if (i < proximas.take(4).lastIndex) {
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                                    }
+                                }
+
+                                Spacer(Modifier.height(Spacing.sm))
+                                KpBotaoSecundario(
+                                    "Ver todas",
+                                    onClick = aoVerContas,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // 3. Contas a pagar (bloco vertical)
@@ -380,6 +438,63 @@ fun KpHomeScreen(
 
             item { Spacer(Modifier.height(Spacing.xxl)) }
         }
+    }
+}
+
+/**
+ * Linha de "próxima conta": descrição, valor e **quando** vence.
+ *
+ * O quando é o centro da linha, não um detalhe: é a única informação que a
+ * pessoa abriu o app para ver. Vencida ganha a cor crítica; daqui a 3 dias ou
+ * mais fica neutra, porque "vence em 5 dias" não é emergência.
+ */
+@Composable
+private fun LinhaProximaConta(conta: ItemConta, hoje: java.time.LocalDate) {
+    val sem = KpTheme.semanticas
+    val vencida = PrazosConta.vencidaA(conta.dueDate, hoje)
+    val quando = PrazosConta.rotulo(conta.dueDate, hoje)
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(19.dp))
+                .background(
+                    if (vencida) sem.vencidoFundo else MaterialTheme.colorScheme.surfaceVariant,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Default.ReceiptLong,
+                contentDescription = null,
+                tint = if (vencida) sem.vencido else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp),
+            )
+        }
+
+        Column(Modifier.weight(1f)) {
+            Text(
+                conta.descricao,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                quando,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (vencida) sem.vencido else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Text(
+            "R\$ ${Money.brl(conta.amount)}",
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+            color = if (vencida) sem.vencido else MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
