@@ -131,16 +131,48 @@ class LeitorCodigoBarrasTest {
     // ── formatos que o decodificador procura ─────────────────────────────────
 
     @Test
-    fun `a mesma camera procura boleto e QR na lista unica`() {
+    fun `a mesma camera procura boleto e QR, com o certo primeiro`() {
         // O bug que este teste prende: a câmera é uma só, mas sem `QR_CODE`
         // na lista o leitor NUNCA acha o QR do app — a tela fica "procurando"
         // para sempre e parece câmera quebrada. E sem os 1D o boleto morre.
-        val formatos = formatosDeLeitura()
-        assertTrue(formatos.contains(BarcodeFormat.QR_CODE))
-        assertTrue(formatos.contains(BarcodeFormat.CODE_128))
-        assertTrue(formatos.contains(BarcodeFormat.ITF))
-        assertTrue(formatos.contains(BarcodeFormat.CODE_39))
-        assertTrue(formatos.contains(BarcodeFormat.EAN_13))
+        val conta = ordemDeLeitura(ContextoLeitura.CONTA).flatten()
+        assertTrue(conta.contains(BarcodeFormat.QR_CODE))
+        assertTrue(conta.contains(BarcodeFormat.CODE_128))
+        assertTrue(conta.contains(BarcodeFormat.ITF))
+        assertTrue(conta.contains(BarcodeFormat.CODE_39))
+        assertTrue(conta.contains(BarcodeFormat.EAN_13))
+
+        // O boleto imprime um QR do PIX, que é lido de muito mais longe: em
+        // Nova conta o código de barras tem de ser tentado antes, senão o QR
+        // do PIX rouba o frame e o boleto "não é reconhecido".
+        assertTrue(ordemDeLeitura(ContextoLeitura.CONTA).first().contains(BarcodeFormat.ITF))
+        assertTrue(ordemDeLeitura(ContextoLeitura.COBRANCA).first().contains(BarcodeFormat.QR_CODE))
+    }
+
+    // ── QR do PIX impresso no boleto ─────────────────────────────────────────
+
+    private val pixDoBoleto =
+        "00020126580014br.gov.bcb.pix0136a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d" +
+            "5204000053039865802BR5913TESTE LTDA6009ARACAJU62070503***6304ABCD"
+
+    @Test
+    fun `QR do PIX do boleto e reconhecido sem ser confundido com boleto`() {
+        assertTrue(qrPixDoBoleto(pixDoBoleto))
+        assertTrue(!qrPixDoBoleto(linhaBoleto))
+        assertTrue(!qrPixDoBoleto("https://exemplo.com"))
+        assertEquals(
+            ResultadoLeitura.QrPixDoBoleto,
+            classificarLeitura(pixDoBoleto, ContextoLeitura.CONTA),
+        )
+        // Na tela de cobrança ele também não serve.
+        assertEquals(
+            ResultadoLeitura.NaoReconhecido,
+            classificarLeitura(pixDoBoleto, ContextoLeitura.COBRANCA),
+        )
+        assertTrue(
+            mensagemLeitura(ResultadoLeitura.QrPixDoBoleto, ContextoLeitura.CONTA)
+                .contains("barras"),
+        )
     }
 
     // ── reconhecer o que foi lido (um leitor, dois formatos) ─────────────────

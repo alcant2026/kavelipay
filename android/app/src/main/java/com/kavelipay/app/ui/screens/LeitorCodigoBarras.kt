@@ -80,6 +80,13 @@ sealed interface ResultadoLeitura {
     /** É QR de cobrança, mas a tela esperava boleto. */
     data object CobrancaForaDeContexto : ResultadoLeitura
 
+    /**
+     * É o QR do PIX impresso no próprio boleto. Não serve para nada aqui (o
+     * app não paga PIX), mas **não** é motivo para parar de ler: o código de
+     * barras ainda pode estar no frame.
+     */
+    data object QrPixDoBoleto : ResultadoLeitura
+
     /** Não é nenhum dos dois. */
     data object NaoReconhecido : ResultadoLeitura
 }
@@ -105,6 +112,9 @@ internal fun classificarLeitura(bruto: String, contexto: ContextoLeitura): Resul
             ResultadoLeitura.CobrancaForaDeContexto
         }
     }
+    if (contexto == ContextoLeitura.CONTA && qrPixDoBoleto(bruto)) {
+        return ResultadoLeitura.QrPixDoBoleto
+    }
     val linha = normalizarLinhaDigitavel(bruto) ?: return ResultadoLeitura.NaoReconhecido
     return if (contexto == ContextoLeitura.CONTA) {
         ResultadoLeitura.Aceito(linha)
@@ -128,6 +138,9 @@ internal fun mensagemLeitura(resultado: ResultadoLeitura, contexto: ContextoLeit
         ResultadoLeitura.CobrancaForaDeContexto ->
             "Esse é o QR de uma cobrança do KaveliPay, não um boleto. " +
                 "Ele abre em Cobranças → Ler QR de cobrança."
+        ResultadoLeitura.QrPixDoBoleto ->
+            "Esse é o QR do PIX do boleto, não o código de barras. " +
+                "Aponte para as barras, embaixo do código."
         else -> if (contexto == ContextoLeitura.COBRANCA) {
             "Não reconheci este QR como uma cobrança do KaveliPay."
         } else {
@@ -197,12 +210,17 @@ fun KpLeitorCodigoBarrasScreen(
                 ciclo = ciclo,
                 executor = executor,
                 pausado = pausado,
+                contextoLeitura = contexto,
                 aoDetectar = { bruto ->
                     when (val resultado = classificarLeitura(bruto, contexto)) {
                         is ResultadoLeitura.Aceito -> {
                             pausado[0] = true
                             aoLer(resultado.valor)
                         }
+                        // O QR do PIX está impresso no boleto e continua no
+                        // frame: pausar aqui encerraria a leitura antes de o
+                        // código de barras ser tentado.
+                        ResultadoLeitura.QrPixDoBoleto -> leituraRuim = resultado
                         else -> {
                             pausado[0] = true
                             leituraRuim = resultado
@@ -241,11 +259,15 @@ fun KpLeitorCodigoBarrasScreen(
             val ruim = leituraRuim
             if (ruim != null) {
                 Aviso(mensagemLeitura(ruim, contexto))
-                Spacer(Modifier.height(Spacing.sm))
-                KpBotaoSecundario(texto = "Tentar de novo", onClick = {
-                    leituraRuim = null
-                    pausado[0] = false
-                })
+                // Só o aviso do PIX deixa o leitor rodando; os outros param, e
+                // parado só volta com este botão.
+                if (ruim != ResultadoLeitura.QrPixDoBoleto) {
+                    Spacer(Modifier.height(Spacing.sm))
+                    KpBotaoSecundario(texto = "Tentar de novo", onClick = {
+                        leituraRuim = null
+                        pausado[0] = false
+                    })
+                }
             } else if (previewAtivo) {
                 Aviso(
                     if (contexto == ContextoLeitura.COBRANCA) {
@@ -329,6 +351,7 @@ private fun LeitorPreview(
     ciclo: androidx.lifecycle.LifecycleOwner,
     executor: java.util.concurrent.ExecutorService,
     pausado: BooleanArray,
+    contextoLeitura: ContextoLeitura,
     aoDetectar: (String) -> Unit,
     aoErroCamera: () -> Unit,
 ) {
@@ -346,7 +369,7 @@ private fun LeitorPreview(
             // aceitável porque esta tela dura segundos.
             .setTargetResolution(Size(1280, 720))
             .build()
-            .apply { setAnalyzer(executor, LeitorYuv(pausado, aoDetectar)) }
+            .apply { setAnalyzer(executor, LeitorYuv(pausado, contextoLeitura, aoDetectar)) }
     }
     val previewView = remember { PreviewView(contexto) }
 
@@ -396,15 +419,27 @@ private fun LeitorPreview(
  */
 private class LeitorYuv(
     private val pausado: BooleanArray,
+    contexto: ContextoLeitura,
     private val aoDetectar: (String) -> Unit,
 ) : ImageAnalysis.Analyzer {
-    private val leitor = MultiFormatReader().apply {
-        setHints(
-            mapOf(
-                DecodeHintType.TRY_HARDER to true,
-                DecodeHintType.POSSIBLE_FORMATS to formatosDeLeitura(),
-            ),
-        )
+    /**
+     * Um leitor por grupo de formatos, na ordem em que a tela quer.
+     *
+     * `MultiFormatReader` devolve o PRIMEIRO código que acha no frame. Boleto
+     * moderno traz um QR do PIX impresso, e o QR é muito mais fácil de ler que
+     * as barras: com os dois na mesma lista, o QR ganha de longe e o código de
+     * barras nunca chega a ser tentado — a tela então dizia "não reconheci
+     * este código como um boleto" com o boleto inteiro no enquadramento.
+     */
+    private val leitores = ordemDeLeitura(contexto).map { formatos ->
+        MultiFormatReader().apply {
+            setHints(
+                mapOf(
+                    DecodeHintType.TRY_HARDER to true,
+                    DecodeHintType.POSSIBLE_FORMATS to formatos,
+                ),
+            )
+        }
     }
 
     @OptIn(ExperimentalGetImage::class)
@@ -433,7 +468,16 @@ private class LeitorYuv(
                 contiguo, larg, alt, imagem.imageInfo.rotationDegrees,
             )
             val fonte = PlanarYUVLuminanceSource(y, wl, ha, 0, 0, wl, ha, false)
-            val texto = leitor.decodeWithState(BinaryBitmap(HybridBinarizer(fonte))).text
+            val bitmap = BinaryBitmap(HybridBinarizer(fonte))
+            // `BinaryBitmap` guarda a matriz binarizada: a segunda tentativa
+            // não paga a binarização de novo.
+            val texto = leitores.firstNotNullOfOrNull { leitor ->
+                try {
+                    leitor.decodeWithState(bitmap).text
+                } catch (_: NotFoundException) {
+                    null
+                }
+            } ?: return
             // Sem log, "a câmera não lê" na mão do usuário é indistinguível de
             // "nunca chegou frame" ou "leu e o app recusou". Só o tamanho: o
             // texto pode ser o token de uma cobrança e não vai para o logcat.
@@ -528,28 +572,42 @@ internal fun tokenDeCobranca(bruto: String): String? {
 }
 
 /**
- * Formatos que o decodificador procura — lista única, com os dois mundos.
+ * Formatos que o decodificador procura, em grupos e na ordem em que tenta.
  *
  * A câmera é uma só (CameraX + zxing) e o app reconhece o que leu
  * ([classificarLeitura]); portanto a lista não pode ser de um só tipo. Sem
- * `QR_CODE` aqui o leitor varre o frame atrás apenas de código de barras 1D e
- * nunca acha o QR — mesmo com a imagem perfeita, a tela fica "procurando" e
- * parece câmera quebrada. Sem os 1D, o caminho do boleto (12B) morre.
+ * `QR_CODE` o leitor varre o frame atrás apenas de código de barras 1D e nunca
+ * acha o QR — mesmo com a imagem perfeita, a tela fica "procurando" e parece
+ * câmera quebrada. Sem os 1D, o caminho do boleto (12B) morre.
  *
- * Um QR qualquer que entre como texto não é mais "código inválido":
- * [classificarLeitura] devolve [ResultadoLeitura.NaoReconhecido] se não for
- * cobrança do app, e a tela diz isso em pt-BR.
- *
- * Lista curta não é só estética: `MultiFormatReader` tenta formato por
- * formato, por frame — esta é a ordem em que ele tenta.
+ * A **ordem** importa tanto quanto a lista: o boleto de hoje imprime um QR do
+ * PIX, e o QR é lido de muito mais longe que as barras. Em Nova conta o que
+ * vale é o código de barras, então ele é tentado primeiro; em Cobranças, o QR.
+ * Assim o QR do PIX não rouba o frame do boleto.
  */
-internal fun formatosDeLeitura(): List<com.google.zxing.BarcodeFormat> = listOf(
+internal fun ordemDeLeitura(contexto: ContextoLeitura): List<List<com.google.zxing.BarcodeFormat>> {
     // Boleto brasileiro é CODE_128 (CBB) ou ITF; CODE_39/EAN_13 cobrem
     // boletos e carnês antigos que aparecem na prática.
-    com.google.zxing.BarcodeFormat.CODE_128,
-    com.google.zxing.BarcodeFormat.ITF,
-    com.google.zxing.BarcodeFormat.CODE_39,
-    com.google.zxing.BarcodeFormat.EAN_13,
+    val umD = listOf(
+        com.google.zxing.BarcodeFormat.CODE_128,
+        com.google.zxing.BarcodeFormat.ITF,
+        com.google.zxing.BarcodeFormat.CODE_39,
+        com.google.zxing.BarcodeFormat.EAN_13,
+    )
     // QR do próprio app (`kavelipay://cobranca/<token>`).
-    com.google.zxing.BarcodeFormat.QR_CODE,
-)
+    val qr = listOf(com.google.zxing.BarcodeFormat.QR_CODE)
+    return if (contexto == ContextoLeitura.COBRANCA) listOf(qr, umD) else listOf(umD, qr)
+}
+
+/**
+ * QR do PIX impresso no próprio boleto (BR Code / EMV).
+ *
+ * O app não paga PIX, então esse QR não serve para nada aqui — mas ele é o que
+ * a câmera lê primeiro, e no boleto ele fica no meio da página. Reconhecê-lo
+ * evita a mensagem errada ("não reconheci este código como um boleto") com o
+ * boleto inteiro na frente da câmera.
+ */
+internal fun qrPixDoBoleto(bruto: String): Boolean {
+    val texto = bruto.trim()
+    return texto.startsWith("000201") && texto.contains("br.gov.bcb.pix")
+}
