@@ -2,8 +2,10 @@ package com.kavelipay.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -32,6 +34,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,6 +73,11 @@ fun KpHistoricoScreen(vm: AppViewModel, aoMudarAba: (Int) -> Unit = {}) {
         aoMudarAba = aoMudarAba,
         topBar = { CabecalhoAba("Histórico") },
     ) { padding ->
+        // Filtros locais (texto + mês) sobre o que o servidor já mandou. `kind`
+        // continua no servidor — é o único filtro que ele entende.
+        var busca by rememberSaveable { mutableStateOf("") }
+        var mes by rememberSaveable { mutableStateOf<String?>(null) }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(
@@ -78,6 +88,28 @@ fun KpHistoricoScreen(vm: AppViewModel, aoMudarAba: (Int) -> Unit = {}) {
         ) {
             if (estado.enviando) {
                 item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            }
+
+            item {
+                KpCampo(
+                    valor = busca,
+                    aoMudar = { busca = it },
+                    rotulo = "Buscar no histórico",
+                    umaLinha = true,
+                )
+            }
+
+            // Mês: só aparece se houver mais de um mês na lista. Com um mês
+            // só, o seletor seria uma escolha sem escolha.
+            val meses = FiltroHistorico.meses(estado.historico?.itens.orEmpty())
+            if (meses.size > 1) {
+                item {
+                    KpFiltroMes(
+                        meses = meses,
+                        escolhido = mes,
+                        aoEscolher = { mes = it },
+                    )
+                }
             }
 
             // Filtros
@@ -115,8 +147,33 @@ fun KpHistoricoScreen(vm: AppViewModel, aoMudarAba: (Int) -> Unit = {}) {
                 }
             }
 
-            val historico = estado.historico?.itens.orEmpty()
+            val todos = estado.historico?.itens.orEmpty()
+            val historico = FiltroHistorico.aplicar(todos, busca, mes)
+            val filtrando = busca.isNotBlank() || mes != null
             val saldo = estado.historico?.balance ?: "0.00"
+
+            if (filtrando) {
+                item {
+                    KpCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(Spacing.md)) {
+                            KpLinhaResumo(
+                                rotulo = if (historico.size == 1) {
+                                    "1 lançamento encontrado"
+                                } else {
+                                    "${historico.size} lançamentos encontrados"
+                                },
+                                valor = "de ${todos.size}",
+                                negrito = true,
+                            )
+                            KpBotaoSecundario(
+                                texto = "Limpar filtros",
+                                onClick = { busca = ""; mes = null },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            }
 
             item {
                 KpCard(Modifier.fillMaxWidth()) {
@@ -133,8 +190,12 @@ fun KpHistoricoScreen(vm: AppViewModel, aoMudarAba: (Int) -> Unit = {}) {
                     KpCard(Modifier.fillMaxWidth()) {
                         KpVazio(
                             icone = Icons.Default.SwapHoriz,
-                            titulo = "Histórico vazio",
-                            descricao = "Registre transações, contas ou cobranças para aparecer aqui.",
+                            titulo = if (filtrando) "Nada encontrado" else "Histórico vazio",
+                            descricao = if (filtrando) {
+                                "Nenhum lançamento casa com esses filtros."
+                            } else {
+                                "Registre transações, contas ou cobranças para aparecer aqui."
+                            },
                         )
                     }
                 }
@@ -159,6 +220,47 @@ fun KpHistoricoScreen(vm: AppViewModel, aoMudarAba: (Int) -> Unit = {}) {
         }
     }
 }
+
+/**
+ * Seletor de mês: `Todos` + um item por mês presente no histórico.
+ *
+ * Uma linha que rola na horizontal (o mesmo padrão da fila de filtros por
+ * tipo, logo acima): com um toque a pessoa vê os meses que existem em vez de
+ * abrir uma lista e procurar. O rótulo é pt-BR (`novembro`), derivado do
+ * `YYYY-MM`.
+ */
+@Composable
+private fun KpFiltroMes(
+    meses: List<String>,
+    escolhido: String?,
+    aoEscolher: (String?) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        KpBotaoSecundario(
+            texto = "Todos",
+            onClick = { aoEscolher(null) },
+            cor = if (escolhido == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        )
+        meses.forEach { m ->
+            KpBotaoSecundario(
+                texto = rotuloMes(m),
+                onClick = { aoEscolher(m) },
+                cor = if (escolhido == m) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
+}
+
+/** `2026-11` → `novembro` (pt-BR). Mês inválido volta cru, nunca quebra a tela. */
+internal fun rotuloMes(mes: String): String = runCatching {
+    val fmt = java.text.SimpleDateFormat("MMMM", java.util.Locale("pt", "BR"))
+    fmt.format(fmt.parse("${mes.trim()}-01") ?: return mes)
+}.getOrDefault(mes)
 
 /**
  * Cor e ícone por tipo de item do histórico.
