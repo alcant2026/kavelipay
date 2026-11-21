@@ -128,3 +128,13 @@ Em Postgres, `NULL` nunca é igual a `NULL` num índice unique. Um `ON CONFLICT 
 2. **Metas:** Home → "Mais" → "Metas" → "Nova meta". Defina nome, valor alvo e (opcional) valor inicial e prazo. Para guardar, toque no botão "+" do card.
 3. **Quem me deve:** Home → "Mais" → "Quem me deve". Lista agregada por pessoa.
 4. **Parcelar:** Contas → "Nova conta" → preencha valor e vencimento → "Parcelar esta compra" → escolha o número de parcelas.
+
+## Gate de UI — APROVADO (21/11/2026)
+
+Verificado em runtime no Waydroid (app release, produção) contra a conta de teste: Home (card Disponível × Comprometido + menu), Orçamento (vazio → criar teto "Alimentação R$ 200,00" → remover), Metas (vazio → criar "Viagem R$ 1000,00" com barra 0%/Falta → remover), Quem me deve (vazio "Ninguém te deve"). Diálogos com formato pt-BR ("Valor (ex.: 200,00)", "Prazo (dd/mm/aaaa)").
+
+Nenhum blocker. Achados:
+
+- **medio** — `OrcamentosScreen.kt:301` (`KpCategoriaChip`): chips de categoria do diálogo "Novo teto" têm ~46dp de altura, abaixo do piso de 48dp. Corrigir com `padding(vertical = 10.dp)` ou `heightIn(min = 48.dp)`.
+- **sugestao** — `MetasScreen.kt:25,49` e `DevedoresScreen.kt:29`: imports não usados (`HorizontalDivider`, `KpBotaoSecundario`). Remover.
+- **sugestao** — `DevedoresScreen.kt:50-52`: o "Total a receber" é um `fold` BigDecimal local. Está correto (soma de valores já derivados do backend, não saldo), mas convém comentar que a tela não é fonte da verdade.
