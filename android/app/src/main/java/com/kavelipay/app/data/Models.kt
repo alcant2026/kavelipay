@@ -621,3 +621,106 @@ fun JSONObject.paraDetalheCaixinha() = DetalheCaixinha(
     totalFaltaMes = anulavel("total_falta_mes"),
     movimentos = optJSONArray("movimentos").paraObjetos { it.paraMovimentoCaixinha() },
 )
+
+// ── Planejamento (orçamento, metas, resumo) ──────────────────────────────────
+
+/** `GET /wallet/resumo`. */
+data class ResumoCarteira(
+    val saldo: String,
+    val comprometido: String,
+    val disponivel: String,
+    val previsaoFimMes: String,
+    val contasPendentes: Int,
+)
+
+fun JSONObject.paraResumo() = ResumoCarteira(
+    saldo = optString("saldo", "0.00"),
+    comprometido = optString("comprometido", "0.00"),
+    disponivel = optString("disponivel", "0.00"),
+    previsaoFimMes = optString("previsao_fim_mes", "0.00"),
+    contasPendentes = optInt("contas_pendentes"),
+)
+
+/** `GET /orcamentos`. `mes == null` = teto permanente. */
+data class Orcamento(
+    val id: String,
+    val categoryId: String?,
+    val categoryName: String,
+    val categoryColor: String?,
+    val valor: String,
+    val mes: String?,
+    val gasto: String,
+    val progresso: Float,
+)
+
+fun JSONObject.paraOrcamento() = Orcamento(
+    id = optString("id"),
+    categoryId = if (isNull("category_id")) null else optString("category_id"),
+    categoryName = optString("category_name"),
+    categoryColor = if (isNull("category_color")) null else optString("category_color"),
+    valor = optString("valor", "0.00"),
+    mes = if (isNull("mes")) null else optString("mes"),
+    gasto = optString("gasto", "0.00"),
+    progresso = optDouble("progresso", 0.0).toFloat(),
+)
+
+/** `GET /metas`. */
+data class Meta(
+    val id: String,
+    val nome: String,
+    val valorAlvo: String,
+    val guardado: String,
+    val progresso: Float,
+    val prazo: String?,
+    val falta: String,
+    val criadoEm: String,
+)
+
+fun JSONObject.paraMeta() = Meta(
+    id = optString("id"),
+    nome = optString("nome"),
+    valorAlvo = optString("valor_alvo", "0.00"),
+    guardado = optString("guardado", "0.00"),
+    progresso = optDouble("progresso", 0.0).toFloat(),
+    prazo = anulavel("prazo"),
+    falta = optString("falta", "0.00"),
+    criadoEm = optString("criado_em"),
+)
+
+/** `GET /splits/pendentes` — agregado por nome. */
+data class Devedor(
+    val nome: String,
+    val total: String,
+    val partes: Int,
+)
+
+fun JSONObject.paraDevedor() = Devedor(
+    nome = optString("name"),
+    total = optString("total", "0.00"),
+    partes = optInt("partes"),
+)
+
+/** `POST /bills/parcelar`. */
+data class Parcela(
+    val numero: Int,
+    val amount: String,
+    val dueDate: String,
+    val billId: String,
+)
+
+data class Parcelamento(
+    val parcelas: List<Parcela>,
+    val total: String,
+)
+
+fun JSONObject.paraParcelamento() = Parcelamento(
+    parcelas = optJSONArray("parcelas").paraObjetos { it.paraParcela() },
+    total = optString("total", "0.00"),
+)
+
+fun JSONObject.paraParcela() = Parcela(
+    numero = optInt("numero"),
+    amount = optString("amount", "0.00"),
+    dueDate = optString("due_date"),
+    billId = optString("bill_id"),
+)

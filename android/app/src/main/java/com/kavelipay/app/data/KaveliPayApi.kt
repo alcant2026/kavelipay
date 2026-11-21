@@ -516,6 +516,75 @@ suspend fun chargeQr(chargeId: String): ChargeQr? =
     suspend fun salvarTelefoneCaixinha(id: String, telefone: String, mes: String): DetalheCaixinha =
         ApiClient.patch("/caixinhas/$id/meu-telefone?mes=$mes",
             JSONObject().put("telefone", telefone), token).paraDetalheCaixinha()
+
+    // ── Planejamento (orçamento, metas, resumo) ──────────────────────────────
+
+    /** `GET /wallet/resumo` — saldo disponível × comprometido. */
+    suspend fun resumo(): ResumoCarteira =
+        ApiClient.get("/wallet/resumo", token).paraResumo()
+
+    /** `GET /orcamentos?mes=YYYY-MM` — array solto. */
+    suspend fun orcamentos(mes: String? = null): List<Orcamento> {
+        val caminho = if (mes == null) "/orcamentos" else "/orcamentos?mes=$mes"
+        return ApiClient.getArray(caminho, token).paraObjetos { it.paraOrcamento() }
+    }
+
+    /** `POST /orcamentos` — cria ou atualiza o teto (upsert por categoria/mês). */
+    suspend fun criarOrcamento(categoryId: String?, valor: String, mes: String? = null): Orcamento {
+        val corpo = JSONObject().put("valor", valor)
+        categoryId?.let { corpo.put("category_id", it) }
+        mes?.let { corpo.put("mes", it) }
+        return ApiClient.post("/orcamentos", corpo, token).paraOrcamento()
+    }
+
+    suspend fun apagarOrcamento(id: String) {
+        ApiClient.delete("/orcamentos/$id", null, token)
+    }
+
+    /** `GET /metas` — array solto. */
+    suspend fun metas(incluirArquivadas: Boolean = false): List<Meta> {
+        val caminho = if (incluirArquivadas) "/metas?incluidas_arquivadas=true" else "/metas"
+        return ApiClient.getArray(caminho, token).paraObjetos { it.paraMeta() }
+    }
+
+    suspend fun criarMeta(nome: String, valorAlvo: String, valorInicial: String? = null, prazo: String? = null): Meta {
+        val corpo = JSONObject().put("nome", nome).put("valor_alvo", valorAlvo)
+        valorInicial?.let { corpo.put("valor_inicial", it) }
+        prazo?.let { corpo.put("prazo", it) }
+        return ApiClient.post("/metas", corpo, token).paraMeta()
+    }
+
+    suspend fun apagarMeta(id: String) {
+        ApiClient.delete("/metas/$id", null, token)
+    }
+
+    suspend fun arquivarMeta(id: String, arquivada: Boolean): Meta =
+        ApiClient.post("/metas/$id/arquivar", JSONObject().put("arquivada", arquivada), token).paraMeta()
+
+    /** `POST /metas/{id}/aportar` — registra que o usuário guardou dinheiro. */
+    suspend fun aportarMeta(id: String, amount: String): Meta =
+        ApiClient.post("/metas/$id/aportar", JSONObject().put("amount", amount), token).paraMeta()
+
+    /** `GET /splits/pendentes` — quem me deve, agregado por nome. */
+    suspend fun splitsPendentes(): List<Devedor> =
+        ApiClient.getArray("/splits/pendentes", token).paraObjetos { it.paraDevedor() }
+
+    /** `POST /bills/parcelar` — compra parcelada vira N boletos. */
+    suspend fun parcelar(
+        description: String,
+        totalAmount: String,
+        parcelas: Int,
+        firstDueDate: String,
+        categoryId: String? = null,
+    ): Parcelamento {
+        val corpo = JSONObject()
+            .put("description", description)
+            .put("total_amount", totalAmount)
+            .put("parcelas", parcelas)
+            .put("first_due_date", firstDueDate)
+        categoryId?.let { corpo.put("category_id", it) }
+        return ApiClient.post("/bills/parcelar", corpo, token).paraParcelamento()
+    }
 }
 
 /**

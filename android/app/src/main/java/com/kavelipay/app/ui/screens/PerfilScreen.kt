@@ -219,34 +219,39 @@ fun KpPerfilScreen(
 
             item {
                 KpCard(Modifier.fillMaxWidth()) {
-                    KpMenuRow(
-                        icone = Icons.Default.AccountBalanceWallet,
-                        rotulo = "Conta do Mercado Pago",
-                        subtitulo = when {
-                            contaMp == null -> null
-                            contaMp.conectado ->
-                                "Conectada: o dinheiro das cobranças cai direto em você"
-                            else -> "Não conectada: toque para conectar e poder receber"
-                        },
-                        onClick = {
-                            if (contaMp?.conectado == true) dialogoMp = true
-                            else vm.abrirConexaoMp()
-                        },
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-                    // Sem Mercado Pago conectado, a chave Pix é o único jeito de
-                    // quem recebeu o link pagar — por isso fica no mesmo cartão,
-                    // logo abaixo da conexão, e não numa tela de ajustes.
-                    KpMenuRow(
-                        icone = Icons.Default.QrCode,
-                        rotulo = "Chave Pix",
-                        subtitulo = estado.perfil?.pixChave?.takeIf { it.isNotBlank() }
-                            ?: "Sem chave: quem abrir o link não vê como pagar",
-                        onClick = {
-                            novaChave = estado.perfil?.pixChave.orEmpty()
-                            dialogoPix = true
-                        },
-                    )
+                    // Column é obrigatória: KpCard é um Box, e dois filhos
+                    // diretos se sobrepõem — foi assim que a linha "Conta do
+                    // Mercado Pago" ficou escondida atrás da "Chave Pix".
+                    Column {
+                        KpMenuRow(
+                            icone = Icons.Default.AccountBalanceWallet,
+                            rotulo = "Conta do Mercado Pago",
+                            subtitulo = when {
+                                contaMp == null -> null
+                                contaMp.conectado ->
+                                    "Conectada: o dinheiro das cobranças cai direto em você"
+                                else -> "Não conectada: toque para conectar e poder receber"
+                            },
+                            onClick = {
+                                if (contaMp?.conectado == true) dialogoMp = true
+                                else vm.abrirConexaoMp()
+                            },
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        // Sem Mercado Pago conectado, a chave Pix é o único jeito de
+                        // quem recebeu o link pagar — por isso fica no mesmo cartão,
+                        // logo abaixo da conexão, e não numa tela de ajustes.
+                        KpMenuRow(
+                            icone = Icons.Default.QrCode,
+                            rotulo = "Chave Pix",
+                            subtitulo = estado.perfil?.pixChave?.takeIf { it.isNotBlank() }
+                                ?: "Sem chave: quem abrir o link não vê como pagar",
+                            onClick = {
+                                novaChave = estado.perfil?.pixChave.orEmpty()
+                                dialogoPix = true
+                            },
+                        )
+                    }
                 }
             }
 

@@ -12,6 +12,7 @@ pub mod history;
 pub mod lgpd;
 pub mod mp_conta;
 pub mod notifications;
+pub mod planejamento;
 pub mod profile;
 pub mod recurrence;
 pub mod reports;
@@ -169,6 +170,23 @@ pub fn router(state: AppState) -> Router {
             "/caixinhas/{id}/meu-telefone",
             patch(caixinhas::meu_telefone),
         )
+        // orçamento e metas: teto de gasto por categoria e metas de economia.
+        // Nenhuma das duas guarda dinheiro — só intenção; o progresso é
+        // derivado do ledger. Ver `docs/planejamento.md`.
+        .route("/orcamentos", get(planejamento::listar_orcamentos))
+        .route("/orcamentos", post(planejamento::criar_orcamento))
+        .route("/orcamentos/{id}", delete(planejamento::apagar_orcamento))
+        .route("/metas", get(planejamento::listar_metas))
+        .route("/metas", post(planejamento::criar_meta))
+        .route("/metas/{id}", delete(planejamento::apagar_meta))
+        .route("/metas/{id}/arquivar", post(planejamento::arquivar_meta))
+        .route("/metas/{id}/aportar", post(planejamento::aportar_meta))
+        // saldo disponível × comprometido e previsão até o fim do mês
+        .route("/wallet/resumo", get(planejamento::resumo_carteira))
+        // quem me deve, agregado por participante
+        .route("/splits/pendentes", get(planejamento::splits_pendentes))
+        // compra parcelada vira N boletos
+        .route("/bills/parcelar", post(planejamento::parcelar_bill))
         // assinatura premium: o app paga as próprias contas sem virar banco.
         // Leitura e ativação são do usuário; emissão de código é do admin.
         .route("/billing/plano", get(billing::plano))

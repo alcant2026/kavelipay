@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.ReceiptLong
@@ -113,6 +114,9 @@ fun KpHomeScreen(
     aoVerCategorias: () -> Unit,
     aoVerPerfil: () -> Unit,
     aoVerCaixinhas: () -> Unit = {},
+    aoVerOrcamentos: () -> Unit = {},
+    aoVerMetas: () -> Unit = {},
+    aoVerDevedores: () -> Unit = {},
     // Defaults para a Home continuar compilável sem quem os injeta (o Nav
     // antigo não passa esses quatro); quem alimenta é a raiz, no commit que
     // traz as rotas novas.
@@ -199,7 +203,42 @@ fun KpHomeScreen(
                 }
             }
 
-            // 1b. Lembretes fora do ar: selo discreto, não derruba a Home
+            // 1b. Resumo da carteira: disponível × comprometido. Derivado do
+            // ledger + boletos PENDING. Só aparece quando o resumo carregou —
+            // a Home nunca mostra "R$ 0,00" provisório.
+            estado.resumo?.let { resumo ->
+                item {
+                    KpCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(Spacing.md)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text("Disponível", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("R$ ${brl(resumo.disponivel)}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(Modifier.height(Spacing.xs))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text("Comprometido", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("R$ ${brl(resumo.comprometido)}", style = MaterialTheme.typography.bodyMedium)
+                            }
+                            if (resumo.contasPendentes > 0) {
+                                Spacer(Modifier.height(Spacing.xs))
+                                Text(
+                                    "${resumo.contasPendentes} ${if (resumo.contasPendentes == 1) "conta em aberto" else "contas em aberto"}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 1c. Lembretes fora do ar: selo discreto, não derruba a Home
             //     nem entra no `erro` global (o resto da carga funcionou).
             if (estado.lembretesIndisponiveis) {
                 item {
@@ -376,6 +415,27 @@ fun KpHomeScreen(
                             rotulo = "Categorias",
                             subtitulo = "Classifique entradas e despesas do seu jeito",
                             onClick = aoVerCategorias,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        KpMenuRow(
+                            icone = Icons.Default.PieChart,
+                            rotulo = "Orçamento",
+                            subtitulo = "Teto de gasto por categoria e para o mês",
+                            onClick = aoVerOrcamentos,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        KpMenuRow(
+                            icone = Icons.Default.Savings,
+                            rotulo = "Metas",
+                            subtitulo = "Quanto quer juntar e quanto já guardou",
+                            onClick = aoVerMetas,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        KpMenuRow(
+                            icone = Icons.Default.Person,
+                            rotulo = "Quem me deve",
+                            subtitulo = "Divisões pendentes, agregadas por pessoa",
+                            onClick = aoVerDevedores,
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
                         // Saíram da fila de atalhos para cá: continuam a um

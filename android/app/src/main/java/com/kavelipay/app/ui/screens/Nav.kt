@@ -65,6 +65,10 @@ private object Rota {
     const val LGPD = "lgpd"
     const val SESSOES = "sessoes"
     const val PLANO = "plano"
+    const val ORCAMENTOS = "orcamentos"
+    const val METAS = "metas"
+    const val DEVEDORES = "devedores"
+    const val PARCELAR = "parcelar"
 }
 
 /**
@@ -147,6 +151,9 @@ fun KpRaiz(
                 aoVerCategorias = { nav.navigate(Rota.CATEGORIAS) },
                 aoVerPerfil = { irParaAba(4) },
                 aoVerCaixinhas = { nav.navigate(Rota.CAIXINHAS) },
+                aoVerOrcamentos = { nav.navigate(Rota.ORCAMENTOS) },
+                aoVerMetas = { nav.navigate(Rota.METAS) },
+                aoVerDevedores = { nav.navigate(Rota.DEVEDORES) },
                 aoVerNotificacoes = { nav.navigate(Rota.NOTIFICACOES) },
                 aoNovaDespesa = { nav.navigate(Rota.NOVA_DESPESA) },
                 aoNovaConta = { nav.navigate(Rota.NOVA_CONTA) },
@@ -347,6 +354,15 @@ fun KpRaiz(
         }
         composable(Rota.PLANO) {
             KpPlanoScreen(vm, aoVoltar = { nav.popBackStack() })
+        }
+        composable(Rota.ORCAMENTOS) {
+            KpOrcamentosScreen(vm, aoVoltar = { nav.popBackStack() })
+        }
+        composable(Rota.METAS) {
+            KpMetasScreen(vm, aoVoltar = { nav.popBackStack() })
+        }
+        composable(Rota.DEVEDORES) {
+            KpDevedoresScreen(vm, aoVoltar = { nav.popBackStack() })
         }
 
     }

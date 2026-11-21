@@ -11,14 +11,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.Icons
@@ -65,6 +68,7 @@ fun KpNovaContaScreen(
     var vencimento by rememberSaveable {
         mutableStateOf(Money.dataAno(LocalDate.now().toString()))
     }
+    var mostrarParcelamento by remember { mutableStateOf(false) }
 
     // Leitor de código de barras voltou com um código: preenche e consome,
     // senão ele reapareceria a cada recomposição.
@@ -218,8 +222,88 @@ fun KpNovaContaScreen(
                     carregando = estado.enviando,
                 )
             }
+
+            // Parcelar: transforma esta compra em N boletos (um por parcela).
+            item {
+                KpBotaoSecundario(
+                    texto = "Parcelar esta compra",
+                    onClick = { mostrarParcelamento = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    habilitado = podeSalvar,
+                )
+            }
         }
     }
+
+    if (mostrarParcelamento && vencimentoIso != null) {
+        KpParcelamentoDialog(
+            descricao = descricao,
+            valorTotal = valor,
+            firstDueDate = vencimentoIso,
+            categoriaId = null,
+            aoVoltar = { mostrarParcelamento = false },
+            aoSalvar = { total, parcelas, due ->
+                vm.parcelar(descricao, total, parcelas, due, null) {
+                    mostrarParcelamento = false
+                    aoSalvar()
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun KpParcelamentoDialog(
+    descricao: String,
+    valorTotal: String,
+    firstDueDate: String,
+    categoriaId: String?,
+    aoVoltar: () -> Unit,
+    aoSalvar: (String, Int, String) -> Unit,
+) {
+    var parcelas by remember { mutableStateOf("3") }
+    val n = parcelas.toIntOrNull() ?: 0
+    val ok = n in 2..24
+
+    AlertDialog(
+        onDismissRequest = aoVoltar,
+        title = { Text("Parcelar") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Text(
+                    "Compra de R$ ${Money.brl(valorTotal)} em até 24x.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                KpCampo(
+                    valor = parcelas,
+                    aoMudar = { parcelas = it.filter(Char::isDigit).take(2) },
+                    rotulo = "Número de parcelas (2–24)",
+                    teclado = KeyboardType.Number,
+                    imeAction = ImeAction.Done,
+                    umaLinha = true,
+                    erro = if (!ok && parcelas.isNotBlank()) "Entre 2 e 24." else null,
+                )
+                if (ok) {
+                    val valorNum = valorTotal.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
+                    val parcelaVal = valorNum.divide(java.math.BigDecimal(n), 2, java.math.RoundingMode.HALF_UP)
+                    Text(
+                        "${n}x de R$ ${Money.brlTotal(parcelaVal)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { aoSalvar(valorTotal, n, firstDueDate) },
+                enabled = ok,
+            ) { Text("Criar parcelas") }
+        },
+        dismissButton = {
+            TextButton(onClick = aoVoltar) { Text("Cancelar") }
+        },
+    )
 }
 
 /**

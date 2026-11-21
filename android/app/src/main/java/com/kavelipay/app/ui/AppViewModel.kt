@@ -7,11 +7,16 @@ import com.kavelipay.app.data.Carteira
 import com.kavelipay.app.data.Categoria
 import com.kavelipay.app.data.Derivacao
 import com.kavelipay.app.data.DetalheCaixinha
+import com.kavelipay.app.data.Devedor
 import com.kavelipay.app.data.Extrato
 import com.kavelipay.app.data.Historico
 import com.kavelipay.app.data.ItemCharge
 import com.kavelipay.app.data.ItemHistorico
 import com.kavelipay.app.data.ItemSplit
+import com.kavelipay.app.data.Meta
+import com.kavelipay.app.data.Orcamento
+import com.kavelipay.app.data.Parcelamento
+import com.kavelipay.app.data.ResumoCarteira
 import com.kavelipay.app.data.Exportador
 import com.kavelipay.app.data.KaveliPayApi
 import com.kavelipay.app.data.ListaContas
@@ -127,6 +132,12 @@ data class EstadoApp(
 
     // Notificações (tela dedicada; o contador `naoLidas` existe desde o início)
     val notificacoes: List<Notificacao>? = null,
+
+    // Planejamento (orçamento, metas, resumo, devedores)
+    val resumo: ResumoCarteira? = null,
+    val orcamentos: List<Orcamento>? = null,
+    val metas: List<Meta>? = null,
+    val devedores: List<Devedor>? = null,
 
     /**
      * A geração de lembretes (`POST /notifications/generate`) falhou. Erro
@@ -271,6 +282,9 @@ class AppViewModel(
                     // Falha fica num selo discreto na Home — não derruba a tela.
                     val lembretes = runCatching { api.gerarNotificacoes() }
                     val naoLidas = async { api.notificacoes(somenteNaoLidas = true).size }
+                    // Resumo da carteira (disponível × comprometido). Falha
+                    // silenciosa: a Home mostra o saldo sem ele.
+                    val resumo = async { runCatching { api.resumo() }.getOrNull() }
 
                     val resultadoRelatorio = relatorio.await()
 
@@ -288,6 +302,7 @@ class AppViewModel(
                             planoNecessario = ePlanoNecessario(resultadoRelatorio.exceptionOrNull()),
                             lembretesIndisponiveis = lembretes.isFailure,
                             naoLidas = naoLidas.await(),
+                            resumo = resumo.await(),
                         )
                     }
                 }
@@ -1093,6 +1108,123 @@ fun carregarChargeQr(chargeId: String) {
 
     fun salvarTelefoneCaixinha(id: String, telefone: String, mes: String = mesLocal()) =
         mutarCaixinha { api.salvarTelefoneCaixinha(id, telefone, mes) }
+
+    // ── Planejamento (orçamento, metas, resumo) ──────────────────────────────
+
+    fun carregarResumo() {
+        viewModelScope.launch {
+            runCatching { api.resumo() }
+                .onSuccess { r -> _estado.update { it.copy(resumo = r) } }
+                .onFailure { /* silencioso: a Home mostra o saldo mesmo sem resumo */ }
+        }
+    }
+
+    fun carregarOrcamentos(mes: String? = null) {
+        viewModelScope.launch {
+            runCatching { api.orcamentos(mes) }
+                .onSuccess { lista -> _estado.update { it.copy(orcamentos = lista) } }
+                .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
+        }
+    }
+
+    fun criarOrcamento(categoryId: String?, valor: String, mes: String? = null, onOk: () -> Unit = {}) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.criarOrcamento(categoryId, valor, mes) }
+                .onSuccess {
+                    _estado.update { it.copy(enviando = false) }
+                    carregarOrcamentos(mes)
+                    onOk()
+                }
+                .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+        }
+    }
+
+    fun apagarOrcamento(id: String) {
+        viewModelScope.launch {
+            runCatching { api.apagarOrcamento(id) }
+                .onSuccess { carregarOrcamentos() }
+                .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
+        }
+    }
+
+    fun carregarMetas() {
+        viewModelScope.launch {
+            runCatching { api.metas() }
+                .onSuccess { lista -> _estado.update { it.copy(metas = lista) } }
+                .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
+        }
+    }
+
+    fun criarMeta(nome: String, valorAlvo: String, valorInicial: String?, prazo: String?, onOk: () -> Unit = {}) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.criarMeta(nome, valorAlvo, valorInicial, prazo) }
+                .onSuccess {
+                    _estado.update { it.copy(enviando = false) }
+                    carregarMetas()
+                    onOk()
+                }
+                .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+        }
+    }
+
+    fun apagarMeta(id: String) {
+        viewModelScope.launch {
+            runCatching { api.apagarMeta(id) }
+                .onSuccess { carregarMetas() }
+                .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
+        }
+    }
+
+    fun arquivarMeta(id: String, arquivada: Boolean) {
+        viewModelScope.launch {
+            runCatching { api.arquivarMeta(id, arquivada) }
+                .onSuccess { carregarMetas() }
+                .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
+        }
+    }
+
+    fun aportarMeta(id: String, amount: String) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.aportarMeta(id, amount) }
+                .onSuccess {
+                    _estado.update { it.copy(enviando = false) }
+                    carregarMetas()
+                    carregarTudo()
+                }
+                .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+        }
+    }
+
+    fun carregarDevedores() {
+        viewModelScope.launch {
+            runCatching { api.splitsPendentes() }
+                .onSuccess { lista -> _estado.update { it.copy(devedores = lista) } }
+                .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
+        }
+    }
+
+    fun parcelar(
+        description: String,
+        total: String,
+        parcelas: Int,
+        firstDueDate: String,
+        categoryId: String? = null,
+        onOk: (Parcelamento) -> Unit = {},
+    ) {
+        _estado.update { it.copy(enviando = true, erro = null) }
+        viewModelScope.launch {
+            runCatching { api.parcelar(description, total, parcelas, firstDueDate, categoryId) }
+                .onSuccess { p ->
+                    _estado.update { it.copy(enviando = false) }
+                    carregarTudo()
+                    onOk(p)
+                }
+                .onFailure { e -> _estado.update { it.copy(enviando = false, erro = mensagemDe(e)) } }
+        }
+    }
 
 }
 
