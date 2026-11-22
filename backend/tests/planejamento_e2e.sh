@@ -132,6 +132,15 @@ check "aporte registrado" "$([ "$(echo "$R" | get guardado)" = "250.00" ] && ech
 check "falta cai para 750" "$([ "$(echo "$R" | get falta)" = "750.00" ] && echo true || echo false)"
 check "progresso 0.25" "$([ "$(echo "$R" | get progresso)" = "0.25" ] && echo true || echo false)"
 
+# Aporte de meta lança EXPENSE (sai do disponível), mas é RESERVA, não gasto:
+# não pode inflar o teto de "Todas as categorias". O gasto do mês é só a
+# despesa real de 75,00 (o aporte de 250 fica de fora).
+R=$(curl -s -X POST "$BASE/orcamentos" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"valor":"500.00"}')
+ORC_GERAL_ID=$(echo "$R" | get id)
+check "gasto geral ignora aporte de meta" "$([ "$(echo "$R" | get gasto)" = "75.00" ] && echo true || echo false)"
+curl -s -o /dev/null -X DELETE "$BASE/orcamentos/$ORC_GERAL_ID" -H "$AUTH"
+
 # Saldo da carteira reflete a saída: 1000 (salário) - 75 (compras) - 250 (aporte) = 675.
 SALDO=$(curl -s "$BASE/wallet" -H "$AUTH" | get balance)
 check "carteira debitada pelo aporte" "$([ "$SALDO" = "675.00" ] && echo true || echo false)"

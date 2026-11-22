@@ -593,6 +593,9 @@ async fn gasto_do_periodo(
             AND t.status = 'POSTED'
             AND t.type = ANY($2::text[])
             AND ($3::uuid IS NULL OR t.category_id = $3)
+            -- Aporte de meta lança EXPENSE (reduz o disponível), mas é RESERVA,
+            -- não gasto: não conta no teto de Todas as categorias.
+            AND (t.metadata->>'meta_id') IS NULL
             AND t.created_at >= $4 AND t.created_at < $5",
     )
     .bind(user_id)
