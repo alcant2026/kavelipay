@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.kavelipay.app.data.Devedor
 import com.kavelipay.app.ui.AppViewModel
-import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.components.KpVazio
 import com.kavelipay.app.ui.components.Money

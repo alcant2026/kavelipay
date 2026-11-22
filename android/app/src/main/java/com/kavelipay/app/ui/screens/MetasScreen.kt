@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -46,7 +45,6 @@ import androidx.compose.ui.unit.dp
 import com.kavelipay.app.data.Meta
 import com.kavelipay.app.ui.AppViewModel
 import com.kavelipay.app.ui.components.KpBotaoPrimario
-import com.kavelipay.app.ui.components.KpBotaoSecundario
 import com.kavelipay.app.ui.components.KpCard
 import com.kavelipay.app.ui.components.KpVazio
 import com.kavelipay.app.ui.components.Money

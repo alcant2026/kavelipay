@@ -138,3 +138,10 @@ Nenhum blocker. Achados:
 - **medio** — `OrcamentosScreen.kt:301` (`KpCategoriaChip`): chips de categoria do diálogo "Novo teto" têm ~46dp de altura, abaixo do piso de 48dp. Corrigir com `padding(vertical = 10.dp)` ou `heightIn(min = 48.dp)`.
 - **sugestao** — `MetasScreen.kt:25,49` e `DevedoresScreen.kt:29`: imports não usados (`HorizontalDivider`, `KpBotaoSecundario`). Remover.
 - **sugestao** — `DevedoresScreen.kt:50-52`: o "Total a receber" é um `fold` BigDecimal local. Está correto (soma de valores já derivados do backend, não saldo), mas convém comentar que a tela não é fonte da verdade.
+
+### Correções aplicadas (21/11/2026)
+
+- **ícones repetidos no menu "Mais"** (relatado pelo usuário): "Orçamento" usava `PieChart` (igual "Relatório do mês") e "Metas" usava `Savings` (igual "Empréstimos"). Trocados para `DonutSmall` e `Flag`; os 7 itens do menu ficaram com ícones distintos. O ícone do estado vazio de Orçamento também passou a `DonutSmall` pra combinar com o item do menu.
+- **medio** (chips 48dp): `KpCategoriaChip` agora tem `heightIn(min = 48.dp)`. Verificado em runtime: todos os chips a 48,0dp.
+- **sugestao** (imports não usados): removidos `HorizontalDivider`/`KpBotaoSecundario` de `MetasScreen.kt` e `KpBotaoSecundario` de `DevedoresScreen.kt`.
+- **extra** — o `heightIn` nos chips fez o diálogo "Novo teto" transbordar (o último chip, "Energia", ficava cortado e os demais inacessíveis, pois o `Column` não tinha scroll). Adicionado `verticalScroll` ao `Column` do diálogo. Verificado: todos os chips alcançáveis.

@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DonutSmall
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Notifications
@@ -418,14 +420,14 @@ fun KpHomeScreen(
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
                         KpMenuRow(
-                            icone = Icons.Default.PieChart,
+                            icone = Icons.Default.DonutSmall,
                             rotulo = "Orçamento",
                             subtitulo = "Teto de gasto por categoria e para o mês",
                             onClick = aoVerOrcamentos,
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
                         KpMenuRow(
-                            icone = Icons.Default.Savings,
+                            icone = Icons.Default.Flag,
                             rotulo = "Metas",
                             subtitulo = "Quanto quer juntar e quanto já guardou",
                             onClick = aoVerMetas,

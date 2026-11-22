@@ -11,16 +11,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.DonutSmall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -133,7 +136,7 @@ fun KpOrcamentosScreen(
                 item {
                     KpCard(Modifier.fillMaxWidth()) {
                         KpVazio(
-                            icone = Icons.Default.PieChart,
+                            icone = Icons.Default.DonutSmall,
                             titulo = "Nenhum teto definido",
                             descricao = "Defina quanto quer gastar por categoria ou no mês inteiro.",
                         )
@@ -254,7 +257,10 @@ private fun KpNovoOrcamentoDialog(
         onDismissRequest = aoVoltar,
         title = { Text("Novo teto") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
                 Text(
                     "Defina quanto quer gastar. Sem categoria = teto do mês inteiro.",
                     style = MaterialTheme.typography.bodySmall,
@@ -302,6 +308,7 @@ private fun KpCategoriaChip(texto: String, cor: String? = null, selecionado: Boo
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
