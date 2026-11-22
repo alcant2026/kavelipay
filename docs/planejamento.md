@@ -145,3 +145,14 @@ Nenhum blocker. Achados:
 - **medio** (chips 48dp): `KpCategoriaChip` agora tem `heightIn(min = 48.dp)`. Verificado em runtime: todos os chips a 48,0dp.
 - **sugestao** (imports não usados): removidos `HorizontalDivider`/`KpBotaoSecundario` de `MetasScreen.kt` e `KpBotaoSecundario` de `DevedoresScreen.kt`.
 - **extra** — o `heightIn` nos chips fez o diálogo "Novo teto" transbordar (o último chip, "Energia", ficava cortado e os demais inacessíveis, pois o `Column` não tinha scroll). Adicionado `verticalScroll` ao `Column` do diálogo. Verificado: todos os chips alcançáveis.
+
+## Review de consistência app × backend (21/11/2026)
+
+Uso das skills `code-review-and-quality` e `api-and-interface-design`. Comparei o contrato dos dois lados: os parsers de `Models.kt` (`paraResumo`/`paraOrcamento`/`paraMeta`/`paraDevedor`/`paraParcelamento`/`paraParcela`) batem com o que `planejamento.rs` serializa; `Money` serializa como string `"%.2f"` (nunca float), e o app lê com `optString` — OK. Datas: `prazo` é `dd/mm/aaaa` na tela e convertido para ISO (`YYYY-MM-DD`) por `dataParaIso` antes de ir ao backend — OK. Mês: `YearMonth.toString()` = `YYYY-MM` — OK.
+
+Dois bugs reais corrigidos:
+
+- **mês errado ao remover teto** — `AppViewModel.apagarOrcamento(id)` recarregava `carregarOrcamentos()` (mês do relógio), mas a tela mostra o mês selecionado (`mes`, que pode ser outro). Remover um teto com a tela em outro mês deixava a lista (mês do relógio) desalinhada do cabeçalho. Corrigido: `apagarOrcamento(id, mes)` recarrega o mês da tela; `OrcamentosScreen` passa `mes`.
+- **prazo inválido descartado em silêncio** — no diálogo "Nova meta", `dataParaIso` devolve `null` para data inexistente (ex.: `31/02`) e a meta era criada **sem prazo**, sem avisar. Corrigido: `prazoOk = prazo.isBlank() || dataParaIso(prazo) != null`; Salvar só habilita com prazo válido e um texto "Data inválida. Use dd/mm/aaaa." aparece quando digitado e inválido.
+
+Ponto em aberto (não corrigido — decisão de produto, não bug): o aporte de meta é lançado como `EXPENSE`, então um teto de "Todas as categorias" soma o aporte no `gasto` (reservar parece "gastar"). Como é ambíguo se reserva conta como gasto, deixei para você decidir antes de mudar `gasto_do_periodo`.

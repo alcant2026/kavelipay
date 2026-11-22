@@ -147,7 +147,7 @@ fun KpOrcamentosScreen(
                 items(orcamentos, key = { it.id }) { orcamento ->
                     KpOrcamentoCard(
                         orcamento = orcamento,
-                        aoRemover = { vm.apagarOrcamento(orcamento.id) },
+                        aoRemover = { vm.apagarOrcamento(orcamento.id, mes) },
                     )
                 }
             }

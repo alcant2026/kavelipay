@@ -264,7 +264,11 @@ private fun KpNovaMetaDialog(
     var prazo by remember { mutableStateOf("") }
 
     val alvoOk = valorAlvo.toBigDecimalOrNull()?.let { it > BigDecimal.ZERO } ?: false
-    val podeSalvar = nome.isNotBlank() && alvoOk
+    // Prazo é opcional, mas se foi digitado tem de ser uma data real. Sem isto,
+    // `dataParaIso` devolvia null para "31/02" e a meta era criada SEM prazo, sem
+    // avisar — perda silenciosa de dado.
+    val prazoOk = prazo.isBlank() || dataParaIso(prazo) != null
+    val podeSalvar = nome.isNotBlank() && alvoOk && prazoOk
 
     AlertDialog(
         onDismissRequest = aoVoltar,
@@ -302,6 +306,13 @@ private fun KpNovaMetaDialog(
                     imeAction = ImeAction.Done,
                     umaLinha = true,
                 )
+                if (prazo.isNotBlank() && !prazoOk) {
+                    Text(
+                        "Data inválida. Use dd/mm/aaaa.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         },
         confirmButton = {

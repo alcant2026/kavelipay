@@ -1140,10 +1140,13 @@ fun carregarChargeQr(chargeId: String) {
         }
     }
 
-    fun apagarOrcamento(id: String) {
+    fun apagarOrcamento(id: String, mes: String? = null) {
         viewModelScope.launch {
             runCatching { api.apagarOrcamento(id) }
-                .onSuccess { carregarOrcamentos() }
+                // Recarrega o mês que a tela está mostrando, não o mês do relógio:
+                // sem isto, apagar um teto com a tela em outro mês deixava a
+                // lista (mês do relógio) desalinhada do cabeçalho (mês da tela).
+                .onSuccess { carregarOrcamentos(mes) }
                 .onFailure { e -> _estado.update { it.copy(erro = mensagemDe(e)) } }
         }
     }
